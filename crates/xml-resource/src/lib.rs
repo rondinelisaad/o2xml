@@ -113,25 +113,38 @@ pub enum CatalogError {
         element: String,
         attribute: &'static str,
     },
+    #[error("catalog resolution unexpectedly produced no resource for '{0}'")]
+    UnresolvedReference(String),
 }
 
 #[derive(Clone, Debug)]
 pub struct CatalogResolver {
     root: Catalog,
+    root_path: PathBuf,
     policy: ResourcePolicy,
 }
 
 impl CatalogResolver {
     pub fn load(path: impl AsRef<Path>, policy: ResourcePolicy) -> Result<Self, CatalogError> {
         let mut state = LoadState::default();
-        let root = Catalog::load(path.as_ref(), &policy, &mut state)?;
+        let root_path = policy.approve_path(path.as_ref())?;
+        let root = Catalog::load(&root_path, &policy, &mut state)?;
         debug!(
             action = "catalog.load",
             result = "success",
             catalogs = state.catalogs,
             entries = state.entries
         );
-        Ok(Self { root, policy })
+        Ok(Self {
+            root,
+            root_path,
+            policy,
+        })
+    }
+
+    #[must_use]
+    pub fn catalog_path(&self) -> &Path {
+        &self.root_path
     }
 
     pub fn resolve_uri(&self, uri: &str) -> Result<Option<ResolvedResource>, CatalogError> {
@@ -144,6 +157,24 @@ impl CatalogResolver {
         public_id: Option<&str>,
     ) -> Result<Option<ResolvedResource>, CatalogError> {
         self.resolve(self.root.resolve_external(system_id, public_id))
+    }
+
+    pub fn resolve_reference(
+        &self,
+        base: &ResolvedResource,
+        reference: &str,
+    ) -> Result<ResolvedResource, CatalogError> {
+        let absolute = base
+            .uri
+            .join(reference)
+            .map_err(|error| CatalogError::InvalidUri {
+                path: base.path.clone(),
+                value: reference.to_owned(),
+                message: error.to_string(),
+            })?;
+        let candidate = self.root.resolve_uri(absolute.as_str()).unwrap_or(absolute);
+        self.resolve(Some(candidate))?
+            .ok_or_else(|| CatalogError::UnresolvedReference(reference.to_owned()))
     }
 
     fn resolve(&self, candidate: Option<Url>) -> Result<Option<ResolvedResource>, CatalogError> {
@@ -711,6 +742,18 @@ mod tests {
 
         assert!(ignored.is_none());
         assert!(selected.is_some());
+        Ok(())
+    }
+
+    #[test]
+    fn resolves_relative_references_under_the_same_policy() -> Result<(), CatalogError> {
+        let resolver = resolver("catalog.xml")?;
+        let base = resolver
+            .resolve_uri("https://example.org/article.xsd")?
+            .ok_or_else(|| CatalogError::UnresolvedReference("article.xsd".to_owned()))?;
+        let nested = resolver.resolve_reference(&base, "schemas/nested/article.xsd")?;
+
+        assert!(nested.path.ends_with("schemas/nested/article.xsd"));
         Ok(())
     }
 }

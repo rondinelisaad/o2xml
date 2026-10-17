@@ -1,4 +1,5 @@
 use std::{
+    collections::{HashSet, VecDeque},
     future::Future,
     path::{Path, PathBuf},
     pin::Pin,
@@ -6,7 +7,12 @@ use std::{
     time::{Duration, Instant},
 };
 
-use quick_xml::{events::Event, name::ResolveResult, reader::NsReader};
+use quick_xml::{
+    events::{BytesStart, Event},
+    name::ResolveResult,
+    reader::NsReader,
+    XmlVersion,
+};
 use thiserror::Error;
 use tokio::{
     io::{AsyncReadExt, AsyncWriteExt},
@@ -55,6 +61,7 @@ pub struct ValidationReport {
     pub revision: Revision,
     pub diagnostics: Vec<Diagnostic>,
     pub stderr_truncated: bool,
+    pub approved_grammar_resources: usize,
 }
 
 pub type ValidationFuture<'a> =
@@ -79,6 +86,14 @@ pub enum ValidationError {
     },
     #[error("grammar exceeds the {limit}-byte validation limit: {path}")]
     GrammarTooLarge { path: PathBuf, limit: u64 },
+    #[error("grammar dependency graph exceeds the {limit}-resource limit")]
+    TooManyGrammarResources { limit: usize },
+    #[error("grammar dependency graph exceeds the {limit}-byte aggregate limit")]
+    GrammarGraphTooLarge { limit: u64 },
+    #[error("invalid XML Schema document {path}: {message}")]
+    InvalidGrammarXml { path: PathBuf, message: String },
+    #[error("xml:base is not supported in schema dependency preflight: {0}")]
+    UnsupportedSchemaBase(PathBuf),
     #[error("document exceeds the {limit}-byte validation limit")]
     DocumentTooLarge { limit: usize },
     #[error("standalone adapter rejected a grammar with external dependencies")]
@@ -111,6 +126,8 @@ pub struct Libxml2ProcessEngine {
     deadline: Duration,
     max_document_bytes: usize,
     max_grammar_bytes: u64,
+    max_grammar_graph_bytes: u64,
+    max_grammar_resources: usize,
     max_stderr_bytes: u64,
     max_diagnostics: usize,
 }
@@ -127,6 +144,8 @@ impl Libxml2ProcessEngine {
             deadline: Duration::from_secs(10),
             max_document_bytes: 128 * 1024 * 1024,
             max_grammar_bytes: 8 * 1024 * 1024,
+            max_grammar_graph_bytes: 64 * 1024 * 1024,
+            max_grammar_resources: 256,
             max_stderr_bytes: 1024 * 1024,
             max_diagnostics: 1_000,
         })
@@ -145,10 +164,17 @@ impl Libxml2ProcessEngine {
         let started = Instant::now();
         let engine = request.grammar.engine_name();
         let result = self.run(request).await;
-        let (result_name, diagnostic_count, error_class) = match &result {
-            Ok(report) if report.diagnostics.is_empty() => ("success", 0, None),
-            Ok(report) => ("failure", report.diagnostics.len(), None),
-            Err(error) => ("failure", 0, Some(error_class(error))),
+        let (result_name, diagnostic_count, grammar_resources, error_class) = match &result {
+            Ok(report) if report.diagnostics.is_empty() => {
+                ("success", 0, report.approved_grammar_resources, None)
+            }
+            Ok(report) => (
+                "failure",
+                report.diagnostics.len(),
+                report.approved_grammar_resources,
+                None,
+            ),
+            Err(error) => ("failure", 0, 0, Some(error_class(error))),
         };
         info!(
             audit = true,
@@ -159,6 +185,7 @@ impl Libxml2ProcessEngine {
             engine,
             duration_ms = u64::try_from(started.elapsed().as_millis()).unwrap_or(u64::MAX),
             diagnostic_count,
+            grammar_resources,
             error_class,
         );
         result
@@ -179,13 +206,15 @@ impl Libxml2ProcessEngine {
         }
 
         let grammar = resolve_grammar(request.catalog, request.grammar)?;
-        self.ensure_standalone(&grammar, request.grammar)?;
+        let approved_grammar_resources =
+            self.preflight_grammar(request.catalog, &grammar, request.grammar)?;
 
         let mut command = Command::new(&self.executable);
         command
             .arg("--nonet")
             .arg("--noout")
             .env_clear()
+            .env("XML_CATALOG_FILES", request.catalog.catalog_path())
             .stdin(Stdio::piped())
             .stdout(Stdio::null())
             .stderr(Stdio::piped())
@@ -266,14 +295,68 @@ impl Libxml2ProcessEngine {
             revision: request.revision,
             diagnostics,
             stderr_truncated,
+            approved_grammar_resources,
         })
     }
 
-    fn ensure_standalone(
+    fn preflight_grammar(
         &self,
+        catalog: &CatalogResolver,
         grammar: &ResolvedResource,
         reference: GrammarReference<'_>,
-    ) -> Result<(), ValidationError> {
+    ) -> Result<usize, ValidationError> {
+        match reference {
+            GrammarReference::Dtd { .. } => {
+                let source = self.read_grammar(grammar)?;
+                if dtd_has_external_dependency(&source) {
+                    return Err(ValidationError::ExternalGrammarDependency);
+                }
+                Ok(1)
+            }
+            GrammarReference::Xsd { .. } => self.preflight_xsd_graph(catalog, grammar),
+        }
+    }
+
+    fn preflight_xsd_graph(
+        &self,
+        catalog: &CatalogResolver,
+        root: &ResolvedResource,
+    ) -> Result<usize, ValidationError> {
+        let mut pending = VecDeque::from([root.clone()]);
+        let mut visited = HashSet::new();
+        let mut total_bytes = 0_u64;
+
+        while let Some(resource) = pending.pop_front() {
+            if !visited.insert(resource.path.clone()) {
+                continue;
+            }
+            if visited.len() > self.max_grammar_resources {
+                return Err(ValidationError::TooManyGrammarResources {
+                    limit: self.max_grammar_resources,
+                });
+            }
+            let metadata = self.grammar_metadata(&resource)?;
+            total_bytes = total_bytes.saturating_add(metadata.len());
+            if total_bytes > self.max_grammar_graph_bytes {
+                return Err(ValidationError::GrammarGraphTooLarge {
+                    limit: self.max_grammar_graph_bytes,
+                });
+            }
+            let source = self.read_grammar(&resource)?;
+            if has_external_doctype(&source) {
+                return Err(ValidationError::ExternalGrammarDependency);
+            }
+            for reference in xsd_dependency_references(&source, &resource.path)? {
+                pending.push_back(catalog.resolve_reference(&resource, &reference)?);
+            }
+        }
+        Ok(visited.len())
+    }
+
+    fn grammar_metadata(
+        &self,
+        grammar: &ResolvedResource,
+    ) -> Result<std::fs::Metadata, ValidationError> {
         let metadata =
             std::fs::metadata(&grammar.path).map_err(|source| ValidationError::GrammarIo {
                 path: grammar.path.clone(),
@@ -285,20 +368,15 @@ impl Libxml2ProcessEngine {
                 limit: self.max_grammar_bytes,
             });
         }
-        let source = std::fs::read_to_string(&grammar.path).map_err(|source| {
-            ValidationError::GrammarIo {
-                path: grammar.path.clone(),
-                source,
-            }
-        })?;
-        let has_dependency = match reference {
-            GrammarReference::Dtd { .. } => dtd_has_external_dependency(&source),
-            GrammarReference::Xsd { .. } => xsd_has_external_dependency(&source),
-        };
-        if has_dependency {
-            return Err(ValidationError::ExternalGrammarDependency);
-        }
-        Ok(())
+        Ok(metadata)
+    }
+
+    fn read_grammar(&self, grammar: &ResolvedResource) -> Result<String, ValidationError> {
+        self.grammar_metadata(grammar)?;
+        std::fs::read_to_string(&grammar.path).map_err(|source| ValidationError::GrammarIo {
+            path: grammar.path.clone(),
+            source,
+        })
     }
 }
 
@@ -342,12 +420,16 @@ fn contains_xml_keyword(source: &str, expected: &str) -> bool {
         .any(|word| word.eq_ignore_ascii_case(expected))
 }
 
-fn xsd_has_external_dependency(source: &str) -> bool {
+fn xsd_dependency_references(source: &str, path: &Path) -> Result<Vec<String>, ValidationError> {
     let mut reader = NsReader::from_str(source);
     reader.config_mut().trim_text(true);
+    let mut references = Vec::new();
     loop {
         match reader.read_event() {
             Ok(Event::Start(element) | Event::Empty(element)) => {
+                if schema_attribute(&element, b"xml:base", path)?.is_some() {
+                    return Err(ValidationError::UnsupportedSchemaBase(path.to_path_buf()));
+                }
                 let resolver = reader.resolver().clone();
                 let is_schema = matches!(
                     resolver.resolve_element(element.name()).0,
@@ -359,13 +441,46 @@ fn xsd_has_external_dependency(source: &str) -> bool {
                         b"include" | b"import" | b"redefine" | b"override"
                     )
                 {
-                    return true;
+                    if let Some(reference) = schema_attribute(&element, b"schemaLocation", path)? {
+                        references.push(reference);
+                    }
                 }
             }
-            Ok(Event::Eof) | Err(_) => return false,
+            Ok(Event::Eof) => return Ok(references),
+            Err(error) => {
+                return Err(ValidationError::InvalidGrammarXml {
+                    path: path.to_path_buf(),
+                    message: error.to_string(),
+                });
+            }
             _ => {}
         }
     }
+}
+
+fn schema_attribute(
+    element: &BytesStart<'_>,
+    key: &[u8],
+    path: &Path,
+) -> Result<Option<String>, ValidationError> {
+    for attribute in element.attributes() {
+        let attribute = attribute.map_err(|error| ValidationError::InvalidGrammarXml {
+            path: path.to_path_buf(),
+            message: error.to_string(),
+        })?;
+        if attribute.key.as_ref() == key {
+            return Ok(Some(
+                attribute
+                    .normalized_value(XmlVersion::Implicit1_0)
+                    .map_err(|error| ValidationError::InvalidGrammarXml {
+                        path: path.to_path_buf(),
+                        message: error.to_string(),
+                    })?
+                    .into_owned(),
+            ));
+        }
+    }
+    Ok(None)
 }
 
 fn normalize_diagnostics(
@@ -441,6 +556,10 @@ fn error_class(error: &ValidationError) -> &'static str {
         ValidationError::GrammarNotFound => "grammar_not_found",
         ValidationError::GrammarIo { .. } => "grammar_io",
         ValidationError::GrammarTooLarge { .. } => "grammar_too_large",
+        ValidationError::TooManyGrammarResources { .. } => "too_many_grammar_resources",
+        ValidationError::GrammarGraphTooLarge { .. } => "grammar_graph_too_large",
+        ValidationError::InvalidGrammarXml { .. } => "invalid_grammar_xml",
+        ValidationError::UnsupportedSchemaBase(_) => "unsupported_schema_base",
         ValidationError::DocumentTooLarge { .. } => "document_too_large",
         ValidationError::ExternalGrammarDependency => "external_grammar_dependency",
         ValidationError::ExternalDocumentType => "external_document_type",
@@ -497,13 +616,17 @@ mod tests {
     }
 
     #[test]
-    fn rejects_transitive_grammar_access() {
+    fn preflights_xsd_dependencies_and_rejects_external_dtd_entities() -> Result<(), ValidationError>
+    {
         assert!(dtd_has_external_dependency(
             "<!ENTITY % remote SYSTEM \"file:///tmp/remote.dtd\">"
         ));
-        assert!(xsd_has_external_dependency(
-            r#"<xs:schema xmlns:xs="http://www.w3.org/2001/XMLSchema"><xs:include schemaLocation="other.xsd"/></xs:schema>"#
-        ));
+        let references = xsd_dependency_references(
+            r#"<xs:schema xmlns:xs="http://www.w3.org/2001/XMLSchema"><xs:include schemaLocation="other.xsd"/></xs:schema>"#,
+            Path::new("schema.xsd"),
+        )?;
+        assert_eq!(references, ["other.xsd"]);
+        Ok(())
     }
 
     #[test]
@@ -545,10 +668,50 @@ mod tests {
                 uri: "https://example.org/article.xsd",
             },
         }))?;
+        let composite_report = runtime.block_on(engine.validate(ValidationRequest {
+            source: r#"<a:article xmlns:a="urn:article" xmlns:c="urn:common"><c:common>ok</c:common></a:article>"#,
+            revision: Revision(4),
+            file: Some("composite.xml"),
+            catalog: &catalog,
+            grammar: GrammarReference::Xsd {
+                uri: "https://example.org/composite.xsd",
+            },
+        }))?;
 
         assert!(dtd_report.diagnostics.is_empty());
         assert!(!invalid_dtd.diagnostics.is_empty());
         assert!(xsd_report.diagnostics.is_empty());
+        assert!(composite_report.diagnostics.is_empty());
+        assert_eq!(composite_report.approved_grammar_resources, 2);
+        Ok(())
+    }
+
+    #[test]
+    fn rejects_xsd_dependency_outside_allowed_roots() -> Result<(), Box<dyn Error>> {
+        let executable = Path::new("/usr/bin/xmllint");
+        if !executable.is_file() {
+            return Ok(());
+        }
+        let engine = Libxml2ProcessEngine::new(executable)?;
+        let catalog = resolver()?;
+        let runtime = runtime()?;
+        let result = runtime.block_on(engine.validate(ValidationRequest {
+            source: "<article/>",
+            revision: Revision(5),
+            file: Some("article.xml"),
+            catalog: &catalog,
+            grammar: GrammarReference::Xsd {
+                uri: "https://example.org/escape.xsd",
+            },
+        }));
+
+        assert!(
+            matches!(
+                &result,
+                Err(ValidationError::Catalog(CatalogError::PathDenied(_)))
+            ),
+            "unexpected validation result: {result:?}"
+        );
         Ok(())
     }
 }

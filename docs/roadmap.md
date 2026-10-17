@@ -40,8 +40,10 @@ Current progress:
 - [x] Wire catalog resolution into an engine-neutral validation contract and a
   catalog-gated libxml2 process adapter for standalone DTD/XSD grammars, with
   deadlines and bounded diagnostics.
-- [ ] Replace the standalone-only guard with a libxml2 helper that installs a
-  custom resource loader for catalog-approved transitive dependencies.
+- [x] Preflight recursive XSD dependencies through the catalog policy, with
+  aggregate byte/file limits and denial tests for root escape.
+- [ ] Replace XSD preflight and the standalone DTD guard with a libxml2 helper
+  that installs a custom resource loader, closing the remaining TOCTOU window.
 
 Gate: relevant standards/conformance fixtures pass, offline catalog scenarios are
 demonstrated, and all resource-policy denial tests pass.
