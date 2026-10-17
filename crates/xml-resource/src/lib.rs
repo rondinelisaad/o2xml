@@ -177,6 +177,22 @@ impl CatalogResolver {
             .ok_or_else(|| CatalogError::UnresolvedReference(reference.to_owned()))
     }
 
+    /// Resolves a URI through the catalog, falling back to the URI itself.
+    ///
+    /// The fallback is still subject to the offline scheme and allowed-root
+    /// policy, so callers can safely broker relative resources requested by an
+    /// isolated standards engine.
+    pub fn resolve_uri_or_direct(&self, uri: &str) -> Result<ResolvedResource, CatalogError> {
+        let parsed = Url::parse(uri).map_err(|error| CatalogError::InvalidUri {
+            path: self.root_path.clone(),
+            value: uri.to_owned(),
+            message: error.to_string(),
+        })?;
+        let candidate = self.root.resolve_uri(uri).unwrap_or(parsed);
+        self.resolve(Some(candidate))?
+            .ok_or_else(|| CatalogError::UnresolvedReference(uri.to_owned()))
+    }
+
     fn resolve(&self, candidate: Option<Url>) -> Result<Option<ResolvedResource>, CatalogError> {
         let Some(uri) = candidate else {
             debug!(action = "catalog.resolve", result = "not_found");

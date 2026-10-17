@@ -19,6 +19,7 @@ phase gate. CI will add `cargo audit`, `cargo deny`, npm audit, and license chec
 | `tokio` 1.53.3 | Supervised engine processes, bounded I/O, deadlines | MIT | Already transitively used by Tauri; explicit minimal features for validation adapters |
 | `criterion` (dev) | Benchmarks | MIT OR Apache-2.0 | Repeatable performance tracking |
 | `url` 2.5.8 | URI parsing and relative-reference resolution | MIT OR Apache-2.0 | Active rust-url project; avoids ad hoc catalog URI normalization |
+| `pkg-config` 0.3 | Build-time discovery of system libxml2 | MIT OR Apache-2.0 | Small, established build helper; never shipped as application runtime code |
 
 ## Phase 1 frontend
 
@@ -31,8 +32,11 @@ phase gate. CI will add `cargo audit`, `cargo deny`, npm audit, and license chec
 
 ## Future external engines
 
-libxml2/libxslt (MIT), Saxon HE (MPL-2.0), Jing/Trang (BSD-like), and the
-Xerces2-J XSD 1.1 distribution (Apache-2.0) are optional adapters. Their binaries,
+libxml2 2.9+ (MIT) is now required to build the isolated DTD/XSD validation
+helper. The Rust core does not link to libxml2: the helper is a separate process
+and all grammar bytes are brokered through the native catalog policy. libxslt
+(MIT), Saxon HE (MPL-2.0), Jing/Trang (BSD-like), and the Xerces2-J XSD 1.1
+distribution (Apache-2.0) remain optional adapters. Their binaries,
 notices, transitive dependencies, supported versions, and platform packaging are
 reviewed before inclusion. Saxon PE/EE is commercial and is never silently
 bundled or treated as open source.

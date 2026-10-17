@@ -12,13 +12,15 @@ desktop MVP with a Rust core and a Tauri/CodeMirror interface.
 
 - Phase 0: architecture and technical investigation documented.
 - Phase 1: desktop MVP implemented and verified on macOS.
-- Phases 2–5: planned; DTD/XSD/Catalog/Schematron/JATS/SPS validation is not
-  presented as implemented yet.
+- Phase 2: in progress; offline XML Catalog resolution and isolated libxml2
+  DTD/XSD validation are implemented. XPath and schema-aware completion remain.
+- Phases 3–5: planned; Schematron/JATS/SPS validation is not presented as
+  implemented yet.
 
 ## Build and run
 
-Prerequisites are the stable Rust toolchain, Node.js/npm, and the
-[Tauri platform prerequisites](https://v2.tauri.app/start/prerequisites/).
+Prerequisites are the stable Rust toolchain, Node.js/npm, libxml2 2.9+ with
+`pkg-config`, and the [Tauri platform prerequisites](https://v2.tauri.app/start/prerequisites/).
 
 ```sh
 cd app

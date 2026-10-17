@@ -1,5 +1,5 @@
 use std::{
-    collections::{HashSet, VecDeque},
+    collections::HashMap,
     future::Future,
     path::{Path, PathBuf},
     pin::Pin,
@@ -7,15 +7,10 @@ use std::{
     time::{Duration, Instant},
 };
 
-use quick_xml::{
-    events::{BytesStart, Event},
-    name::ResolveResult,
-    reader::NsReader,
-    XmlVersion,
-};
+use serde::{Deserialize, Serialize};
 use thiserror::Error;
 use tokio::{
-    io::{AsyncReadExt, AsyncWriteExt},
+    io::{AsyncBufReadExt, AsyncRead, AsyncReadExt, AsyncWriteExt, BufReader},
     process::Command,
     time::timeout,
 };
@@ -23,8 +18,6 @@ use tracing::{info, warn};
 use xml_document::LineIndex;
 use xml_domain::{Diagnostic, Revision, Severity, SourceSpan};
 use xml_resource::{CatalogError, CatalogResolver, ResolvedResource};
-
-const XML_SCHEMA_NAMESPACE: &[u8] = b"http://www.w3.org/2001/XMLSchema";
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum GrammarReference<'a> {
@@ -90,22 +83,20 @@ pub enum ValidationError {
     TooManyGrammarResources { limit: usize },
     #[error("grammar dependency graph exceeds the {limit}-byte aggregate limit")]
     GrammarGraphTooLarge { limit: u64 },
-    #[error("invalid XML Schema document {path}: {message}")]
-    InvalidGrammarXml { path: PathBuf, message: String },
-    #[error("xml:base is not supported in schema dependency preflight: {0}")]
-    UnsupportedSchemaBase(PathBuf),
     #[error("document exceeds the {limit}-byte validation limit")]
     DocumentTooLarge { limit: usize },
-    #[error("standalone adapter rejected a grammar with external dependencies")]
-    ExternalGrammarDependency,
     #[error("standalone adapter rejected an XML document with an external DOCTYPE")]
     ExternalDocumentType,
     #[error("cannot start validation engine: {0}")]
     Spawn(#[source] std::io::Error),
     #[error("validation engine stdin is unavailable")]
     MissingStdin,
+    #[error("validation engine stdout is unavailable")]
+    MissingStdout,
     #[error("validation engine stderr is unavailable")]
     MissingStderr,
+    #[error("validation helper protocol failed: {0}")]
+    Protocol(String),
     #[error("cannot send XML to validation engine: {0}")]
     Write(#[source] std::io::Error),
     #[error("cannot read validation engine output: {0}")]
@@ -206,61 +197,64 @@ impl Libxml2ProcessEngine {
         }
 
         let grammar = resolve_grammar(request.catalog, request.grammar)?;
-        let approved_grammar_resources =
-            self.preflight_grammar(request.catalog, &grammar, request.grammar)?;
-
         let mut command = Command::new(&self.executable);
         command
-            .arg("--nonet")
-            .arg("--noout")
             .env_clear()
-            .env("XML_CATALOG_FILES", request.catalog.catalog_path())
             .stdin(Stdio::piped())
-            .stdout(Stdio::null())
+            .stdout(Stdio::piped())
             .stderr(Stdio::piped())
             .kill_on_drop(true);
-        match request.grammar {
-            GrammarReference::Dtd { .. } => {
-                command.arg("--dtdvalid").arg(&grammar.path);
-            }
-            GrammarReference::Xsd { .. } => {
-                command.arg("--schema").arg(&grammar.path);
-            }
-        }
-        command.arg("-");
 
         let mut child = command.spawn().map_err(ValidationError::Spawn)?;
         let mut stdin = child.stdin.take().ok_or(ValidationError::MissingStdin)?;
-        timeout(self.deadline, stdin.write_all(request.source.as_bytes()))
+        let stdout = child.stdout.take().ok_or(ValidationError::MissingStdout)?;
+        let header = serde_json::to_vec(&HelperRequest::new(request.grammar, request.source.len()))
+            .map_err(|error| ValidationError::Protocol(error.to_string()))?;
+        let send_document = async {
+            stdin.write_all(&header).await?;
+            stdin.write_all(b"\n").await?;
+            stdin.write_all(request.source.as_bytes()).await?;
+            stdin.write_all(b"\n").await?;
+            stdin.flush().await
+        };
+        timeout(self.deadline, send_document)
             .await
             .map_err(|_| ValidationError::Timeout(self.deadline))?
             .map_err(ValidationError::Write)?;
-        drop(stdin);
 
         let stderr = child.stderr.take().ok_or(ValidationError::MissingStderr)?;
-        let max_output = self.max_stderr_bytes.saturating_add(1);
-        let reader = tokio::spawn(async move {
-            let mut bounded_stderr = stderr.take(max_output);
-            let mut bytes = Vec::new();
-            bounded_stderr
-                .read_to_end(&mut bytes)
-                .await
-                .map_err(ValidationError::Read)?;
-            Ok::<_, ValidationError>(bytes)
-        });
+        let max_output = self.max_stderr_bytes;
+        let reader = tokio::spawn(async move { read_bounded(stderr, max_output).await });
+        let interaction = broker_resources(
+            BufReader::new(stdout),
+            &mut stdin,
+            request.catalog,
+            request.grammar,
+            grammar,
+            self.max_grammar_bytes,
+            self.max_grammar_graph_bytes,
+            self.max_grammar_resources,
+        );
+        let helper_result = match timeout(self.deadline, interaction).await {
+            Ok(result) => result?,
+            Err(_) => {
+                reader.abort();
+                let _ = child.kill().await;
+                return Err(ValidationError::Timeout(self.deadline));
+            }
+        };
+        drop(stdin);
         let status = match timeout(self.deadline, child.wait()).await {
             Ok(status) => status.map_err(ValidationError::Wait)?,
             Err(_) => {
                 reader.abort();
+                let _ = child.kill().await;
                 return Err(ValidationError::Timeout(self.deadline));
             }
         };
-        let mut bytes = reader.await.map_err(ValidationError::ReadTask)??;
+        let (bytes, stderr_truncated) = reader.await.map_err(ValidationError::ReadTask)??;
 
-        let stderr_truncated =
-            u64::try_from(bytes.len()).unwrap_or(u64::MAX) > self.max_stderr_bytes;
         if stderr_truncated {
-            bytes.truncate(usize::try_from(self.max_stderr_bytes).unwrap_or(usize::MAX));
             warn!(
                 action = "validation.output_truncated",
                 result = "limited",
@@ -276,7 +270,7 @@ impl Libxml2ProcessEngine {
             engine,
             self.max_diagnostics,
         );
-        if !status.success() && diagnostics.is_empty() {
+        if (!status.success() || !helper_result.valid) && diagnostics.is_empty() {
             let index = LineIndex::new(request.source);
             let mut span = index.span(request.source, 0, 0);
             span.approximate = true;
@@ -295,88 +289,248 @@ impl Libxml2ProcessEngine {
             revision: request.revision,
             diagnostics,
             stderr_truncated,
-            approved_grammar_resources,
+            approved_grammar_resources: helper_result.approved_grammar_resources,
         })
     }
+}
 
-    fn preflight_grammar(
-        &self,
-        catalog: &CatalogResolver,
-        grammar: &ResolvedResource,
-        reference: GrammarReference<'_>,
-    ) -> Result<usize, ValidationError> {
-        match reference {
-            GrammarReference::Dtd { .. } => {
-                let source = self.read_grammar(grammar)?;
-                if dtd_has_external_dependency(&source) {
-                    return Err(ValidationError::ExternalGrammarDependency);
+#[derive(Serialize)]
+struct HelperRequest<'a> {
+    mode: &'static str,
+    grammar_uri: &'a str,
+    public_id: Option<&'a str>,
+    document_bytes: usize,
+}
+
+impl<'a> HelperRequest<'a> {
+    fn new(grammar: GrammarReference<'a>, document_bytes: usize) -> Self {
+        let (mode, grammar_uri, public_id) = match grammar {
+            GrammarReference::Dtd {
+                system_id,
+                public_id,
+            } => ("dtd", system_id, public_id),
+            GrammarReference::Xsd { uri } => ("xsd", uri, None),
+        };
+        Self {
+            mode,
+            grammar_uri,
+            public_id,
+            document_bytes,
+        }
+    }
+}
+
+#[derive(Deserialize)]
+#[serde(tag = "type", rename_all = "snake_case")]
+enum HelperMessage {
+    Resource {
+        url: String,
+        public_id: Option<String>,
+    },
+    Result {
+        valid: bool,
+    },
+}
+
+#[derive(Serialize)]
+struct ResourceReply<'a> {
+    allowed: bool,
+    uri: Option<&'a str>,
+    bytes: usize,
+}
+
+struct BrokerResult {
+    valid: bool,
+    approved_grammar_resources: usize,
+}
+
+#[allow(clippy::too_many_arguments)]
+async fn broker_resources(
+    mut stdout: BufReader<tokio::process::ChildStdout>,
+    stdin: &mut tokio::process::ChildStdin,
+    catalog: &CatalogResolver,
+    grammar_reference: GrammarReference<'_>,
+    root_grammar: ResolvedResource,
+    max_resource_bytes: u64,
+    max_graph_bytes: u64,
+    max_resources: usize,
+) -> Result<BrokerResult, ValidationError> {
+    let mut line = String::new();
+    let mut cached = HashMap::<PathBuf, Vec<u8>>::new();
+    let mut total_bytes = 0_u64;
+    let mut first_error = None;
+
+    loop {
+        line.clear();
+        if stdout
+            .read_line(&mut line)
+            .await
+            .map_err(ValidationError::Read)?
+            == 0
+        {
+            return Err(first_error.unwrap_or_else(|| {
+                ValidationError::Protocol("helper closed stdout before reporting a result".into())
+            }));
+        }
+        let message = serde_json::from_str::<HelperMessage>(line.trim_end())
+            .map_err(|error| ValidationError::Protocol(error.to_string()))?;
+        match message {
+            HelperMessage::Resource { url, public_id } => {
+                let resolution = resolve_broker_resource(
+                    catalog,
+                    grammar_reference,
+                    &root_grammar,
+                    &url,
+                    public_id.as_deref(),
+                )
+                .and_then(|resource| {
+                    if let Some(bytes) = cached.get(&resource.path) {
+                        return Ok((resource, bytes.clone()));
+                    }
+                    let metadata = std::fs::metadata(&resource.path).map_err(|source| {
+                        ValidationError::GrammarIo {
+                            path: resource.path.clone(),
+                            source,
+                        }
+                    })?;
+                    if metadata.len() > max_resource_bytes {
+                        return Err(ValidationError::GrammarTooLarge {
+                            path: resource.path.clone(),
+                            limit: max_resource_bytes,
+                        });
+                    }
+                    if cached.len().saturating_add(1) > max_resources {
+                        return Err(ValidationError::TooManyGrammarResources {
+                            limit: max_resources,
+                        });
+                    }
+                    let next_total = total_bytes.saturating_add(metadata.len());
+                    if next_total > max_graph_bytes {
+                        return Err(ValidationError::GrammarGraphTooLarge {
+                            limit: max_graph_bytes,
+                        });
+                    }
+                    let bytes = std::fs::read(&resource.path).map_err(|source| {
+                        ValidationError::GrammarIo {
+                            path: resource.path.clone(),
+                            source,
+                        }
+                    })?;
+                    total_bytes = next_total;
+                    cached.insert(resource.path.clone(), bytes.clone());
+                    Ok((resource, bytes))
+                });
+
+                match resolution {
+                    Ok((resource, bytes)) => {
+                        let uri = resource.uri.as_str();
+                        write_resource_reply(stdin, Some(uri), &bytes).await?;
+                    }
+                    Err(error) => {
+                        if first_error.is_none() {
+                            first_error = Some(error);
+                        }
+                        write_resource_reply(stdin, None, &[]).await?;
+                    }
                 }
-                Ok(1)
             }
-            GrammarReference::Xsd { .. } => self.preflight_xsd_graph(catalog, grammar),
-        }
-    }
-
-    fn preflight_xsd_graph(
-        &self,
-        catalog: &CatalogResolver,
-        root: &ResolvedResource,
-    ) -> Result<usize, ValidationError> {
-        let mut pending = VecDeque::from([root.clone()]);
-        let mut visited = HashSet::new();
-        let mut total_bytes = 0_u64;
-
-        while let Some(resource) = pending.pop_front() {
-            if !visited.insert(resource.path.clone()) {
-                continue;
-            }
-            if visited.len() > self.max_grammar_resources {
-                return Err(ValidationError::TooManyGrammarResources {
-                    limit: self.max_grammar_resources,
+            HelperMessage::Result { valid } => {
+                if let Some(error) = first_error {
+                    return Err(error);
+                }
+                return Ok(BrokerResult {
+                    valid,
+                    approved_grammar_resources: cached.len(),
                 });
             }
-            let metadata = self.grammar_metadata(&resource)?;
-            total_bytes = total_bytes.saturating_add(metadata.len());
-            if total_bytes > self.max_grammar_graph_bytes {
-                return Err(ValidationError::GrammarGraphTooLarge {
-                    limit: self.max_grammar_graph_bytes,
-                });
-            }
-            let source = self.read_grammar(&resource)?;
-            if has_external_doctype(&source) {
-                return Err(ValidationError::ExternalGrammarDependency);
-            }
-            for reference in xsd_dependency_references(&source, &resource.path)? {
-                pending.push_back(catalog.resolve_reference(&resource, &reference)?);
-            }
         }
-        Ok(visited.len())
     }
+}
 
-    fn grammar_metadata(
-        &self,
-        grammar: &ResolvedResource,
-    ) -> Result<std::fs::Metadata, ValidationError> {
-        let metadata =
-            std::fs::metadata(&grammar.path).map_err(|source| ValidationError::GrammarIo {
-                path: grammar.path.clone(),
-                source,
-            })?;
-        if metadata.len() > self.max_grammar_bytes {
-            return Err(ValidationError::GrammarTooLarge {
-                path: grammar.path.clone(),
-                limit: self.max_grammar_bytes,
-            });
+fn resolve_broker_resource(
+    catalog: &CatalogResolver,
+    grammar_reference: GrammarReference<'_>,
+    root: &ResolvedResource,
+    url: &str,
+    public_id: Option<&str>,
+) -> Result<ResolvedResource, ValidationError> {
+    let is_root = match grammar_reference {
+        GrammarReference::Dtd {
+            system_id,
+            public_id: expected_public,
+        } => url == system_id || (public_id.is_some() && public_id == expected_public),
+        GrammarReference::Xsd { uri } => url == uri,
+    };
+    if is_root {
+        return Ok(root.clone());
+    }
+    if let Some(resource) = catalog.resolve_external(Some(url), public_id)? {
+        return Ok(resource);
+    }
+    let normalized = if Path::new(url).is_absolute() {
+        url::Url::from_file_path(url)
+            .map_err(|()| ValidationError::Protocol("invalid absolute resource path".into()))?
+            .to_string()
+    } else {
+        url.to_owned()
+    };
+    catalog
+        .resolve_uri_or_direct(&normalized)
+        .map_err(ValidationError::from)
+}
+
+async fn write_resource_reply(
+    stdin: &mut tokio::process::ChildStdin,
+    uri: Option<&str>,
+    bytes: &[u8],
+) -> Result<(), ValidationError> {
+    let header = serde_json::to_vec(&ResourceReply {
+        allowed: uri.is_some(),
+        uri,
+        bytes: bytes.len(),
+    })
+    .map_err(|error| ValidationError::Protocol(error.to_string()))?;
+    stdin
+        .write_all(&header)
+        .await
+        .map_err(ValidationError::Write)?;
+    stdin
+        .write_all(b"\n")
+        .await
+        .map_err(ValidationError::Write)?;
+    stdin
+        .write_all(bytes)
+        .await
+        .map_err(ValidationError::Write)?;
+    stdin
+        .write_all(b"\n")
+        .await
+        .map_err(ValidationError::Write)?;
+    stdin.flush().await.map_err(ValidationError::Write)
+}
+
+async fn read_bounded<R: AsyncRead + Unpin>(
+    mut reader: R,
+    limit: u64,
+) -> Result<(Vec<u8>, bool), ValidationError> {
+    let capacity = usize::try_from(limit.min(64 * 1024)).unwrap_or(64 * 1024);
+    let mut kept = Vec::with_capacity(capacity);
+    let mut buffer = [0_u8; 8192];
+    let mut truncated = false;
+    loop {
+        let read = reader
+            .read(&mut buffer)
+            .await
+            .map_err(ValidationError::Read)?;
+        if read == 0 {
+            return Ok((kept, truncated));
         }
-        Ok(metadata)
-    }
-
-    fn read_grammar(&self, grammar: &ResolvedResource) -> Result<String, ValidationError> {
-        self.grammar_metadata(grammar)?;
-        std::fs::read_to_string(&grammar.path).map_err(|source| ValidationError::GrammarIo {
-            path: grammar.path.clone(),
-            source,
-        })
+        let remaining = usize::try_from(limit)
+            .unwrap_or(usize::MAX)
+            .saturating_sub(kept.len());
+        let retain = remaining.min(read);
+        kept.extend_from_slice(&buffer[..retain]);
+        truncated |= retain < read;
     }
 }
 
@@ -404,10 +558,6 @@ fn resolve_grammar(
     resolved.ok_or(ValidationError::GrammarNotFound)
 }
 
-fn dtd_has_external_dependency(source: &str) -> bool {
-    contains_xml_keyword(source, "SYSTEM") || contains_xml_keyword(source, "PUBLIC")
-}
-
 fn has_external_doctype(source: &str) -> bool {
     let upper = source.to_ascii_uppercase();
     upper.contains("<!DOCTYPE")
@@ -418,69 +568,6 @@ fn contains_xml_keyword(source: &str, expected: &str) -> bool {
     source
         .split(|character: char| !character.is_ascii_alphabetic())
         .any(|word| word.eq_ignore_ascii_case(expected))
-}
-
-fn xsd_dependency_references(source: &str, path: &Path) -> Result<Vec<String>, ValidationError> {
-    let mut reader = NsReader::from_str(source);
-    reader.config_mut().trim_text(true);
-    let mut references = Vec::new();
-    loop {
-        match reader.read_event() {
-            Ok(Event::Start(element) | Event::Empty(element)) => {
-                if schema_attribute(&element, b"xml:base", path)?.is_some() {
-                    return Err(ValidationError::UnsupportedSchemaBase(path.to_path_buf()));
-                }
-                let resolver = reader.resolver().clone();
-                let is_schema = matches!(
-                    resolver.resolve_element(element.name()).0,
-                    ResolveResult::Bound(namespace) if namespace.as_ref() == XML_SCHEMA_NAMESPACE
-                );
-                if is_schema
-                    && matches!(
-                        element.local_name().as_ref(),
-                        b"include" | b"import" | b"redefine" | b"override"
-                    )
-                {
-                    if let Some(reference) = schema_attribute(&element, b"schemaLocation", path)? {
-                        references.push(reference);
-                    }
-                }
-            }
-            Ok(Event::Eof) => return Ok(references),
-            Err(error) => {
-                return Err(ValidationError::InvalidGrammarXml {
-                    path: path.to_path_buf(),
-                    message: error.to_string(),
-                });
-            }
-            _ => {}
-        }
-    }
-}
-
-fn schema_attribute(
-    element: &BytesStart<'_>,
-    key: &[u8],
-    path: &Path,
-) -> Result<Option<String>, ValidationError> {
-    for attribute in element.attributes() {
-        let attribute = attribute.map_err(|error| ValidationError::InvalidGrammarXml {
-            path: path.to_path_buf(),
-            message: error.to_string(),
-        })?;
-        if attribute.key.as_ref() == key {
-            return Ok(Some(
-                attribute
-                    .normalized_value(XmlVersion::Implicit1_0)
-                    .map_err(|error| ValidationError::InvalidGrammarXml {
-                        path: path.to_path_buf(),
-                        message: error.to_string(),
-                    })?
-                    .into_owned(),
-            ));
-        }
-    }
-    Ok(None)
 }
 
 fn normalize_diagnostics(
@@ -558,14 +645,13 @@ fn error_class(error: &ValidationError) -> &'static str {
         ValidationError::GrammarTooLarge { .. } => "grammar_too_large",
         ValidationError::TooManyGrammarResources { .. } => "too_many_grammar_resources",
         ValidationError::GrammarGraphTooLarge { .. } => "grammar_graph_too_large",
-        ValidationError::InvalidGrammarXml { .. } => "invalid_grammar_xml",
-        ValidationError::UnsupportedSchemaBase(_) => "unsupported_schema_base",
         ValidationError::DocumentTooLarge { .. } => "document_too_large",
-        ValidationError::ExternalGrammarDependency => "external_grammar_dependency",
         ValidationError::ExternalDocumentType => "external_document_type",
         ValidationError::Spawn(_) => "spawn",
         ValidationError::MissingStdin => "missing_stdin",
+        ValidationError::MissingStdout => "missing_stdout",
         ValidationError::MissingStderr => "missing_stderr",
+        ValidationError::Protocol(_) => "protocol",
         ValidationError::Write(_) => "write",
         ValidationError::Read(_) => "read",
         ValidationError::ReadTask(_) => "read_task",
@@ -578,25 +664,6 @@ fn error_class(error: &ValidationError) -> &'static str {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::error::Error;
-    use xml_resource::ResourcePolicy;
-
-    fn fixtures() -> PathBuf {
-        PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures")
-    }
-
-    fn resolver() -> Result<CatalogResolver, CatalogError> {
-        let fixtures = fixtures();
-        let policy = ResourcePolicy::offline([fixtures.clone()])?;
-        CatalogResolver::load(fixtures.join("catalog.xml"), policy)
-    }
-
-    fn runtime() -> Result<tokio::runtime::Runtime, std::io::Error> {
-        tokio::runtime::Builder::new_current_thread()
-            .enable_io()
-            .enable_time()
-            .build()
-    }
 
     #[test]
     fn normalizes_libxml_diagnostics_to_source_lines() {
@@ -613,105 +680,5 @@ mod tests {
         assert_eq!(diagnostics[0].span.start.line, 2);
         assert!(diagnostics[0].span.approximate);
         assert_eq!(diagnostics[0].revision, Revision(7));
-    }
-
-    #[test]
-    fn preflights_xsd_dependencies_and_rejects_external_dtd_entities() -> Result<(), ValidationError>
-    {
-        assert!(dtd_has_external_dependency(
-            "<!ENTITY % remote SYSTEM \"file:///tmp/remote.dtd\">"
-        ));
-        let references = xsd_dependency_references(
-            r#"<xs:schema xmlns:xs="http://www.w3.org/2001/XMLSchema"><xs:include schemaLocation="other.xsd"/></xs:schema>"#,
-            Path::new("schema.xsd"),
-        )?;
-        assert_eq!(references, ["other.xsd"]);
-        Ok(())
-    }
-
-    #[test]
-    fn validates_dtd_and_xsd_with_installed_xmllint() -> Result<(), Box<dyn Error>> {
-        let executable = Path::new("/usr/bin/xmllint");
-        if !executable.is_file() {
-            return Ok(());
-        }
-        let engine = Libxml2ProcessEngine::new(executable)?;
-        let catalog = resolver()?;
-        let runtime = runtime()?;
-
-        let dtd_report = runtime.block_on(engine.validate(ValidationRequest {
-            source: "<article>text</article>",
-            revision: Revision(1),
-            file: Some("article.xml"),
-            catalog: &catalog,
-            grammar: GrammarReference::Dtd {
-                system_id: "https://example.org/article.dtd",
-                public_id: None,
-            },
-        }))?;
-        let invalid_dtd = runtime.block_on(engine.validate(ValidationRequest {
-            source: "<article><title/></article>",
-            revision: Revision(2),
-            file: Some("invalid.xml"),
-            catalog: &catalog,
-            grammar: GrammarReference::Dtd {
-                system_id: "https://example.org/article.dtd",
-                public_id: None,
-            },
-        }))?;
-        let xsd_report = runtime.block_on(engine.validate(ValidationRequest {
-            source: "<article/>",
-            revision: Revision(3),
-            file: Some("article.xml"),
-            catalog: &catalog,
-            grammar: GrammarReference::Xsd {
-                uri: "https://example.org/article.xsd",
-            },
-        }))?;
-        let composite_report = runtime.block_on(engine.validate(ValidationRequest {
-            source: r#"<a:article xmlns:a="urn:article" xmlns:c="urn:common"><c:common>ok</c:common></a:article>"#,
-            revision: Revision(4),
-            file: Some("composite.xml"),
-            catalog: &catalog,
-            grammar: GrammarReference::Xsd {
-                uri: "https://example.org/composite.xsd",
-            },
-        }))?;
-
-        assert!(dtd_report.diagnostics.is_empty());
-        assert!(!invalid_dtd.diagnostics.is_empty());
-        assert!(xsd_report.diagnostics.is_empty());
-        assert!(composite_report.diagnostics.is_empty());
-        assert_eq!(composite_report.approved_grammar_resources, 2);
-        Ok(())
-    }
-
-    #[test]
-    fn rejects_xsd_dependency_outside_allowed_roots() -> Result<(), Box<dyn Error>> {
-        let executable = Path::new("/usr/bin/xmllint");
-        if !executable.is_file() {
-            return Ok(());
-        }
-        let engine = Libxml2ProcessEngine::new(executable)?;
-        let catalog = resolver()?;
-        let runtime = runtime()?;
-        let result = runtime.block_on(engine.validate(ValidationRequest {
-            source: "<article/>",
-            revision: Revision(5),
-            file: Some("article.xml"),
-            catalog: &catalog,
-            grammar: GrammarReference::Xsd {
-                uri: "https://example.org/escape.xsd",
-            },
-        }));
-
-        assert!(
-            matches!(
-                &result,
-                Err(ValidationError::Catalog(CatalogError::PathDenied(_)))
-            ),
-            "unexpected validation result: {result:?}"
-        );
-        Ok(())
     }
 }

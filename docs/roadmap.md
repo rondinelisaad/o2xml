@@ -42,8 +42,9 @@ Current progress:
   deadlines and bounded diagnostics.
 - [x] Preflight recursive XSD dependencies through the catalog policy, with
   aggregate byte/file limits and denial tests for root escape.
-- [ ] Replace XSD preflight and the standalone DTD guard with a libxml2 helper
+- [x] Replace XSD preflight and the standalone DTD guard with a libxml2 helper
   that installs a custom resource loader, closing the remaining TOCTOU window.
+- [ ] Add an XPath 1.0 query adapter and result-location contract.
 
 Gate: relevant standards/conformance fixtures pass, offline catalog scenarios are
 demonstrated, and all resource-policy denial tests pass.

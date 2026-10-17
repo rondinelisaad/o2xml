@@ -4573,6 +4573,19 @@ dependencies = [
 ]
 
 [[package]]
+name = "xml-libxml2-helper"
+version = "0.1.0"
+dependencies = [
+ "pkg-config",
+ "serde",
+ "serde_json",
+ "tokio",
+ "xml-domain",
+ "xml-resource",
+ "xml-validation",
+]
+
+[[package]]
 name = "xml-project"
 version = "0.1.0"
 dependencies = [
@@ -4606,9 +4619,12 @@ name = "xml-validation"
 version = "0.1.0"
 dependencies = [
  "quick-xml 0.40.1",
+ "serde",
+ "serde_json",
  "thiserror 2.0.21",
  "tokio",
  "tracing",
+ "url",
  "xml-document",
  "xml-domain",
  "xml-resource",

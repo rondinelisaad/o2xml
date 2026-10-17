@@ -1,0 +1,28 @@
+[package]
+name = "xml-libxml2-helper"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+build = "build.rs"
+
+[dependencies]
+serde.workspace = true
+serde_json.workspace = true
+
+[build-dependencies]
+pkg-config.workspace = true
+
+[dev-dependencies]
+tokio.workspace = true
+xml-domain = { path = "../xml-domain" }
+xml-resource = { path = "../xml-resource" }
+xml-validation = { path = "../xml-validation" }
+
+[lints.rust]
+unsafe_code = "allow"
+
+[lints.clippy]
+unwrap_used = "deny"
+expect_used = "deny"
+panic = "deny"

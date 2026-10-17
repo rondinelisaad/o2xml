@@ -80,7 +80,10 @@ opaque resource ID, revision, engine, duration, and bounded error category.
 - malicious XML corpus for external entities, recursive entities, deep nesting,
   oversized tokens, catalog cycles, path traversal, and XInclude;
 - integration tests proving every engine respects the same denied resource;
-- recursive XSD preflight rejects unapproved dependencies before libxml2 runs;
+- the isolated libxml2 helper cannot open grammar paths directly: its external
+  entity loader requests each DTD/XSD resource from the parent, which applies
+  catalogs, allowed roots, per-resource/count/aggregate limits and sends the
+  approved bytes over a framed pipe;
   this is defense in depth, not a substitute for the planned custom loader;
 - fuzzing of parsers, edit application, catalog normalization, and IPC inputs;
 - `cargo audit`, `cargo deny`, npm audit, license policy, and secret scan in CI;

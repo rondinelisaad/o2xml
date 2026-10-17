@@ -1,6 +1,8 @@
 <?xml version="1.0"?>
 <catalog xmlns="urn:oasis:names:tc:entity:xmlns:xml:catalog">
   <system systemId="https://example.org/article.dtd" uri="article.dtd"/>
+  <system systemId="https://example.org/composite.dtd" uri="composite.dtd"/>
+  <system systemId="https://example.org/article-elements.dtd" uri="article-elements.dtd"/>
   <uri name="https://example.org/article.xsd" uri="article.xsd"/>
   <uri name="https://example.org/composite.xsd" uri="schemas/composite.xsd"/>
   <uri name="https://example.org/common.xsd" uri="schemas/common.xsd"/>
