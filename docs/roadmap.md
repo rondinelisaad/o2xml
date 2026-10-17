@@ -37,7 +37,11 @@ Current progress:
 - [x] Native offline catalog core: `system`, `public`, `uri`, `rewriteSystem`,
   `rewriteURI`, guarded `nextCatalog`, cycle/size/count limits, and allowed-root
   enforcement.
-- [ ] Wire catalog resolution into validation engine adapters.
+- [x] Wire catalog resolution into an engine-neutral validation contract and a
+  catalog-gated libxml2 process adapter for standalone DTD/XSD grammars, with
+  deadlines and bounded diagnostics.
+- [ ] Replace the standalone-only guard with a libxml2 helper that installs a
+  custom resource loader for catalog-approved transitive dependencies.
 
 Gate: relevant standards/conformance fixtures pass, offline catalog scenarios are
 demonstrated, and all resource-policy denial tests pass.

@@ -5,6 +5,7 @@ members = [
     "crates/xml-project",
     "crates/xml-resource",
     "crates/xml-syntax",
+    "crates/xml-validation",
     "app/src-tauri",
 ]
 resolver = "2"
@@ -27,6 +28,7 @@ thiserror = "2"
 toml = "0.9"
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter", "fmt"] }
+tokio = { version = "1.53.3", features = ["io-util", "net", "process", "rt", "time"] }
 url = "2.5.8"
 
 [workspace.lints.rust]

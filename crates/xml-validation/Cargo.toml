@@ -1,0 +1,18 @@
+[package]
+name = "xml-validation"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+quick-xml.workspace = true
+thiserror.workspace = true
+tokio.workspace = true
+tracing.workspace = true
+xml-document = { path = "../xml-document" }
+xml-domain = { path = "../xml-domain" }
+xml-resource = { path = "../xml-resource" }
+
+[lints]
+workspace = true

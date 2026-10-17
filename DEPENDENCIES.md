@@ -3,7 +3,7 @@
 Dependencies are pinned by lockfiles for applications and reviewed before each
 phase gate. CI will add `cargo audit`, `cargo deny`, npm audit, and license checks.
 
-## Phase 1 Rust
+## Rust dependencies
 
 | Dependency | Purpose | License | Rationale / constraint |
 |---|---|---|---|
@@ -16,7 +16,7 @@ phase gate. CI will add `cargo audit`, `cargo deny`, npm audit, and license chec
 | `thiserror` | Library errors | MIT OR Apache-2.0 | Typed errors without exposing application context |
 | `anyhow` | Binary composition errors | MIT OR Apache-2.0 | Context at executable boundary only |
 | `tracing`, `tracing-subscriber` | Structured telemetry | MIT | Allowlisted fields; no document content or secrets |
-| `tokio` | Tasks, timers, process supervision | MIT | Background validation and future adapters |
+| `tokio` 1.53.3 | Supervised engine processes, bounded I/O, deadlines | MIT | Already transitively used by Tauri; explicit minimal features for validation adapters |
 | `criterion` (dev) | Benchmarks | MIT OR Apache-2.0 | Repeatable performance tracking |
 | `url` 2.5.8 | URI parsing and relative-reference resolution | MIT OR Apache-2.0 | Active rust-url project; avoids ad hoc catalog URI normalization |
 
