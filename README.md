@@ -11,8 +11,36 @@ desktop MVP with a Rust core and a Tauri/CodeMirror interface.
 ## Status
 
 - Phase 0: architecture and technical investigation documented.
-- Phase 1: implementation in progress.
-- Rust toolchain: required but not present on the initial development host.
+- Phase 1: desktop MVP implemented and verified on macOS.
+- Phases 2–5: planned; DTD/XSD/Catalog/Schematron/JATS/SPS validation is not
+  presented as implemented yet.
+
+## Build and run
+
+Prerequisites are the stable Rust toolchain, Node.js/npm, and the
+[Tauri platform prerequisites](https://v2.tauri.app/start/prerequisites/).
+
+```sh
+cd app
+npm install
+npm run tauri dev
+```
+
+Quality gates:
+
+```sh
+cargo fmt --all -- --check
+cargo clippy --workspace --all-targets -- -D warnings
+cargo test --workspace
+cd app && npm run build
+```
+
+A debug macOS bundle can be produced with:
+
+```sh
+cd app
+npx tauri build --debug --bundles app
+```
 
 ## Repository layout
 

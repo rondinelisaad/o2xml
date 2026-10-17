@@ -1,0 +1,11 @@
+[project]
+name = "Synthetic SciELO Articles"
+
+[xml]
+catalog = "catalog.xml"
+
+[validation]
+framework = "SPS-1.10"
+
+[transform]
+default = "jats-html"

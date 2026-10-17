@@ -1,0 +1,19 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<article article-type="research-article" dtd-version="1.3" specific-use="sps-1.10">
+  <front>
+    <article-meta>
+      <title-group>
+        <article-title>O2XML synthetic test article</article-title>
+      </title-group>
+    </article-meta>
+  </front>
+  <body>
+    <sec>
+      <title>Introduction</title>
+      <p>This fixture contains no personal or production data.</p>
+    </sec>
+  </body>
+  <back>
+    <ref-list/>
+  </back>
+</article>
