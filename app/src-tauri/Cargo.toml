@@ -1,0 +1,27 @@
+[package]
+name = "o2xml-desktop"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[lib]
+name = "o2xml_desktop_lib"
+crate-type = ["staticlib", "cdylib", "rlib"]
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+anyhow.workspace = true
+serde.workspace = true
+tauri = { workspace = true, features = [] }
+tauri-plugin-dialog.workspace = true
+tracing.workspace = true
+tracing-subscriber.workspace = true
+xml-document = { path = "../../crates/xml-document" }
+xml-domain = { path = "../../crates/xml-domain" }
+xml-project = { path = "../../crates/xml-project" }
+xml-syntax = { path = "../../crates/xml-syntax" }
+
+[lints]
+workspace = true
