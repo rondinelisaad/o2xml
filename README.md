@@ -65,6 +65,6 @@ See [docs/architecture.md](docs/architecture.md) and
 
 ## License
 
-Source code is intended to be dual-licensed under MIT or Apache-2.0. Third-party
-schemas, rule sets, and documentation retain their own licenses and are not
-implicitly covered by the project license.
+Source code is dual-licensed under [MIT](LICENSE-MIT) or
+[Apache-2.0](LICENSE-APACHE). Third-party schemas, rule sets, and documentation
+retain their own licenses and are not implicitly covered by the project license.
