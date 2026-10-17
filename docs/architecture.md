@@ -49,6 +49,8 @@ crate per acronym:
 | `xml-resource` | trust policy, catalog resolution, cache provenance |
 | `xml-validation` | engine traits, pipeline, cancellation, diagnostic normalization |
 | `xml-xpath` | XPath query contract, supervised engine adapter, navigable results |
+| `xml-schema` | bounded common content-model index and completion queries |
+| `xml-dtd` | normalized DTD particle/attribute compiler for the common index |
 | `xml-libxml2-helper` | isolated unsafe FFI for DTD, XSD 1.0, and XPath 1.0 |
 | `xml-framework` | versioned JATS/SPS/TEI/DocBook manifests and rule composition |
 | `xml-transform` | XSLT/XQuery process and FFI adapters, scenarios |
@@ -56,9 +58,11 @@ crate per acronym:
 | `xml-cli` | future CLI over application services |
 | `app/src-tauri` | desktop composition root and audited IPC commands |
 
-Splitting DTD, XSD, RNG, and Schematron into separate crates immediately would
-create mostly empty wrappers. They remain adapters behind `xml-validation` until
-their dependency and release lifecycles justify extraction.
+Standards receive a dedicated crate when they contain reusable behavior rather
+than only forwarding to an engine. `xml-dtd`, for example, determinizes the
+normalized content trees extracted by libxml2; validation remains behind
+`xml-validation`. XSD, RNG, and Schematron stay adapters there until their
+dependency and release lifecycles justify extraction.
 
 ## Editable document model
 

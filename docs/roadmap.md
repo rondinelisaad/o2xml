@@ -50,8 +50,10 @@ Current progress:
   the desktop XPath panel.
 - [x] Define the common schema content-model index that will drive DTD/XSD
   element and attribute completion.
-- [ ] Compile DTD declarations into the common content-model index and expose
-  context-sensitive completion through the application service.
+- [x] Compile normalized DTD particle trees into bounded deterministic content
+  models, including sequence, choice, cardinality, mixed content, and attributes.
+- [ ] Extract normalized DTD declarations through the isolated libxml2 helper
+  and expose context-sensitive completion through the application service.
 
 Gate: relevant standards/conformance fixtures pass, offline catalog scenarios are
 demonstrated, and all resource-policy denial tests pass.

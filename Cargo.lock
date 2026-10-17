@@ -4574,6 +4574,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "xml-dtd"
+version = "0.1.0"
+dependencies = [
+ "thiserror 2.0.21",
+ "xml-schema",
+]
+
+[[package]]
 name = "xml-libxml2-helper"
 version = "0.1.0"
 dependencies = [
