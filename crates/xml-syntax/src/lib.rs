@@ -1,4 +1,9 @@
-use quick_xml::{events::Event, Reader, Writer};
+use quick_xml::{
+    events::{BytesStart, Event},
+    name::{NamespaceResolver, ResolveResult},
+    reader::NsReader,
+    Reader, Writer,
+};
 use thiserror::Error;
 use xml_document::LineIndex;
 use xml_domain::{Diagnostic, OutlineEntry, Revision, Severity};
@@ -19,7 +24,7 @@ pub fn validate_well_formed(
     revision: Revision,
     file: Option<&str>,
 ) -> Vec<Diagnostic> {
-    let mut reader = Reader::from_str(source);
+    let mut reader = NsReader::from_str(source);
     reader.config_mut().trim_text(false);
     let index = LineIndex::new(source);
     let mut open_elements: Vec<(String, usize)> = Vec::new();
@@ -37,8 +42,22 @@ pub fn validate_well_formed(
 
     loop {
         let before = usize::try_from(reader.buffer_position()).unwrap_or_default();
-        match reader.read_event() {
-            Ok(Event::Start(start)) => {
+        let event = match reader.read_event() {
+            Ok(event) => event,
+            Err(error) => {
+                let byte = usize::try_from(reader.buffer_position()).unwrap_or(source.len());
+                return vec![diagnostic(error.to_string(), byte.saturating_sub(1), byte)];
+            }
+        };
+        let resolver = reader.resolver().clone();
+        match event {
+            Event::Start(start) => {
+                let resolution = resolver.resolve_element(start.name()).0;
+                if let Some(problem) =
+                    namespace_problem(resolution, &start, &resolver, before, &diagnostic)
+                {
+                    return vec![problem];
+                }
                 if open_elements.is_empty() {
                     root_elements = root_elements.saturating_add(1);
                 }
@@ -47,13 +66,21 @@ pub fn validate_well_formed(
                     before,
                 ));
             }
-            Ok(Event::Empty(_)) if open_elements.is_empty() => {
-                root_elements = root_elements.saturating_add(1);
+            Event::Empty(start) => {
+                let resolution = resolver.resolve_element(start.name()).0;
+                if let Some(problem) =
+                    namespace_problem(resolution, &start, &resolver, before, &diagnostic)
+                {
+                    return vec![problem];
+                }
+                if open_elements.is_empty() {
+                    root_elements = root_elements.saturating_add(1);
+                }
             }
-            Ok(Event::End(_)) => {
+            Event::End(_) => {
                 open_elements.pop();
             }
-            Ok(Event::Text(text)) if open_elements.is_empty() => {
+            Event::Text(text) if open_elements.is_empty() => {
                 if !String::from_utf8_lossy(text.as_ref()).trim().is_empty() {
                     let end = usize::try_from(reader.buffer_position()).unwrap_or(before);
                     return vec![diagnostic(
@@ -63,7 +90,7 @@ pub fn validate_well_formed(
                     )];
                 }
             }
-            Ok(Event::CData(data)) if open_elements.is_empty() => {
+            Event::CData(data) if open_elements.is_empty() => {
                 if !data.as_ref().is_empty() {
                     let end = usize::try_from(reader.buffer_position()).unwrap_or(before);
                     return vec![diagnostic(
@@ -73,7 +100,7 @@ pub fn validate_well_formed(
                     )];
                 }
             }
-            Ok(Event::Eof) => {
+            Event::Eof => {
                 if let Some((name, start)) = open_elements.last() {
                     return vec![diagnostic(
                         format!("unclosed element <{name}>"),
@@ -95,13 +122,52 @@ pub fn validate_well_formed(
                     )],
                 };
             }
-            Ok(_) => {}
-            Err(error) => {
-                let byte = usize::try_from(reader.buffer_position()).unwrap_or(source.len());
-                return vec![diagnostic(error.to_string(), byte.saturating_sub(1), byte)];
-            }
+            _ => {}
         }
     }
+}
+
+fn namespace_problem(
+    element_resolution: ResolveResult<'_>,
+    element: &BytesStart<'_>,
+    resolver: &NamespaceResolver,
+    byte: usize,
+    diagnostic: &impl Fn(String, usize, usize) -> Diagnostic,
+) -> Option<Diagnostic> {
+    if let ResolveResult::Unknown(prefix) = element_resolution {
+        return Some(diagnostic(
+            format!(
+                "undeclared namespace prefix '{}'",
+                String::from_utf8_lossy(&prefix)
+            ),
+            byte,
+            byte.saturating_add(element.len()),
+        ));
+    }
+
+    for attribute in element.attributes() {
+        let attribute = match attribute {
+            Ok(attribute) => attribute,
+            Err(error) => {
+                return Some(diagnostic(
+                    format!("invalid attribute: {error}"),
+                    byte,
+                    byte.saturating_add(element.len()),
+                ));
+            }
+        };
+        if let ResolveResult::Unknown(prefix) = resolver.resolve_attribute(attribute.key).0 {
+            return Some(diagnostic(
+                format!(
+                    "undeclared namespace prefix '{}' on attribute",
+                    String::from_utf8_lossy(&prefix)
+                ),
+                byte,
+                byte.saturating_add(element.len()),
+            ));
+        }
+    }
+    None
 }
 
 #[must_use]
@@ -211,5 +277,20 @@ mod tests {
     fn rejects_multiple_roots_and_text_outside_root() {
         assert!(!validate_well_formed("<a/><b/>", Revision(0), None).is_empty());
         assert!(!validate_well_formed("text<a/>", Revision(0), None).is_empty());
+    }
+
+    #[test]
+    fn rejects_undeclared_namespace_prefixes_and_duplicate_attributes() {
+        assert!(!validate_well_formed("<p:article/>", Revision(0), None).is_empty());
+        assert!(!validate_well_formed("<article p:id=\"1\"/>", Revision(0), None).is_empty());
+        assert!(
+            !validate_well_formed("<article id=\"1\" id=\"2\"/>", Revision(0), None).is_empty()
+        );
+        assert!(validate_well_formed(
+            "<p:article xmlns:p=\"urn:test\" p:id=\"1\"/>",
+            Revision(0),
+            None
+        )
+        .is_empty());
     }
 }
