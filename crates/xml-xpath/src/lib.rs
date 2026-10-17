@@ -26,13 +26,15 @@ pub struct XPathRequest<'a> {
     pub namespaces: &'a BTreeMap<String, String>,
 }
 
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
 pub struct XPathReport {
     pub revision: Revision,
     pub value: XPathValue,
 }
 
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq, Serialize)]
+#[serde(tag = "kind", content = "value", rename_all = "snake_case")]
 pub enum XPathValue {
     Nodes {
         items: Vec<XPathNode>,
@@ -43,7 +45,8 @@ pub enum XPathValue {
     String(String),
 }
 
-#[derive(Clone, Debug, Eq, PartialEq)]
+#[derive(Clone, Debug, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
 pub struct XPathNode {
     pub path: String,
     pub span: SourceSpan,
@@ -65,8 +68,10 @@ pub enum XPathError {
     DocumentTooLarge { limit: usize },
     #[error("XPath expression exceeds the {limit}-byte limit")]
     ExpressionTooLarge { limit: usize },
-    #[error("XPath evaluation rejects documents containing a DOCTYPE")]
-    DocumentTypeDenied,
+    #[error("XPath namespace binding count exceeds the limit of {limit}")]
+    TooManyNamespaces { limit: usize },
+    #[error("XPath namespace prefix or URI exceeds the {limit}-byte limit")]
+    NamespaceTooLarge { limit: usize },
     #[error("cannot start XPath helper: {0}")]
     Spawn(#[source] std::io::Error),
     #[error("XPath helper pipe is unavailable")]
@@ -91,6 +96,8 @@ pub struct Libxml2XPathEngine {
     deadline: Duration,
     max_document_bytes: usize,
     max_expression_bytes: usize,
+    max_namespaces: usize,
+    max_namespace_bytes: usize,
     max_output_bytes: u64,
     max_results: usize,
 }
@@ -106,6 +113,8 @@ impl Libxml2XPathEngine {
             deadline: Duration::from_secs(5),
             max_document_bytes: 128 * 1024 * 1024,
             max_expression_bytes: 64 * 1024,
+            max_namespaces: 128,
+            max_namespace_bytes: 8 * 1024,
             max_output_bytes: 8 * 1024 * 1024,
             max_results: 10_000,
         })
@@ -154,10 +163,18 @@ impl Libxml2XPathEngine {
                 limit: self.max_expression_bytes,
             });
         }
-        if request.source.to_ascii_uppercase().contains("<!DOCTYPE") {
-            return Err(XPathError::DocumentTypeDenied);
+        if request.namespaces.len() > self.max_namespaces {
+            return Err(XPathError::TooManyNamespaces {
+                limit: self.max_namespaces,
+            });
         }
-
+        if request.namespaces.iter().any(|(prefix, uri)| {
+            prefix.len() > self.max_namespace_bytes || uri.len() > self.max_namespace_bytes
+        }) {
+            return Err(XPathError::NamespaceTooLarge {
+                limit: self.max_namespace_bytes,
+            });
+        }
         let mut command = Command::new(&self.executable);
         command
             .env_clear()
@@ -262,7 +279,8 @@ impl XPathError {
             Self::InvalidExecutable(_) => "invalid_executable",
             Self::DocumentTooLarge { .. } => "document_too_large",
             Self::ExpressionTooLarge { .. } => "expression_too_large",
-            Self::DocumentTypeDenied => "document_type_denied",
+            Self::TooManyNamespaces { .. } => "too_many_namespaces",
+            Self::NamespaceTooLarge { .. } => "namespace_too_large",
             Self::Spawn(_) => "spawn",
             Self::MissingPipe => "missing_pipe",
             Self::Io(_) => "io",

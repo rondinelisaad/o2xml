@@ -1,8 +1,8 @@
 mod audit;
 
 use std::{
-    collections::HashMap,
-    fs,
+    collections::{BTreeMap, HashMap},
+    env, fs,
     path::{Path, PathBuf},
     sync::{
         atomic::{AtomicU64, Ordering},
@@ -16,6 +16,7 @@ use tracing_subscriber::EnvFilter;
 use xml_document::XmlDocument;
 use xml_domain::{Diagnostic, OutlineEntry, Revision};
 use xml_project::ProjectManifest;
+use xml_xpath::{Libxml2XPathEngine, XPathEngine, XPathReport, XPathRequest};
 
 #[derive(Default)]
 struct AppState {
@@ -203,6 +204,96 @@ async fn analyze_document(id: u64, state: State<'_, AppState>) -> Result<Analysi
 }
 
 #[tauri::command]
+async fn evaluate_xpath(
+    id: u64,
+    expression: String,
+    namespaces: BTreeMap<String, String>,
+    state: State<'_, AppState>,
+) -> Result<XPathReport, String> {
+    let snapshot = {
+        let documents = state.documents.lock().map_err(|_| {
+            audit::event(
+                "xpath.evaluate",
+                "failure",
+                "document",
+                id,
+                None,
+                Some("libxml2"),
+            );
+            "document store is unavailable".to_owned()
+        })?;
+        documents
+            .get(&id)
+            .ok_or_else(|| {
+                audit::event(
+                    "xpath.evaluate",
+                    "failure",
+                    "document",
+                    id,
+                    None,
+                    Some("libxml2"),
+                );
+                "document is not open".to_owned()
+            })?
+            .snapshot()
+    };
+    let revision = snapshot.revision();
+    let result = async {
+        let helper = xpath_helper_path()?;
+        let engine = Libxml2XPathEngine::new(helper).map_err(|error| error.to_string())?;
+        let source = snapshot.text();
+        engine
+            .evaluate(XPathRequest {
+                source: &source,
+                revision,
+                expression: &expression,
+                namespaces: &namespaces,
+            })
+            .await
+            .map_err(|error| error.to_string())
+    }
+    .await;
+    audit::event(
+        "xpath.evaluate",
+        if result.is_ok() { "success" } else { "failure" },
+        "document",
+        id,
+        Some(revision),
+        Some("libxml2"),
+    );
+    result
+}
+
+fn xpath_helper_path() -> Result<PathBuf, String> {
+    const ENVIRONMENT_KEY: &str = "O2XML_LIBXML2_HELPER";
+    let executable_name = if cfg!(windows) {
+        "xml-libxml2-helper.exe"
+    } else {
+        "xml-libxml2-helper"
+    };
+    let mut candidates = Vec::new();
+    if let Some(path) = env::var_os(ENVIRONMENT_KEY) {
+        candidates.push(PathBuf::from(path));
+    }
+    if let Ok(current) = env::current_exe() {
+        if let Some(directory) = current.parent() {
+            candidates.push(directory.join(executable_name));
+            candidates.push(directory.join("../Resources").join(executable_name));
+        }
+    }
+    let workspace = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../..");
+    candidates.push(workspace.join("target/debug").join(executable_name));
+    candidates.push(workspace.join("target/release").join(executable_name));
+
+    candidates
+        .into_iter()
+        .find(|candidate| candidate.is_file())
+        .ok_or_else(|| {
+            format!("XPath helper is unavailable; build the workspace or set {ENVIRONMENT_KEY}")
+        })
+}
+
+#[tauri::command]
 fn format_document(
     id: u64,
     indent_size: usize,
@@ -343,6 +434,7 @@ pub fn run() {
             open_document,
             update_document,
             analyze_document,
+            evaluate_xpath,
             format_document,
             save_document,
             open_project,

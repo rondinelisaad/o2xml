@@ -265,6 +265,14 @@ unsafe extern "C" fn resource_loader(
     input
 }
 
+unsafe extern "C" fn deny_resource_loader(
+    _url: *const c_char,
+    _public_id: *const c_char,
+    _context: *mut XmlParserCtxt,
+) -> *mut XmlParserInput {
+    ptr::null_mut()
+}
+
 fn c_string(pointer: *const c_char) -> Option<String> {
     if pointer.is_null() {
         return None;
@@ -329,7 +337,10 @@ fn run() -> Result<bool, String> {
 
     unsafe {
         xmlInitParser();
-        xmlSetExternalEntityLoader(Some(resource_loader));
+        xmlSetExternalEntityLoader(Some(match request.mode {
+            Mode::XPath => deny_resource_loader,
+            Mode::Dtd | Mode::Xsd => resource_loader,
+        }));
     }
     let document_ptr = unsafe {
         xmlReadMemory(

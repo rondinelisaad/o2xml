@@ -1931,6 +1931,7 @@ dependencies = [
  "xml-domain",
  "xml-project",
  "xml-syntax",
+ "xml-xpath",
 ]
 
 [[package]]

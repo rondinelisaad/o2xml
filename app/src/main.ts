@@ -23,6 +23,7 @@ import type {
   DocumentPayload,
   OutlineEntry,
   ProjectPayload,
+  XPathReport,
 } from "./contracts";
 
 interface OpenDocument extends DocumentPayload {
@@ -43,6 +44,7 @@ app.innerHTML = `
       <button data-action="project">Project…</button>
       <button data-action="format">Pretty Print</button>
       <button data-action="validate">Validate</button>
+      <button data-action="xpath">XPath</button>
       <span class="spacer"></span>
       <button data-action="theme" aria-label="Toggle color theme">Theme</button>
     </header>
@@ -65,11 +67,25 @@ app.innerHTML = `
     </main>
     <section class="bottom-panel">
       <div class="panel-tabs">
-        <button class="active">Problems <span id="problem-count">0</span></button>
-        <button>Output</button>
+        <button class="active" data-panel="problems">Problems <span id="problem-count">0</span></button>
+        <button data-panel="output">Output</button>
+        <button data-panel="xpath">XPath</button>
         <span id="status" class="status">Ready</span>
       </div>
-      <div id="problems" class="problems" aria-live="polite"></div>
+      <div id="problems" class="panel-content active problems" data-panel-content="problems" aria-live="polite"></div>
+      <div class="panel-content" data-panel-content="output"><div class="empty">No output</div></div>
+      <div id="xpath-panel" class="panel-content xpath-panel" data-panel-content="xpath">
+        <div class="xpath-controls">
+          <input id="xpath-expression" type="text" value="//*" aria-label="XPath expression" spellcheck="false" />
+          <button id="xpath-run" type="button">Run</button>
+        </div>
+        <div class="xpath-body">
+          <label class="xpath-namespaces">Namespaces <span>one prefix=URI per line</span>
+            <textarea id="xpath-namespaces" spellcheck="false" placeholder="j=http://jats.nlm.nih.gov"></textarea>
+          </label>
+          <div id="xpath-results" class="xpath-results" aria-live="polite"><div class="empty">Run an XPath expression</div></div>
+        </div>
+      </div>
     </section>
   </div>
 `;
@@ -82,6 +98,10 @@ const statusHost = requiredElement<HTMLSpanElement>("#status");
 const problemCount = requiredElement<HTMLSpanElement>("#problem-count");
 const projectFiles = requiredElement<HTMLDivElement>("#project-files");
 const projectTitle = requiredElement<HTMLDivElement>("#project-title");
+const xpathExpression = requiredElement<HTMLInputElement>("#xpath-expression");
+const xpathNamespaces = requiredElement<HTMLTextAreaElement>("#xpath-namespaces");
+const xpathResults = requiredElement<HTMLDivElement>("#xpath-results");
+const xpathRun = requiredElement<HTMLButtonElement>("#xpath-run");
 
 const theme = new Compartment();
 let dark = window.matchMedia("(prefers-color-scheme: dark)").matches;
@@ -291,6 +311,102 @@ function goToByte(byte: number): void {
   editor.focus();
 }
 
+function selectBottomPanel(name: "problems" | "output" | "xpath"): void {
+  document.querySelectorAll<HTMLButtonElement>("[data-panel]").forEach((button) => {
+    button.classList.toggle("active", button.dataset.panel === name);
+  });
+  document.querySelectorAll<HTMLElement>("[data-panel-content]").forEach((panel) => {
+    panel.classList.toggle("active", panel.dataset.panelContent === name);
+  });
+  if (name === "xpath") xpathExpression.focus();
+}
+
+function parseNamespaces(source: string): Record<string, string> {
+  const namespaces: Record<string, string> = {};
+  for (const [index, rawLine] of source.split(/\r?\n/u).entries()) {
+    const line = rawLine.trim();
+    if (!line) continue;
+    const separator = line.indexOf("=");
+    if (separator <= 0 || separator === line.length - 1) {
+      throw new Error(`Invalid namespace binding on line ${index + 1}`);
+    }
+    const prefix = line.slice(0, separator).trim();
+    const uri = line.slice(separator + 1).trim();
+    if (!/^[A-Za-z_][A-Za-z0-9._-]*$/u.test(prefix)) {
+      throw new Error(`Invalid namespace prefix on line ${index + 1}`);
+    }
+    namespaces[prefix] = uri;
+  }
+  return namespaces;
+}
+
+async function runXPath(): Promise<void> {
+  const document = activeDocument();
+  if (!document) return;
+  const expression = xpathExpression.value.trim();
+  if (!expression) {
+    setStatus("Enter an XPath expression", true);
+    return;
+  }
+  let namespaces: Record<string, string>;
+  try {
+    namespaces = parseNamespaces(xpathNamespaces.value);
+  } catch (error) {
+    setStatus(String(error), true);
+    return;
+  }
+  if (document.dirty && !(await synchronize(document))) return;
+  selectBottomPanel("xpath");
+  setStatus("Evaluating XPath…");
+  xpathRun.disabled = true;
+  try {
+    const report = await invoke<XPathReport>("evaluate_xpath", {
+      id: document.id,
+      expression,
+      namespaces,
+    });
+    if (document.id !== activeId || report.revision !== document.revision) return;
+    renderXPath(report);
+    setStatus("XPath complete");
+  } catch (error) {
+    xpathResults.replaceChildren(messageElement(String(error), "empty error-text"));
+    setStatus(String(error), true);
+  } finally {
+    xpathRun.disabled = false;
+  }
+}
+
+function messageElement(message: string, className: string): HTMLDivElement {
+  const element = window.document.createElement("div");
+  element.className = className;
+  element.textContent = message;
+  return element;
+}
+
+function renderXPath(report: XPathReport): void {
+  if (report.value.kind !== "nodes") {
+    xpathResults.replaceChildren(messageElement(String(report.value.value), "xpath-scalar"));
+    return;
+  }
+  const { items, truncated } = report.value.value;
+  if (items.length === 0) {
+    xpathResults.replaceChildren(messageElement("No matching nodes", "empty"));
+    return;
+  }
+  const summary = messageElement(
+    `${items.length} result${items.length === 1 ? "" : "s"}${truncated ? " (limited)" : ""}`,
+    "xpath-summary",
+  );
+  const rows = items.map((item) => {
+    const row = window.document.createElement("button");
+    row.className = "xpath-result";
+    row.textContent = `${item.path}  ·  line ${item.span.start.line}`;
+    row.addEventListener("click", () => goToByte(item.span.start.byte));
+    return row;
+  });
+  xpathResults.replaceChildren(summary, ...rows);
+}
+
 async function createNew(): Promise<void> {
   try {
     addDocument(await invoke<DocumentPayload>("new_document"));
@@ -375,7 +491,21 @@ requiredElement<HTMLElement>(".menubar").addEventListener("click", (event) => {
     const document = activeDocument();
     if (document) void synchronizeAndAnalyze(document);
   }
+  if (action === "xpath") selectBottomPanel("xpath");
   if (action === "theme") toggleTheme();
+});
+
+requiredElement<HTMLElement>(".panel-tabs").addEventListener("click", (event) => {
+  const panel = (event.target as HTMLElement).closest<HTMLButtonElement>("[data-panel]")?.dataset.panel;
+  if (panel === "problems" || panel === "output" || panel === "xpath") selectBottomPanel(panel);
+});
+
+xpathRun.addEventListener("click", () => void runXPath());
+xpathExpression.addEventListener("keydown", (event) => {
+  if (event.key === "Enter" && (event.metaKey || event.ctrlKey)) {
+    event.preventDefault();
+    void runXPath();
+  }
 });
 
 window.addEventListener("keydown", (event) => {

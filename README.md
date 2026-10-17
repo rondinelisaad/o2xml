@@ -13,8 +13,8 @@ desktop MVP with a Rust core and a Tauri/CodeMirror interface.
 - Phase 0: architecture and technical investigation documented.
 - Phase 1: desktop MVP implemented and verified on macOS.
 - Phase 2: in progress; offline XML Catalog resolution, isolated libxml2 DTD/XSD
-  validation, and the XPath 1.0 core adapter are implemented. XPath UI wiring
-  and schema-aware completion remain.
+  validation, and XPath 1.0 with a desktop query panel are implemented.
+  Schema-aware completion remains.
 - Phases 3–5: planned; Schematron/JATS/SPS validation is not presented as
   implemented yet.
 
@@ -24,10 +24,15 @@ Prerequisites are the stable Rust toolchain, Node.js/npm, libxml2 2.9+ with
 `pkg-config`, and the [Tauri platform prerequisites](https://v2.tauri.app/start/prerequisites/).
 
 ```sh
+cargo build -p xml-libxml2-helper
 cd app
 npm install
 npm run tauri dev
 ```
+
+The desktop locates the helper in the workspace build output or beside the app
+executable. Packagers can set `O2XML_LIBXML2_HELPER` to an explicit executable
+path until platform bundle assembly is automated.
 
 Quality gates:
 

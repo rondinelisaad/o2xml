@@ -46,19 +46,20 @@ fn evaluates_nodes_scalars_and_namespaces() -> Result<(), Box<dyn Error>> {
 }
 
 #[test]
-fn rejects_doctype_without_starting_resource_resolution() -> Result<(), Box<dyn Error>> {
+fn evaluates_doctype_without_loading_its_external_subset() -> Result<(), Box<dyn Error>> {
     let engine = Libxml2XPathEngine::new(env!("CARGO_BIN_EXE_xml-libxml2-helper"))?;
     let runtime = runtime()?;
     let namespaces = BTreeMap::new();
-    let result = runtime.block_on(engine.evaluate(XPathRequest {
+    let report = runtime.block_on(engine.evaluate(XPathRequest {
         source: r#"<!DOCTYPE article SYSTEM "https://example.org/article.dtd"><article/>"#,
         revision: Revision(10),
         expression: "/article",
         namespaces: &namespaces,
-    }));
-    assert!(matches!(
-        result,
-        Err(xml_xpath::XPathError::DocumentTypeDenied)
-    ));
+    }))?;
+    let XPathValue::Nodes { items, truncated } = report.value else {
+        return Err("expected node results".into());
+    };
+    assert_eq!(items.len(), 1);
+    assert!(!truncated);
     Ok(())
 }

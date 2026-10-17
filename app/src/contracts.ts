@@ -53,3 +53,19 @@ export interface ProjectPayload {
   manifest: ProjectManifest;
   files: string[];
 }
+
+export interface XPathNode {
+  path: string;
+  span: SourceSpan;
+}
+
+export type XPathValue =
+  | { kind: "nodes"; value: { items: XPathNode[]; truncated: boolean } }
+  | { kind: "boolean"; value: boolean }
+  | { kind: "number"; value: string }
+  | { kind: "string"; value: string };
+
+export interface XPathReport {
+  revision: number;
+  value: XPathValue;
+}

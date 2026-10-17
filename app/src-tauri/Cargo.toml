@@ -22,6 +22,7 @@ xml-document = { path = "../../crates/xml-document" }
 xml-domain = { path = "../../crates/xml-domain" }
 xml-project = { path = "../../crates/xml-project" }
 xml-syntax = { path = "../../crates/xml-syntax" }
+xml-xpath = { path = "../../crates/xml-xpath" }
 
 [lints]
 workspace = true

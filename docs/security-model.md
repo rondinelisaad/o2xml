@@ -44,6 +44,10 @@ resource loader so local-file access is also constrained. Entity substitution,
 DTD loading, XInclude, and `XML_PARSE_HUGE` are never enabled merely to make a
 document pass.
 
+XPath 1.0 parses the in-memory document with a deny-all external resource loader.
+This permits ordinary JATS `DOCTYPE` declarations without fetching their remote
+subsets; external entities remain unavailable to XPath evaluation.
+
 ## Processor profiles
 
 - `editor-safe`: well-formedness only, no external resource access.
