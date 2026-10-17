@@ -48,6 +48,8 @@ crate per acronym:
 | `xml-project` | `project.toml`, workspace paths, scenarios, settings |
 | `xml-resource` | trust policy, catalog resolution, cache provenance |
 | `xml-validation` | engine traits, pipeline, cancellation, diagnostic normalization |
+| `xml-xpath` | XPath query contract, supervised engine adapter, navigable results |
+| `xml-libxml2-helper` | isolated unsafe FFI for DTD, XSD 1.0, and XPath 1.0 |
 | `xml-framework` | versioned JATS/SPS/TEI/DocBook manifests and rule composition |
 | `xml-transform` | XSLT/XQuery process and FFI adapters, scenarios |
 | `xml-plugin-api` | stable capability-based host contracts; added after core traits settle |

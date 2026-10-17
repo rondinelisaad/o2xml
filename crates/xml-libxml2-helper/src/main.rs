@@ -1,5 +1,6 @@
 use std::{
-    ffi::{c_char, c_int, c_void, CStr, CString},
+    collections::BTreeMap,
+    ffi::{c_char, c_int, c_long, c_uint, c_void, CStr, CString},
     io::{self, BufRead, BufReader, Read, Write},
     process::ExitCode,
     ptr,
@@ -20,6 +21,7 @@ type XmlSchema = c_void;
 type XmlSchemaParserCtxt = c_void;
 type XmlSchemaValidCtxt = c_void;
 type XmlValidCtxt = c_void;
+type XmlXPathContext = c_void;
 
 type ExternalEntityLoader = Option<
     unsafe extern "C" fn(
@@ -33,6 +35,22 @@ type ExternalEntityLoader = Option<
 struct ParserInputPrefix {
     buffer: *mut XmlParserInputBuffer,
     filename: *const c_char,
+}
+
+#[repr(C)]
+struct XmlNodeSet {
+    node_count: c_int,
+    node_capacity: c_int,
+    nodes: *mut *mut c_void,
+}
+
+#[repr(C)]
+struct XmlXPathObject {
+    object_type: c_uint,
+    nodes: *mut XmlNodeSet,
+    boolean: c_int,
+    number: f64,
+    string: *mut u8,
 }
 
 #[link(name = "xml2")]
@@ -72,6 +90,22 @@ extern "C" {
     fn xmlSchemaNewValidCtxt(schema: *mut XmlSchema) -> *mut XmlSchemaValidCtxt;
     fn xmlSchemaFreeValidCtxt(context: *mut XmlSchemaValidCtxt);
     fn xmlSchemaValidateDoc(context: *mut XmlSchemaValidCtxt, document: *mut XmlDoc) -> c_int;
+    fn xmlXPathNewContext(document: *mut XmlDoc) -> *mut XmlXPathContext;
+    fn xmlXPathFreeContext(context: *mut XmlXPathContext);
+    fn xmlXPathRegisterNs(
+        context: *mut XmlXPathContext,
+        prefix: *const u8,
+        namespace_uri: *const u8,
+    ) -> c_int;
+    fn xmlXPathEvalExpression(
+        expression: *const u8,
+        context: *mut XmlXPathContext,
+    ) -> *mut XmlXPathObject;
+    fn xmlXPathFreeObject(object: *mut XmlXPathObject);
+    fn xmlXPathCastToString(object: *mut XmlXPathObject) -> *mut u8;
+    fn xmlGetNodePath(node: *const c_void) -> *mut u8;
+    fn xmlGetLineNo(node: *const c_void) -> c_long;
+    fn xmlMemFree(pointer: *mut c_void);
 }
 
 #[derive(Deserialize)]
@@ -80,6 +114,11 @@ struct Request {
     grammar_uri: String,
     public_id: Option<String>,
     document_bytes: usize,
+    expression: Option<String>,
+    #[serde(default)]
+    namespaces: BTreeMap<String, String>,
+    #[serde(default = "default_max_results")]
+    max_results: usize,
 }
 
 #[derive(Clone, Copy, Deserialize)]
@@ -87,6 +126,7 @@ struct Request {
 enum Mode {
     Dtd,
     Xsd,
+    XPath,
 }
 
 #[derive(Serialize)]
@@ -98,7 +138,31 @@ enum Message<'a> {
     },
     Result {
         valid: bool,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        xpath: Option<&'a XPathValue>,
     },
+}
+
+#[derive(Serialize)]
+#[serde(tag = "kind", content = "value", rename_all = "snake_case")]
+enum XPathValue {
+    Nodes {
+        items: Vec<XPathNode>,
+        truncated: bool,
+    },
+    Boolean(bool),
+    Number(String),
+    String(String),
+}
+
+#[derive(Serialize)]
+struct XPathNode {
+    path: String,
+    line: usize,
+}
+
+const fn default_max_results() -> usize {
+    10_000
 }
 
 #[derive(Deserialize)]
@@ -277,19 +341,38 @@ fn run() -> Result<bool, String> {
         )
     };
     if document_ptr.is_null() {
-        emit_result(false)?;
+        emit_result(false, None)?;
         return Ok(false);
+    }
+
+    if matches!(request.mode, Mode::XPath) {
+        let expression = request
+            .expression
+            .ok_or_else(|| "XPath request has no expression".to_owned())?;
+        let value = unsafe {
+            evaluate_xpath(
+                document_ptr,
+                &expression,
+                &request.namespaces,
+                request.max_results,
+            )
+        };
+        unsafe { xmlFreeDoc(document_ptr) };
+        let value = value?;
+        emit_result(true, Some(&value))?;
+        return Ok(true);
     }
 
     let valid = unsafe {
         match request.mode {
             Mode::Dtd => validate_dtd(document_ptr, &grammar_uri, public_id.as_ref()),
             Mode::Xsd => validate_xsd(document_ptr, &grammar_uri),
+            Mode::XPath => Err("XPath request reached the validation path".into()),
         }
     };
     unsafe { xmlFreeDoc(document_ptr) };
     let valid = valid?;
-    emit_result(valid)?;
+    emit_result(valid, None)?;
     Ok(valid)
 }
 
@@ -339,14 +422,122 @@ unsafe fn validate_xsd(document: *mut XmlDoc, grammar_uri: &CString) -> Result<b
     Ok(result == 0)
 }
 
-fn emit_result(valid: bool) -> Result<(), String> {
+unsafe fn evaluate_xpath(
+    document: *mut XmlDoc,
+    expression: &str,
+    namespaces: &BTreeMap<String, String>,
+    max_results: usize,
+) -> Result<XPathValue, String> {
+    let expression = CString::new(expression).map_err(|_| "XPath expression contains NUL")?;
+    let namespace_bindings = namespaces
+        .iter()
+        .map(|(prefix, namespace_uri)| {
+            Ok((
+                CString::new(prefix.as_str()).map_err(|_| "XPath prefix contains NUL")?,
+                CString::new(namespace_uri.as_str()).map_err(|_| "namespace URI contains NUL")?,
+            ))
+        })
+        .collect::<Result<Vec<_>, &str>>()?;
+    let context = unsafe { xmlXPathNewContext(document) };
+    if context.is_null() {
+        return Err("cannot allocate XPath context".into());
+    }
+    for (prefix, namespace_uri) in &namespace_bindings {
+        if unsafe {
+            xmlXPathRegisterNs(
+                context,
+                prefix.as_ptr().cast(),
+                namespace_uri.as_ptr().cast(),
+            )
+        } != 0
+        {
+            unsafe { xmlXPathFreeContext(context) };
+            return Err("cannot register XPath namespace".into());
+        }
+    }
+    let object = unsafe { xmlXPathEvalExpression(expression.as_ptr().cast(), context) };
+    if object.is_null() {
+        unsafe { xmlXPathFreeContext(context) };
+        return Err("invalid XPath expression".into());
+    }
+    let value = unsafe { xpath_value(object, max_results) };
+    unsafe {
+        xmlXPathFreeObject(object);
+        xmlXPathFreeContext(context);
+    }
+    value
+}
+
+unsafe fn xpath_value(
+    object: *mut XmlXPathObject,
+    max_results: usize,
+) -> Result<XPathValue, String> {
+    match unsafe { (*object).object_type } {
+        1 => {
+            let nodes = unsafe { (*object).nodes };
+            if nodes.is_null() {
+                return Ok(XPathValue::Nodes {
+                    items: Vec::new(),
+                    truncated: false,
+                });
+            }
+            let count = usize::try_from(unsafe { (*nodes).node_count })
+                .map_err(|_| "XPath returned an invalid node count")?;
+            let table = unsafe { (*nodes).nodes };
+            if count > 0 && table.is_null() {
+                return Err("XPath returned a node set without storage".into());
+            }
+            let retained = count.min(max_results);
+            let mut matches = Vec::with_capacity(retained);
+            for index in 0..retained {
+                let node = unsafe { *table.add(index) };
+                if node.is_null() {
+                    continue;
+                }
+                let path = unsafe { xmlGetNodePath(node) };
+                if path.is_null() {
+                    continue;
+                }
+                let path_text = unsafe { CStr::from_ptr(path.cast()) }
+                    .to_string_lossy()
+                    .into_owned();
+                unsafe { xmlMemFree(path.cast()) };
+                let line = usize::try_from(unsafe { xmlGetLineNo(node) }.max(1)).unwrap_or(1);
+                matches.push(XPathNode {
+                    path: path_text,
+                    line,
+                });
+            }
+            Ok(XPathValue::Nodes {
+                items: matches,
+                truncated: retained < count,
+            })
+        }
+        2 => Ok(XPathValue::Boolean(unsafe { (*object).boolean } != 0)),
+        3 => Ok(XPathValue::Number(unsafe { (*object).number }.to_string())),
+        4 => {
+            let value = unsafe { xmlXPathCastToString(object) };
+            if value.is_null() {
+                return Err("cannot convert XPath result to string".into());
+            }
+            let text = unsafe { CStr::from_ptr(value.cast()) }
+                .to_string_lossy()
+                .into_owned();
+            unsafe { xmlMemFree(value.cast()) };
+            Ok(XPathValue::String(text))
+        }
+        _ => Err("unsupported XPath result type".into()),
+    }
+}
+
+fn emit_result(valid: bool, xpath: Option<&XPathValue>) -> Result<(), String> {
     let Some(broker) = BROKER.get() else {
         return Err("resource broker is unavailable".into());
     };
     let mut broker = broker
         .lock()
         .map_err(|_| "resource broker failed".to_owned())?;
-    serde_json::to_writer(&mut broker.writer, &Message::Result { valid })
+    serde_json::to_writer(&mut broker.writer, &Message::Result { valid, xpath })
         .map_err(|error| error.to_string())?;
     broker
         .writer

@@ -12,8 +12,9 @@ desktop MVP with a Rust core and a Tauri/CodeMirror interface.
 
 - Phase 0: architecture and technical investigation documented.
 - Phase 1: desktop MVP implemented and verified on macOS.
-- Phase 2: in progress; offline XML Catalog resolution and isolated libxml2
-  DTD/XSD validation are implemented. XPath and schema-aware completion remain.
+- Phase 2: in progress; offline XML Catalog resolution, isolated libxml2 DTD/XSD
+  validation, and the XPath 1.0 core adapter are implemented. XPath UI wiring
+  and schema-aware completion remain.
 - Phases 3–5: planned; Schematron/JATS/SPS validation is not presented as
   implemented yet.
 

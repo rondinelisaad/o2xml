@@ -7,6 +7,7 @@ members = [
     "crates/xml-resource",
     "crates/xml-syntax",
     "crates/xml-validation",
+    "crates/xml-xpath",
     "app/src-tauri",
 ]
 resolver = "2"

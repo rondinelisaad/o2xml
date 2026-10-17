@@ -18,6 +18,7 @@ tokio.workspace = true
 xml-domain = { path = "../xml-domain" }
 xml-resource = { path = "../xml-resource" }
 xml-validation = { path = "../xml-validation" }
+xml-xpath = { path = "../xml-xpath" }
 
 [lints.rust]
 unsafe_code = "allow"

@@ -44,7 +44,10 @@ Current progress:
   aggregate byte/file limits and denial tests for root escape.
 - [x] Replace XSD preflight and the standalone DTD guard with a libxml2 helper
   that installs a custom resource loader, closing the remaining TOCTOU window.
-- [ ] Add an XPath 1.0 query adapter and result-location contract.
+- [x] Add an XPath 1.0 query adapter and result-location contract, including
+  namespace bindings, scalar values, result limits, and navigable node lines.
+- [ ] Expose XPath queries and results through the Tauri application service and
+  the desktop XPath panel.
 
 Gate: relevant standards/conformance fixtures pass, offline catalog scenarios are
 demonstrated, and all resource-policy denial tests pass.

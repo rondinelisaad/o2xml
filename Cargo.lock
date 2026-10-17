@@ -4583,6 +4583,7 @@ dependencies = [
  "xml-domain",
  "xml-resource",
  "xml-validation",
+ "xml-xpath",
 ]
 
 [[package]]
@@ -4628,6 +4629,19 @@ dependencies = [
  "xml-document",
  "xml-domain",
  "xml-resource",
+]
+
+[[package]]
+name = "xml-xpath"
+version = "0.1.0"
+dependencies = [
+ "serde",
+ "serde_json",
+ "thiserror 2.0.21",
+ "tokio",
+ "tracing",
+ "xml-document",
+ "xml-domain",
 ]
 
 [[package]]
