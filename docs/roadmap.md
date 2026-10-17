@@ -48,8 +48,10 @@ Current progress:
   namespace bindings, scalar values, result limits, and navigable node lines.
 - [x] Expose XPath queries and results through the Tauri application service and
   the desktop XPath panel.
-- [ ] Define the common schema content-model index that will drive DTD/XSD
+- [x] Define the common schema content-model index that will drive DTD/XSD
   element and attribute completion.
+- [ ] Compile DTD declarations into the common content-model index and expose
+  context-sensitive completion through the application service.
 
 Gate: relevant standards/conformance fixtures pass, offline catalog scenarios are
 demonstrated, and all resource-policy denial tests pass.

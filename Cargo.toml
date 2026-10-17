@@ -5,6 +5,7 @@ members = [
     "crates/xml-libxml2-helper",
     "crates/xml-project",
     "crates/xml-resource",
+    "crates/xml-schema",
     "crates/xml-syntax",
     "crates/xml-validation",
     "crates/xml-xpath",

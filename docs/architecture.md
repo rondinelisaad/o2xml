@@ -132,15 +132,17 @@ sound; full validation remains the correctness fallback.
 
 ## Schema-aware completion
 
-Grammar adapters compile a common, deliberately lossy `ContentModel` consisting
-of expanded names, allowed children, occurrence constraints, attributes, enums,
-documentation, and wildcard markers. Completion resolves the cursor's namespace
-and ancestor context, then queries this model under a strict latency budget.
+Grammar adapters compile a common, deliberately lossy `SchemaIndex`. Expanded
+names key element declarations; deterministic state machines describe valid next
+children and close states; attribute declarations retain required/prohibited use,
+enums, and default/fixed values. `Empty` and conservative `Any` models cover the
+boundary cases. Completion resolves the cursor's namespace and ancestor context,
+then queries this bounded model under a strict latency budget.
 
 DTD/XSD/RNG-specific semantics stay in their compilers. If a construct cannot be
-represented safely, completion broadens suggestions and marks them uncertain; it
-never invents a restriction. CodeMirror receives compact `ElementSpec`-like data
-or a contextual result list, while validation remains authoritative.
+represented safely, completion uses the conservative `Any` model; it never
+invents a restriction. CodeMirror receives a contextual result list, while
+validation remains authoritative.
 
 ## JATS and SPS frameworks
 
