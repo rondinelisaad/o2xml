@@ -1,0 +1,13 @@
+[package]
+name = "xml-document"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+ropey.workspace = true
+thiserror.workspace = true
+xml-domain = { path = "../xml-domain" }
+
+[lints]
+workspace = true
