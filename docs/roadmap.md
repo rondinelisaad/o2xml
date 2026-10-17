@@ -32,6 +32,13 @@ and reopens without data loss. No external resource is fetched.
 Add DTD, XSD 1.0, OASIS XML Catalog 1.1, XPath 1.0/3.1 adapters,
 schema-aware completion, engine caches, and background validation hardening.
 
+Current progress:
+
+- [x] Native offline catalog core: `system`, `public`, `uri`, `rewriteSystem`,
+  `rewriteURI`, guarded `nextCatalog`, cycle/size/count limits, and allowed-root
+  enforcement.
+- [ ] Wire catalog resolution into validation engine adapters.
+
 Gate: relevant standards/conformance fixtures pass, offline catalog scenarios are
 demonstrated, and all resource-policy denial tests pass.
 

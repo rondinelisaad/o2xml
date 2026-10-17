@@ -1,0 +1,9 @@
+<?xml version="1.0"?>
+<catalog xmlns="urn:oasis:names:tc:entity:xmlns:xml:catalog">
+  <system systemId="https://example.org/article.dtd" uri="article.dtd"/>
+  <public publicId="-//O2XML//DTD ARTICLE//EN" uri="article.dtd"/>
+  <uri name="https://example.org/article.xsd" uri="article.xsd"/>
+  <rewriteURI uriStartString="https://example.org/schemas/" rewritePrefix="schemas/"/>
+  <rewriteURI uriStartString="https://example.org/schemas/nested/" rewritePrefix="schemas/nested/"/>
+  <nextCatalog catalog="next.xml"/>
+</catalog>

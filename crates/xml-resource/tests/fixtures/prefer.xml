@@ -1,0 +1,7 @@
+<?xml version="1.0"?>
+<catalog xmlns="urn:oasis:names:tc:entity:xmlns:xml:catalog" prefer="system">
+  <public publicId="-//O2XML//DTD SYSTEM-PREFERRED//EN" uri="article.dtd"/>
+  <group prefer="public">
+    <public publicId="-//O2XML//DTD PUBLIC-PREFERRED//EN" uri="article.dtd"/>
+  </group>
+</catalog>

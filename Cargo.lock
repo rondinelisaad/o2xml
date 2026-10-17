@@ -4561,6 +4561,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "xml-resource"
+version = "0.1.0"
+dependencies = [
+ "quick-xml 0.40.1",
+ "thiserror 2.0.21",
+ "tracing",
+ "url",
+]
+
+[[package]]
 name = "xml-syntax"
 version = "0.1.0"
 dependencies = [

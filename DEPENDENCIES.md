@@ -18,6 +18,7 @@ phase gate. CI will add `cargo audit`, `cargo deny`, npm audit, and license chec
 | `tracing`, `tracing-subscriber` | Structured telemetry | MIT | Allowlisted fields; no document content or secrets |
 | `tokio` | Tasks, timers, process supervision | MIT | Background validation and future adapters |
 | `criterion` (dev) | Benchmarks | MIT OR Apache-2.0 | Repeatable performance tracking |
+| `url` 2.5.8 | URI parsing and relative-reference resolution | MIT OR Apache-2.0 | Active rust-url project; avoids ad hoc catalog URI normalization |
 
 ## Phase 1 frontend
 
