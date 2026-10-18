@@ -61,8 +61,12 @@ Current progress:
 - [x] Compile normalized XSD 1.0 declarations into the common content-model
   index, including namespace-expanded element names, local sequences/choices,
   bounded occurrences, attribute uses, enumerations, and value constraints.
-- [ ] Extract normalized XSD 1.0 declarations through the isolated libxml2
-  helper, resolving global elements, local particles, types, groups, and imports.
+- [x] Broker XSD index construction through the isolated libxml2 helper, with
+  catalog-only resources, graph/output/deadline limits, audited execution, and
+  conservative global element declarations from libxml2's compiled schema.
+- [ ] Enrich XSD declarations with local particles and attribute uses, then
+  resolve named types, groups, imports, and includes without treating completion
+  as authoritative validation.
 
 Gate: relevant standards/conformance fixtures pass, offline catalog scenarios are
 demonstrated, and all resource-policy denial tests pass.

@@ -7,6 +7,13 @@ use xml_schema::{
     ElementDeclaration, ExpandedName, SchemaIndex, SchemaIndexError, SchemaLanguage,
 };
 
+mod engine;
+
+pub use engine::{
+    Libxml2XsdIndexEngine, XsdIndexEngine, XsdIndexError, XsdIndexFuture, XsdIndexReport,
+    XsdIndexRequest,
+};
+
 /// A normalized XSD 1.0 element declaration. An engine adapter is responsible
 /// for resolving QName references, type derivation, groups, and schema imports
 /// before emitting this bounded representation.

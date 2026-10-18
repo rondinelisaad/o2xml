@@ -10,6 +10,7 @@ use std::{
 use serde::{Deserialize, Serialize};
 use xml_dtd::{DtdContent, DtdElementDeclaration, DtdParticle};
 use xml_schema::{AttributeDeclaration, AttributeUse, ExpandedName, ValueConstraint};
+use xml_xsd::{XsdContent, XsdElementDeclaration};
 
 const XML_PARSE_NONET: c_int = 1 << 11;
 const XML_CHAR_ENCODING_NONE: c_int = 0;
@@ -74,6 +75,48 @@ struct XmlDtdLayout {
     external_id: *const u8,
     system_id: *const u8,
     parameter_entities: *mut XmlHashTable,
+}
+
+#[repr(C)]
+struct XmlSchemaLayout {
+    name: *const u8,
+    target_namespace: *const u8,
+    version: *const u8,
+    id: *const u8,
+    document: *mut c_void,
+    annotation: *mut c_void,
+    flags: c_int,
+    type_declarations: *mut XmlHashTable,
+    attribute_declarations: *mut XmlHashTable,
+    attribute_group_declarations: *mut XmlHashTable,
+    element_declarations: *mut XmlHashTable,
+}
+
+#[repr(C)]
+struct XmlSchemaElementLayout {
+    component_type: c_int,
+    next: *mut c_void,
+    name: *const u8,
+    id: *const u8,
+    reference: *const u8,
+    reference_namespace: *const u8,
+    annotation: *mut c_void,
+    subtype: *mut c_void,
+    attributes: *mut c_void,
+    node: *mut c_void,
+    min_occurs: c_int,
+    max_occurs: c_int,
+    flags: c_int,
+    target_namespace: *const u8,
+    named_type: *const u8,
+    named_type_namespace: *const u8,
+    substitution_group: *const u8,
+    substitution_group_namespace: *const u8,
+    scope: *const u8,
+    value: *const u8,
+    reference_declaration: *mut c_void,
+    content_model: *mut c_void,
+    content_type: c_int,
 }
 
 #[repr(C)]
@@ -211,6 +254,8 @@ enum Mode {
     #[serde(rename = "dtd_index")]
     DtdIndex,
     Xsd,
+    #[serde(rename = "xsd_index")]
+    XsdIndex,
     XPath,
 }
 
@@ -227,6 +272,8 @@ enum Message<'a> {
         xpath: Option<&'a XPathValue>,
         #[serde(skip_serializing_if = "Option::is_none")]
         dtd: Option<&'a [DtdElementDeclaration]>,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        xsd: Option<&'a [XsdElementDeclaration]>,
     },
 }
 
@@ -426,14 +473,21 @@ fn run() -> Result<bool, String> {
         xmlInitParser();
         xmlSetExternalEntityLoader(Some(match request.mode {
             Mode::XPath => deny_resource_loader,
-            Mode::Dtd | Mode::DtdIndex | Mode::Xsd => resource_loader,
+            Mode::Dtd | Mode::DtdIndex | Mode::Xsd | Mode::XsdIndex => resource_loader,
         }));
     }
 
     if matches!(request.mode, Mode::DtdIndex) {
         let declarations = unsafe { extract_dtd(&grammar_uri, public_id.as_ref()) }?;
         let valid = declarations.is_some();
-        emit_result(valid, None, declarations.as_deref())?;
+        emit_result(valid, None, declarations.as_deref(), None)?;
+        return Ok(valid);
+    }
+
+    if matches!(request.mode, Mode::XsdIndex) {
+        let declarations = unsafe { extract_xsd(&grammar_uri) }?;
+        let valid = declarations.is_some();
+        emit_result(valid, None, None, declarations.as_deref())?;
         return Ok(valid);
     }
 
@@ -447,7 +501,7 @@ fn run() -> Result<bool, String> {
         )
     };
     if document_ptr.is_null() {
-        emit_result(false, None, None)?;
+        emit_result(false, None, None, None)?;
         return Ok(false);
     }
 
@@ -465,7 +519,7 @@ fn run() -> Result<bool, String> {
         };
         unsafe { xmlFreeDoc(document_ptr) };
         let value = value?;
-        emit_result(true, Some(&value), None)?;
+        emit_result(true, Some(&value), None, None)?;
         return Ok(true);
     }
 
@@ -474,13 +528,92 @@ fn run() -> Result<bool, String> {
             Mode::Dtd => validate_dtd(document_ptr, &grammar_uri, public_id.as_ref()),
             Mode::Xsd => validate_xsd(document_ptr, &grammar_uri),
             Mode::DtdIndex => Err("DTD index request reached the validation path".into()),
+            Mode::XsdIndex => Err("XSD index request reached the validation path".into()),
             Mode::XPath => Err("XPath request reached the validation path".into()),
         }
     };
     unsafe { xmlFreeDoc(document_ptr) };
     let valid = valid?;
-    emit_result(valid, None, None)?;
+    emit_result(valid, None, None, None)?;
     Ok(valid)
+}
+
+struct XsdExtraction {
+    declarations: Vec<XsdElementDeclaration>,
+    error: Option<String>,
+}
+
+unsafe fn extract_xsd(grammar_uri: &CString) -> Result<Option<Vec<XsdElementDeclaration>>, String> {
+    let parser = unsafe { xmlSchemaNewParserCtxt(grammar_uri.as_ptr()) };
+    if parser.is_null() {
+        return Err("cannot allocate XSD parser context".into());
+    }
+    let schema = unsafe { xmlSchemaParse(parser) };
+    unsafe { xmlSchemaFreeParserCtxt(parser) };
+    if schema.is_null() {
+        return Ok(None);
+    }
+    let elements = unsafe { (*schema.cast::<XmlSchemaLayout>()).element_declarations };
+    let mut extraction = XsdExtraction {
+        declarations: Vec::new(),
+        error: None,
+    };
+    if !elements.is_null() {
+        unsafe {
+            xmlHashScan(
+                elements,
+                Some(scan_xsd_element),
+                (&mut extraction as *mut XsdExtraction).cast(),
+            )
+        };
+    }
+    unsafe { xmlSchemaFree(schema) };
+    if let Some(error) = extraction.error {
+        return Err(error);
+    }
+    extraction
+        .declarations
+        .sort_by(|left, right| left.name.cmp(&right.name));
+    Ok(Some(extraction.declarations))
+}
+
+unsafe extern "C" fn scan_xsd_element(payload: *mut c_void, data: *mut c_void, _name: *const u8) {
+    if payload.is_null() || data.is_null() {
+        return;
+    }
+    let extraction = unsafe { &mut *data.cast::<XsdExtraction>() };
+    if extraction.error.is_some() {
+        return;
+    }
+    if extraction.declarations.len() >= 100_000 {
+        extraction.error = Some("XSD exceeds the 100000-element extraction limit".into());
+        return;
+    }
+    let element = unsafe { &*payload.cast::<XmlSchemaElementLayout>() };
+    let Some(local_name) = (unsafe { optional_xml_string(element.name) }) else {
+        extraction.error = Some("XSD element declaration has no name".into());
+        return;
+    };
+    let namespace_uri = unsafe { optional_xml_string(element.target_namespace) };
+    let name = match ExpandedName::new(namespace_uri.as_deref(), &local_name) {
+        Ok(name) => name,
+        Err(error) => {
+            extraction.error = Some(error.to_string());
+            return;
+        }
+    };
+    // libxml2 exposes global declarations but not a stable public component API
+    // for their compiled particles. Until the DOM-backed extractor lands, keep
+    // complex content conservative instead of inventing schema restrictions.
+    let content = match element.content_type {
+        1 | 4 | 6 => XsdContent::Empty,
+        _ => XsdContent::Any,
+    };
+    extraction.declarations.push(XsdElementDeclaration {
+        name,
+        content,
+        attributes: Vec::new(),
+    });
 }
 
 struct DtdExtraction {
@@ -866,6 +999,7 @@ fn emit_result(
     valid: bool,
     xpath: Option<&XPathValue>,
     dtd: Option<&[DtdElementDeclaration]>,
+    xsd: Option<&[XsdElementDeclaration]>,
 ) -> Result<(), String> {
     let Some(broker) = BROKER.get() else {
         return Err("resource broker is unavailable".into());
@@ -873,8 +1007,16 @@ fn emit_result(
     let mut broker = broker
         .lock()
         .map_err(|_| "resource broker failed".to_owned())?;
-    serde_json::to_writer(&mut broker.writer, &Message::Result { valid, xpath, dtd })
-        .map_err(|error| error.to_string())?;
+    serde_json::to_writer(
+        &mut broker.writer,
+        &Message::Result {
+            valid,
+            xpath,
+            dtd,
+            xsd,
+        },
+    )
+    .map_err(|error| error.to_string())?;
     broker
         .writer
         .write_all(b"\n")

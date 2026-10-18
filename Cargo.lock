@@ -4604,6 +4604,7 @@ dependencies = [
  "xml-schema",
  "xml-validation",
  "xml-xpath",
+ "xml-xsd",
 ]
 
 [[package]]
@@ -4677,7 +4678,12 @@ name = "xml-xsd"
 version = "0.1.0"
 dependencies = [
  "serde",
+ "serde_json",
  "thiserror 2.0.21",
+ "tokio",
+ "tracing",
+ "url",
+ "xml-resource",
  "xml-schema",
 ]
 
