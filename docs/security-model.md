@@ -57,6 +57,10 @@ The Saxon extension-function switch is defense in depth, not a URI sandbox.
 Until an engine-level brokered URI resolver exists, the SchXslt pipeline file is
 an explicitly trusted installed asset and schemas requiring external resources
 remain unavailable rather than receiving ambient filesystem or network access.
+The desktop accepts Java, Saxon, and SchXslt executable/asset paths only from
+its trusted host environment, never from a webview command or document. All
+three values are required together, and project Schematron is still resolved
+through the offline catalog and project-root policy.
 
 DTD completion extraction runs in the isolated libxml2 helper and uses the same
 deny-by-default resource callback as validation. Raw FFI pointers never cross

@@ -1941,6 +1941,7 @@ dependencies = [
  "xml-project",
  "xml-resource",
  "xml-schema",
+ "xml-schematron",
  "xml-syntax",
  "xml-validation",
  "xml-xpath",

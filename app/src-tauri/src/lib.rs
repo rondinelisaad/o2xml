@@ -21,6 +21,7 @@ use xml_jats::JatsInspection;
 use xml_project::ProjectManifest;
 use xml_resource::{CatalogResolver, ResourcePolicy};
 use xml_schema::{AttributeUse, ExpandedName, SchemaIndex, ValueConstraint};
+use xml_schematron::{SchXsltProcessEngine, SchXsltRequest};
 use xml_validation::{GrammarReference, Libxml2ProcessEngine, ValidationEngine, ValidationRequest};
 use xml_xpath::{Libxml2XPathEngine, XPathEngine, XPathReport, XPathRequest};
 use xml_xsd::{Libxml2XsdIndexEngine, XsdIndexEngine, XsdIndexRequest};
@@ -66,6 +67,7 @@ struct AnalysisPayload {
 struct FrameworkStagePayload {
     id: String,
     label: String,
+    engine: &'static str,
     status: FrameworkStageStatus,
     diagnostics: Vec<Diagnostic>,
 }
@@ -376,46 +378,133 @@ async fn validate_project_framework(
                 uri: &stage.logical_uri,
             },
         };
-        let result = engine
-            .validate(ValidationRequest {
+        let result = if stage.language == ValidationLanguage::Schematron {
+            validate_schematron_stage(
+                &engine,
+                &catalog,
+                &stage.logical_uri,
                 source,
                 revision,
                 file,
-                catalog: &catalog,
-                grammar,
-            })
-            .await;
-        let (status, diagnostics) = match result {
-            Ok(mut report) => {
-                for diagnostic in &mut report.diagnostics {
+            )
+            .await
+        } else {
+            engine
+                .validate(ValidationRequest {
+                    source,
+                    revision,
+                    file,
+                    catalog: &catalog,
+                    grammar,
+                })
+                .await
+                .map(|report| (report.diagnostics, "libxml2"))
+                .map_err(|error| error.to_string())
+        };
+        let (status, diagnostics, selected_engine) = match result {
+            Ok((mut diagnostics, selected_engine)) => {
+                for diagnostic in &mut diagnostics {
                     diagnostic.source.clone_from(&stage.source_label);
                 }
-                let status = if report.diagnostics.is_empty() {
+                let status = if diagnostics.is_empty() {
                     FrameworkStageStatus::Passed
                 } else {
                     FrameworkStageStatus::Failed
                 };
-                (status, report.diagnostics)
+                (status, diagnostics, selected_engine)
             }
-            Err(error) => (
-                FrameworkStageStatus::Unavailable,
-                vec![framework_stage_error(
-                    source,
-                    revision,
-                    file,
-                    &stage.source_label,
-                    &error.to_string(),
-                )],
-            ),
+            Err(error) => {
+                let selected_engine = if stage.language == ValidationLanguage::Schematron {
+                    "schematron"
+                } else {
+                    "libxml2"
+                };
+                (
+                    FrameworkStageStatus::Unavailable,
+                    vec![framework_stage_error(
+                        source,
+                        revision,
+                        file,
+                        &stage.source_label,
+                        &error,
+                    )],
+                    selected_engine,
+                )
+            }
         };
         stages.push(FrameworkStagePayload {
             id: stage.id,
             label: stage.source_label,
+            engine: selected_engine,
             status,
             diagnostics,
         });
     }
     Ok(stages)
+}
+
+async fn validate_schematron_stage(
+    baseline: &Libxml2ProcessEngine,
+    catalog: &CatalogResolver,
+    logical_uri: &str,
+    source: &str,
+    revision: Revision,
+    file: Option<&str>,
+) -> Result<(Vec<Diagnostic>, &'static str), String> {
+    let Some(engine) = schxslt_engine_from_environment()? else {
+        return baseline
+            .validate(ValidationRequest {
+                source,
+                revision,
+                file,
+                catalog,
+                grammar: GrammarReference::Schematron { uri: logical_uri },
+            })
+            .await
+            .map(|report| (report.diagnostics, "libxml2-schematron-baseline"))
+            .map_err(|error| error.to_string());
+    };
+    let resource = catalog
+        .resolve_uri(logical_uri)
+        .map_err(|error| error.to_string())?
+        .ok_or_else(|| "Schematron rules are not installed in the project catalog".to_owned())?;
+    const MAX_SCHEMATRON_BYTES: u64 = 16 * 1024 * 1024;
+    let metadata = fs::metadata(&resource.path)
+        .map_err(|error| format!("cannot inspect Schematron rules: {error}"))?;
+    if metadata.len() > MAX_SCHEMATRON_BYTES {
+        return Err("Schematron rules exceed the 16 MiB safety limit".to_owned());
+    }
+    let schematron = fs::read_to_string(&resource.path)
+        .map_err(|error| format!("cannot read Schematron rules as UTF-8: {error}"))?;
+    engine
+        .validate(SchXsltRequest {
+            source,
+            schematron: &schematron,
+            revision,
+            file,
+            phase: None,
+        })
+        .await
+        .map(|report| (report.diagnostics, "schxslt-saxon"))
+        .map_err(|error| error.to_string())
+}
+
+fn schxslt_engine_from_environment() -> Result<Option<SchXsltProcessEngine>, String> {
+    const JAVA: &str = "O2XML_JAVA";
+    const SAXON: &str = "O2XML_SAXON_JAR";
+    const SCHXSLT: &str = "O2XML_SCHXSLT_PIPELINE";
+    let values = [env::var_os(JAVA), env::var_os(SAXON), env::var_os(SCHXSLT)];
+    if values.iter().all(Option::is_none) {
+        return Ok(None);
+    }
+    let [Some(java), Some(saxon), Some(schxslt)] = values else {
+        return Err(format!(
+            "configure {JAVA}, {SAXON}, and {SCHXSLT} together to enable ISO Schematron"
+        ));
+    };
+    SchXsltProcessEngine::new(java, saxon, schxslt)
+        .map(Some)
+        .map_err(|error| format!("invalid ISO Schematron engine configuration: {error}"))
 }
 
 fn framework_stage_error(

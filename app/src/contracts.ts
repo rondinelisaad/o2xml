@@ -46,6 +46,7 @@ export interface AnalysisPayload {
 export interface FrameworkStage {
   id: string;
   label: string;
+  engine: string;
   status: "passed" | "failed" | "unavailable";
   diagnostics: Diagnostic[];
 }

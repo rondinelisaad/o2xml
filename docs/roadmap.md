@@ -120,7 +120,9 @@ Current progress:
   resolver before permitting includes, imports, or document/collection access.
 - [x] Wire project framework selection and catalog-installed assets into the
   desktop validation service, preserving separate JATS grammar and SPS rule
-  stages with passed/failed/unavailable state and labeled diagnostics.
+  stages with passed/failed/unavailable state, labeled diagnostics, and visible
+  engine provenance. A complete trusted host configuration selects SchXslt/Saxon;
+  absence selects the explicitly identified libxml2 baseline.
 - [x] Add synthetic golden fixtures and record SPS 1.11/JATS 1.4 as an explicit
   candidate manifest without changing the stable SPS 1.9/1.10 baselines.
 

@@ -590,7 +590,7 @@ function renderFrameworkStages(stages: FrameworkStage[]): void {
     const row = window.document.createElement("div");
     row.className = `tree-row static ${stage.status}`;
     row.textContent = `${stage.label}: ${stage.status}`;
-    row.title = `${stage.diagnostics.length} diagnostic(s)`;
+    row.title = `${stage.engine} · ${stage.diagnostics.length} diagnostic(s)`;
     return row;
   });
   frameworkStagesHost.replaceChildren(...rows);

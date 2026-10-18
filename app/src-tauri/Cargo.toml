@@ -26,6 +26,7 @@ xml-jats = { path = "../../crates/xml-jats" }
 xml-project = { path = "../../crates/xml-project" }
 xml-resource = { path = "../../crates/xml-resource" }
 xml-schema = { path = "../../crates/xml-schema" }
+xml-schematron = { path = "../../crates/xml-schematron" }
 xml-syntax = { path = "../../crates/xml-syntax" }
 xml-validation = { path = "../../crates/xml-validation" }
 xml-xsd = { path = "../../crates/xml-xsd" }
