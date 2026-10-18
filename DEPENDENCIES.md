@@ -10,6 +10,7 @@ phase gate. CI will add `cargo audit`, `cargo deny`, npm audit, and license chec
 | `tauri` 2 | Desktop lifecycle and typed IPC | MIT OR Apache-2.0 | Cross-platform Rust core; capabilities kept minimal |
 | `tauri-plugin-dialog` 2 | Native open/save dialog | MIT OR Apache-2.0 | Avoid custom platform dialog code |
 | `quick-xml` | Streaming XML events | MIT | Mature, fast Phase 1 well-formedness/outline/format foundation |
+| `reqwest` 0.13.5 + Rustls | Opt-in pinned HTTPS resource retrieval | MIT OR Apache-2.0 | Redirects/proxies disabled; per-hop DNS results are policy-checked and pinned; certificate and hostname verification remain enabled |
 | `ropey` | Large editable UTF-8 text | MIT | Logarithmic edits/queries and cheap thread-safe snapshots |
 | `serde`, `serde_json` | IPC/project data | MIT OR Apache-2.0 | Ubiquitous typed serialization; input limits still required |
 | `sha2` 0.11.1 | SHA-256 plugin entrypoint integrity | MIT OR Apache-2.0 | Maintained RustCrypto implementation; integrity only, never password hashing |
@@ -36,6 +37,12 @@ the syntax crate performs the full post-merge well-formedness gate.
 `xml-grid` reuses `quick-xml`, `serde`, `thiserror`, and the existing document,
 domain, and syntax crates for a bounded projection and full-document
 well-formedness gate. It adds no third-party dependency or native engine.
+
+`xml-resource` uses the async-only `reqwest` Rustls profile for explicit GET
+operations. This adds Hyper, Rustls, the platform certificate verifier, and the
+AWS-LC cryptographic provider, increasing build time and binary size. Compression,
+cookies, proxies, automatic redirects, authentication helpers, and HTTP/3 are
+not enabled by O2XML. TLS certificate and hostname checks are never bypassed.
 
 `xml-plugin-api` reuses `serde`, `serde_json`, `thiserror`, and `url` for its
 versioned inert protocol, manifest validation, and HTTPS-origin checks. It uses

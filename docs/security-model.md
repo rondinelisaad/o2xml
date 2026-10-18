@@ -173,7 +173,17 @@ through the policy, pin the connection to the approved set, and repeat URL/DNS
 approval after every redirect. Loopback, private, link-local, shared-address,
 benchmark, documentation, multicast, unspecified, and reserved IPv4/IPv6 ranges
 are rejected, including IPv4-mapped IPv6. Policy defaults cap redirects at three
-and a resource at 16 MiB. No HTTP/WebDAV connector is enabled yet.
+and a resource at 16 MiB.
+
+The opt-in HTTPS GET connector resolves each hop under a five-second deadline,
+checks every returned address, pins Reqwest to that approved address set while
+preserving TLS hostname verification, disables proxy discovery and automatic
+redirects, and repeats URL/DNS approval for each explicit redirect. Request and
+connect deadlines are bounded, `Content-Length` is checked when present, and
+streamed bytes are independently capped. URL credentials/fragments, non-HTTPS
+schemes, non-allowlisted redirect origins, non-success statuses, cookies, and
+authentication are rejected or unsupported. WebDAV and database adapters remain
+disabled.
 
 DTD completion extraction runs in the isolated libxml2 helper and uses the same
 deny-by-default resource callback as validation. Raw FFI pointers never cross

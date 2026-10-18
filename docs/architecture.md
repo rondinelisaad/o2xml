@@ -46,7 +46,7 @@ crate per acronym:
 | `xml-document` | rope-backed text, edits, line index, snapshot lifecycle |
 | `xml-syntax` | well-formedness, outline, formatting, lightweight associations |
 | `xml-project` | `project.toml`, workspace paths, scenarios, settings |
-| `xml-resource` | trust policy, catalog resolution, cache provenance |
+| `xml-resource` | trust policy, catalog resolution, and opt-in DNS-pinned HTTPS retrieval |
 | `xml-validation` | engine traits, pipeline, cancellation, diagnostic normalization |
 | `xml-xpath` | XPath query contract, supervised engine adapter, navigable results |
 | `xml-schema` | bounded common content-model index, regular-particle compiler, and completion queries |

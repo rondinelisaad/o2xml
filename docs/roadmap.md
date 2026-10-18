@@ -196,7 +196,10 @@ Current progress:
 - [x] Add the transport-independent opt-in HTTPS policy: exact origin/port
   allowlist, credential denial, public-IP DNS result gate, redirect/resource
   limits, and mandatory revalidation hooks for redirects.
-- [ ] Add opt-in remote resources, WebDAV, and database adapters.
+- [x] Add an opt-in Rustls HTTPS GET connector with DNS pinning, no proxy or
+  automatic redirects, per-hop policy revalidation, deadlines, and bounded
+  streaming response bodies.
+- [ ] Add WebDAV and database adapters over separate least-privilege contracts.
 - [ ] Add schema-preserving Author Mode after the structural editing primitives
   and conformance gates exist.
 

@@ -14,6 +14,9 @@ use thiserror::Error;
 use tracing::{debug, warn};
 use url::Url;
 
+mod remote;
+pub use remote::{RemoteFetchError, RemoteResource, RemoteResourceClient};
+
 const MAX_REMOTE_URI_BYTES: usize = 8 * 1024;
 
 #[derive(Clone, Debug, Eq, PartialEq)]

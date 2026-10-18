@@ -74,8 +74,10 @@ desktop MVP with a Rust core and a Tauri/CodeMirror interface.
   protocol through a Component Model root export, with no host imports, fresh
   bounded stores, fuel, epoch deadlines, memory/table/instance limits, and a
   second checksum gate immediately before compilation.
-  The remote-resource foundation remains opt-in and separately enforces HTTPS
-  origin allowlists plus DNS-result rejection for private/local/reserved ranges.
+  Remote resources remain opt-in: the Rustls connector enforces exact HTTPS
+  origin allowlists, rejects private/local/reserved DNS results, pins each
+  connection to the approved addresses, manually revalidates every redirect,
+  disables proxies, and bounds DNS/connect/request time plus response size.
   Schematron/JATS/SPS validation is not presented as complete while licensed
   upstream packs and conformance corpora are not installed.
 
