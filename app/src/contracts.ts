@@ -158,6 +158,59 @@ export interface GridEditPayload {
   schemaValidated: boolean;
 }
 
+export type AuthorRole =
+  | "document"
+  | "section"
+  | "heading"
+  | "paragraph"
+  | "list"
+  | "listItem"
+  | "caption"
+  | "figure"
+  | "table"
+  | "code"
+  | "emphasis"
+  | "link"
+  | "inline"
+  | "container";
+
+export interface AuthorTextRun {
+  id: number;
+  text: string;
+  sourceSpan: SourceSpan;
+  authorStart: number;
+  authorEnd: number;
+  editable: boolean;
+}
+
+export type AuthorContent =
+  | { kind: "element"; element: AuthorElement }
+  | { kind: "text"; run: AuthorTextRun };
+
+export interface AuthorElement {
+  name: string;
+  label: string;
+  role: AuthorRole;
+  span: SourceSpan;
+  content: AuthorContent[];
+}
+
+export interface AuthorDocument {
+  root: AuthorElement;
+  plainText: string;
+}
+
+export interface AuthorPayload {
+  revision: number;
+  document: AuthorDocument;
+}
+
+export interface AuthorEditPayload {
+  revision: number;
+  text: string;
+  schemaValidated: boolean;
+}
+
 export interface ProjectPayload {
   path: string;
   manifest: ProjectManifest;

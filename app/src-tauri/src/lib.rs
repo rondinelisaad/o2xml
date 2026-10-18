@@ -14,6 +14,7 @@ use std::{
 use serde::{Deserialize, Serialize};
 use tauri::State;
 use tracing_subscriber::EnvFilter;
+use xml_author::AuthorDocument;
 use xml_diff::{XmlDiffOptions, XmlDiffReport};
 use xml_document::{LineIndex, XmlDocument};
 use xml_domain::{Diagnostic, OutlineEntry, Revision, Severity};
@@ -144,6 +145,21 @@ struct GridPayload {
 #[derive(Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
 struct GridEditPayload {
+    revision: Revision,
+    text: String,
+    schema_validated: bool,
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct AuthorPayload {
+    revision: Revision,
+    document: AuthorDocument,
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct AuthorEditPayload {
     revision: Revision,
     text: String,
     schema_validated: bool,
@@ -1155,6 +1171,172 @@ async fn edit_grid_cell_inner(
     })
 }
 
+#[tauri::command]
+async fn inspect_author(id: u64, state: State<'_, AppState>) -> Result<AuthorPayload, String> {
+    let result = inspect_author_inner(id, &state).await;
+    let revision = result.as_ref().ok().map(|payload| payload.revision);
+    audit::event(
+        "author.inspect",
+        if result.is_ok() { "success" } else { "failure" },
+        "document",
+        id,
+        revision,
+        Some("native-bounded"),
+    );
+    result
+}
+
+async fn inspect_author_inner(
+    id: u64,
+    state: &State<'_, AppState>,
+) -> Result<AuthorPayload, String> {
+    let snapshot = {
+        let documents = state
+            .documents
+            .lock()
+            .map_err(|_| "document store is unavailable".to_owned())?;
+        documents
+            .get(&id)
+            .ok_or_else(|| "document is not open".to_owned())?
+            .snapshot()
+    };
+    let source = snapshot.text();
+    let document = tauri::async_runtime::spawn_blocking(move || xml_author::project(&source))
+        .await
+        .map_err(|error| format!("Author Mode worker failed: {error}"))?
+        .map_err(|error| error.to_string())?;
+    {
+        let documents = state
+            .documents
+            .lock()
+            .map_err(|_| "document store is unavailable".to_owned())?;
+        let current = documents
+            .get(&id)
+            .ok_or_else(|| "document is not open".to_owned())?;
+        if current.revision() != snapshot.revision() {
+            return Err("document changed while Author Mode was being built".to_owned());
+        }
+    }
+    Ok(AuthorPayload {
+        revision: snapshot.revision(),
+        document,
+    })
+}
+
+#[tauri::command]
+async fn edit_author_text(
+    id: u64,
+    run_id: u64,
+    value: String,
+    state: State<'_, AppState>,
+) -> Result<AuthorEditPayload, String> {
+    let result = edit_author_text_inner(id, run_id, value, &state).await;
+    let (revision, engine) = result
+        .as_ref()
+        .map(|payload| {
+            (
+                Some(payload.revision),
+                Some(if payload.schema_validated {
+                    "project-framework"
+                } else {
+                    "well-formedness"
+                }),
+            )
+        })
+        .unwrap_or((None, Some("author-transaction")));
+    audit::event(
+        "author.edit",
+        if result.is_ok() { "success" } else { "failure" },
+        "document",
+        id,
+        revision,
+        engine,
+    );
+    result
+}
+
+async fn edit_author_text_inner(
+    id: u64,
+    run_id: u64,
+    value: String,
+    state: &State<'_, AppState>,
+) -> Result<AuthorEditPayload, String> {
+    let (snapshot, file) = {
+        let documents = state
+            .documents
+            .lock()
+            .map_err(|_| "document store is unavailable".to_owned())?;
+        let document = documents
+            .get(&id)
+            .ok_or_else(|| "document is not open".to_owned())?;
+        (
+            document.snapshot(),
+            document
+                .path()
+                .map(|path| path.to_string_lossy().into_owned()),
+        )
+    };
+    let project = state
+        .project
+        .lock()
+        .map_err(|_| "project store is unavailable".to_owned())?
+        .clone();
+    let source = snapshot.text();
+    let text = tauri::async_runtime::spawn_blocking(move || {
+        xml_author::edit_text_run(&source, run_id, &value)
+    })
+    .await
+    .map_err(|error| format!("Author Mode edit worker failed: {error}"))?
+    .map_err(|error| error.to_string())?;
+
+    let applicable_project = project.filter(|project| {
+        file.as_deref()
+            .map(Path::new)
+            .is_none_or(|path| path.starts_with(&project.root))
+            && project.manifest.validation.framework.is_some()
+    });
+    let schema_validated = applicable_project.is_some();
+    if let Some(project) = applicable_project {
+        let stages =
+            validate_project_framework(&project, &text, snapshot.revision(), file.as_deref())
+                .await?;
+        if let Some(stage) = stages
+            .iter()
+            .find(|stage| !matches!(stage.status, FrameworkStageStatus::Passed))
+        {
+            let detail = stage
+                .diagnostics
+                .first()
+                .map(|diagnostic| diagnostic.message.as_str())
+                .unwrap_or("validation did not pass");
+            return Err(format!(
+                "Author Mode edit rejected by {}: {detail}",
+                stage.label
+            ));
+        }
+    }
+
+    {
+        let documents = state
+            .documents
+            .lock()
+            .map_err(|_| "document store is unavailable".to_owned())?;
+        let current = documents
+            .get(&id)
+            .ok_or_else(|| "document is not open".to_owned())?;
+        if current.revision() != snapshot.revision() {
+            return Err(
+                "document changed while the Author Mode edit was being validated".to_owned(),
+            );
+        }
+    }
+    Ok(AuthorEditPayload {
+        revision: snapshot.revision(),
+        text,
+        schema_validated,
+    })
+}
+
 fn framework_stage_error(
     source: &str,
     revision: Revision,
@@ -1721,6 +1903,8 @@ pub fn run() {
             merge_diff_hunk,
             inspect_grid,
             edit_grid_cell,
+            inspect_author,
+            edit_author_text,
             complete_dtd,
             complete_xsd,
             format_document,

@@ -2446,6 +2446,7 @@ dependencies = [
  "tracing",
  "tracing-subscriber",
  "url",
+ "xml-author",
  "xml-diff",
  "xml-document",
  "xml-domain",

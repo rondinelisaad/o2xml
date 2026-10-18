@@ -84,9 +84,11 @@ desktop MVP with a Rust core and a Tauri/CodeMirror interface.
   A separate BaseX REST adapter retrieves one XML document with GET under a
   fixed database scope. It accepts only non-administrative, transient
   credentials and exposes no query, command, mutation, or redirect surface.
-  The Author Mode core now projects bounded mixed XML into a source-mapped
-  structural tree and can replace an explicit plain-text run transactionally;
-  CDATA and entity-reference runs remain visible but read-only.
+  Author Mode now projects bounded mixed XML into a source-mapped structural
+  desktop view. Plain-text runs are edited transactionally, escaped, reparsed,
+  checked against the active project framework, revision-gated, and applied as
+  one undoable editor change. CDATA and entity-reference runs remain visible
+  but read-only; structural editing and track changes are not yet claimed.
   Schematron/JATS/SPS validation is not presented as complete while licensed
   upstream packs and conformance corpora are not installed.
 

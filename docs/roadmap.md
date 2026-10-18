@@ -207,8 +207,11 @@ Current progress:
   command, redirect, or mutation API. Additional engines remain future work.
 - [x] Add the bounded Author Mode projection core with mixed-content ordering,
   source/author span mapping, semantic roles, and reparsed plain-text-run edits.
-- [ ] Add schema-preserving Author Mode after the structural editing primitives
-  and conformance gates exist; desktop projection/edit integration remains.
+- [x] Add the initial desktop Author Mode with inert DOM rendering, source
+  navigation, source-cursor projection, plain-text paste, project-framework
+  validation, stale-revision rejection, and one undoable source transaction.
+  Structural element editing, track changes, and collaborative operations remain
+  later extensions.
 
 ## Cross-cutting performance track
 

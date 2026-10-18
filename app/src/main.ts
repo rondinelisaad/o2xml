@@ -26,6 +26,11 @@ import { open, save } from "@tauri-apps/plugin-dialog";
 
 import type {
   AnalysisPayload,
+  AuthorContent,
+  AuthorEditPayload,
+  AuthorElement,
+  AuthorPayload,
+  AuthorTextRun,
   Diagnostic,
   DiffPayload,
   DocumentPayload,
@@ -68,6 +73,7 @@ app.innerHTML = `
       </select>
       <button data-action="transform" disabled>Transform</button>
       <button data-action="diff">Compare…</button>
+      <button data-action="author">Author Mode</button>
       <button data-action="xpath">XPath</button>
       <span class="spacer"></span>
       <button data-action="theme" aria-label="Toggle color theme">Theme</button>
@@ -95,6 +101,13 @@ app.innerHTML = `
       <section class="editor-column">
         <div id="tabs" class="tabs"></div>
         <div id="editor" class="editor"></div>
+        <div id="author-view" class="author-view" hidden>
+          <div class="author-toolbar">
+            <strong>Structured Author Mode</strong>
+            <span>XML remains the source of truth · click an element label to inspect source</span>
+          </div>
+          <div id="author-document" class="author-document" aria-live="polite"></div>
+        </div>
       </section>
     </main>
     <section class="bottom-panel">
@@ -176,6 +189,9 @@ const gridRowElement = requiredElement<HTMLInputElement>("#grid-row-element");
 const gridResults = requiredElement<HTMLDivElement>("#grid-results");
 const gridRun = requiredElement<HTMLButtonElement>("#grid-run");
 const gridSummary = requiredElement<HTMLSpanElement>("#grid-summary");
+const authorView = requiredElement<HTMLDivElement>("#author-view");
+const authorDocumentHost = requiredElement<HTMLDivElement>("#author-document");
+const authorButton = requiredElement<HTMLButtonElement>("[data-action='author']");
 const transformScenario = requiredElement<HTMLSelectElement>("#transform-scenario");
 const transformButton = requiredElement<HTMLButtonElement>("[data-action='transform']");
 const outputPanel = requiredElement<HTMLDivElement>("#output-panel");
@@ -197,6 +213,8 @@ let analysisTimer: number | undefined;
 let suppressChanges = false;
 let diffOtherPath: string | null = null;
 let activeDiff: DiffPayload | null = null;
+let authorActive = false;
+let activeAuthor: AuthorPayload | null = null;
 
 const editor = new EditorView({
   parent: editorHost,
@@ -498,6 +516,7 @@ function activateDocument(id: number): void {
   if (current) current.viewState = editor.state;
   const next = documents.find((document) => document.id === id);
   if (!next) return;
+  showSourceMode();
   activeId = id;
   suppressChanges = true;
   editor.setState(next.viewState);
@@ -675,11 +694,226 @@ function byteToUtf16(text: string, targetByte: number): number {
   return utf16;
 }
 
+function utf16ToByte(text: string, targetUtf16: number): number {
+  return new TextEncoder().encode(text.slice(0, targetUtf16)).length;
+}
+
 function goToByte(byte: number): void {
   const text = editor.state.doc.toString();
   const position = Math.min(byteToUtf16(text, byte), editor.state.doc.length);
   editor.dispatch({ selection: { anchor: position }, scrollIntoView: true });
   editor.focus();
+}
+
+function showSourceMode(): void {
+  authorActive = false;
+  activeAuthor = null;
+  authorView.hidden = true;
+  editorHost.hidden = false;
+  authorButton.textContent = "Author Mode";
+}
+
+function showSourceAt(byte: number): void {
+  showSourceMode();
+  goToByte(byte);
+}
+
+async function toggleAuthorMode(): Promise<void> {
+  if (authorActive) {
+    showSourceMode();
+    setStatus("XML source mode");
+    return;
+  }
+  await runAuthorMode();
+}
+
+async function runAuthorMode(): Promise<void> {
+  const document = activeDocument();
+  if (!document) return;
+  if (document.dirty && !(await synchronize(document))) return;
+  setStatus("Building structured Author Mode…");
+  authorButton.disabled = true;
+  try {
+    const payload = await invoke<AuthorPayload>("inspect_author", { id: document.id });
+    if (document.id !== activeId || payload.revision !== document.revision) return;
+    activeAuthor = payload;
+    authorActive = true;
+    renderAuthor(payload);
+    editorHost.hidden = true;
+    authorView.hidden = false;
+    authorButton.textContent = "XML Source";
+    setStatus("Author Mode ready");
+  } catch (error) {
+    showSourceMode();
+    setStatus(String(error), true);
+  } finally {
+    authorButton.disabled = false;
+  }
+}
+
+function renderAuthor(payload: AuthorPayload): void {
+  const sourceByte = utf16ToByte(
+    editor.state.doc.toString(),
+    editor.state.selection.main.head,
+  );
+  const root = renderAuthorElement(payload, payload.document.root, 0);
+  authorDocumentHost.replaceChildren(root);
+  const mapped = Array.from(authorDocumentHost.querySelectorAll<HTMLElement>("[data-source-start]"))
+    .find((node) => {
+      const start = Number(node.dataset.sourceStart);
+      const end = Number(node.dataset.sourceEnd);
+      return sourceByte >= start && sourceByte < end;
+    });
+  if (mapped) {
+    mapped.classList.add("source-mapped");
+    mapped.scrollIntoView({ block: "center" });
+  }
+}
+
+function renderAuthorElement(
+  payload: AuthorPayload,
+  element: AuthorElement,
+  depth: number,
+): HTMLElement {
+  const inline = element.role === "emphasis" || element.role === "link" || element.role === "inline";
+  const node = window.document.createElement(inline ? "span" : "section");
+  node.className = `author-element author-role-${element.role}`;
+  node.dataset.depth = String(depth);
+  node.title = inline ? `${element.label} · line ${element.span.start.line}` : "";
+
+  if (!inline) {
+    const label = window.document.createElement("button");
+    label.className = "author-element-label";
+    label.type = "button";
+    label.textContent = element.label;
+    label.title = `Inspect <${element.label}> at line ${element.span.start.line}`;
+    label.addEventListener("click", () => showSourceAt(element.span.start.byte));
+    node.append(label);
+  }
+
+  const body = window.document.createElement(inline ? "span" : "div");
+  body.className = "author-element-content";
+  for (const content of element.content) {
+    body.append(renderAuthorContent(payload, content, depth + 1));
+  }
+  node.append(body);
+  return node;
+}
+
+function renderAuthorContent(
+  payload: AuthorPayload,
+  content: AuthorContent,
+  depth: number,
+): Node {
+  if (content.kind === "element") {
+    return renderAuthorElement(payload, content.element, depth);
+  }
+  return renderAuthorText(payload, content.run);
+}
+
+function renderAuthorText(payload: AuthorPayload, run: AuthorTextRun): HTMLElement {
+  const text = window.document.createElement("span");
+  text.className = run.editable ? "author-text editable" : "author-text readonly";
+  text.dataset.sourceStart = String(run.sourceSpan.start.byte);
+  text.dataset.sourceEnd = String(run.sourceSpan.end.byte);
+  text.textContent = run.text;
+  text.title = run.editable
+    ? `Editable XML text · line ${run.sourceSpan.start.line}`
+    : "Read-only lexical content (CDATA or entity reference)";
+  if (!run.editable) return text;
+
+  text.contentEditable = "plaintext-only";
+  text.spellcheck = true;
+  text.setAttribute("role", "textbox");
+  text.setAttribute("aria-label", `XML text on line ${run.sourceSpan.start.line}`);
+  text.addEventListener("keydown", (event) => {
+    if (event.key === "Enter") {
+      event.preventDefault();
+      text.blur();
+    }
+    if (event.key === "Escape") {
+      event.preventDefault();
+      text.textContent = run.text;
+      text.blur();
+    }
+  });
+  text.addEventListener("paste", (event) => {
+    event.preventDefault();
+    insertPlainText(event.clipboardData?.getData("text/plain") ?? "");
+  });
+  text.addEventListener("blur", () => {
+    const value = text.textContent ?? "";
+    if (value !== run.text) void editAuthorText(payload, run, value, text);
+  });
+  return text;
+}
+
+function insertPlainText(value: string): void {
+  const selection = window.getSelection();
+  if (!selection || selection.rangeCount === 0) return;
+  const range = selection.getRangeAt(0);
+  range.deleteContents();
+  const node = window.document.createTextNode(value);
+  range.insertNode(node);
+  range.setStartAfter(node);
+  range.collapse(true);
+  selection.removeAllRanges();
+  selection.addRange(range);
+}
+
+async function editAuthorText(
+  authorPayload: AuthorPayload,
+  run: AuthorTextRun,
+  value: string,
+  textNode: HTMLElement,
+): Promise<void> {
+  const document = activeDocument();
+  if (
+    !document
+    || !authorActive
+    || activeAuthor !== authorPayload
+    || authorPayload.revision !== document.revision
+    || editor.state.doc.toString() !== document.text
+  ) {
+    textNode.textContent = run.text;
+    setStatus("Author Mode is stale; rebuild it", true);
+    return;
+  }
+  textNode.contentEditable = "false";
+  setStatus("Validating Author Mode edit…");
+  try {
+    const payload = await invoke<AuthorEditPayload>("edit_author_text", {
+      id: document.id,
+      runId: run.id,
+      value,
+    });
+    if (
+      document.id !== activeId
+      || !authorActive
+      || payload.revision !== document.revision
+      || editor.state.doc.toString() !== document.text
+    ) {
+      showSourceMode();
+      setStatus("Document changed while the Author Mode edit was being validated", true);
+      return;
+    }
+    editor.dispatch({
+      changes: { from: 0, to: editor.state.doc.length, insert: payload.text },
+    });
+    const synchronized = await synchronize(document);
+    if (synchronized) {
+      setStatus(
+        payload.schemaValidated
+          ? "Schema-validated Author edit applied; Undo is available"
+          : "Well-formed Author edit applied; Undo is available",
+      );
+      await runAuthorMode();
+    }
+  } catch (error) {
+    textNode.textContent = run.text;
+    textNode.contentEditable = "plaintext-only";
+    setStatus(String(error), true);
+  }
 }
 
 function selectBottomPanel(name: "problems" | "output" | "xpath" | "xquery" | "grid"): void {
@@ -1298,6 +1532,7 @@ requiredElement<HTMLElement>(".menubar").addEventListener("click", (event) => {
   }
   if (action === "transform") void runTransformation();
   if (action === "diff") void openDiff();
+  if (action === "author") void toggleAuthorMode();
   if (action === "xpath") selectBottomPanel("xpath");
   if (action === "theme") toggleTheme();
 });

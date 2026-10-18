@@ -406,7 +406,10 @@ fn role_for(local: &str) -> AuthorRole {
         "code" | "preformat" => AuthorRole::Code,
         "bold" | "italic" | "underline" | "em" | "strong" | "sup" | "sub" => AuthorRole::Emphasis,
         "ext-link" | "xref" | "link" => AuthorRole::Link,
-        "named-content" | "styled-content" | "span" => AuthorRole::Inline,
+        "named-content" | "styled-content" | "span" | "surname" | "given-names" | "prefix"
+        | "suffix" | "email" | "uri" | "monospace" | "sc" | "strike" | "inline-formula" => {
+            AuthorRole::Inline
+        }
         _ => AuthorRole::Container,
     }
 }

@@ -139,6 +139,12 @@ reparses the whole XML. CDATA and general entity references are visible but
 read-only until their distinct lexical semantics can be preserved. The desktop
 layer applies the same project-framework gate and stale-revision check used by
 XML Grid before committing a projected edit to the authoritative rope.
+The webview creates all labels and document text with DOM `textContent`; source
+markup is never assigned to `innerHTML`. Editable runs accept plain-text paste,
+then invoke the Rust transaction and rebuild the projection from its accepted
+revision. Entering the mode maps and reveals the current source cursor; element
+labels navigate back to their exact source span. Switching documents discards
+the projection rather than carrying a mapping across document identities.
 
 ## Engine plan
 

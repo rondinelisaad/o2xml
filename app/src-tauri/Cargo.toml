@@ -21,6 +21,7 @@ tracing.workspace = true
 tracing-subscriber.workspace = true
 url.workspace = true
 xml-document = { path = "../../crates/xml-document" }
+xml-author = { path = "../../crates/xml-author" }
 xml-diff = { path = "../../crates/xml-diff" }
 xml-dtd = { path = "../../crates/xml-dtd" }
 xml-domain = { path = "../../crates/xml-domain" }

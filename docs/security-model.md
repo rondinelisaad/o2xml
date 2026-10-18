@@ -214,7 +214,11 @@ size-limited, XML-escaped, and accepted only after a full well-formedness parse;
 the desktop additionally performs project-framework validation and a revision
 gate. CDATA and general entity references are read-only, comments and processing
 instructions are preserved in source but omitted from the visual projection,
-and no raw HTML produced from document content is rendered.
+and no raw HTML produced from document content is rendered. The webview assigns
+only `textContent`, forces paste through a plain-text DOM text node, disables a
+run while validation is pending, and rebuilds the projection after an accepted
+revision. Audit events `author.inspect` and `author.edit` contain only result,
+opaque document ID, revision, and engine profile—not edited text or paths.
 
 DTD completion extraction runs in the isolated libxml2 helper and uses the same
 deny-by-default resource callback as validation. Raw FFI pointers never cross
