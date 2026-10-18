@@ -39,8 +39,11 @@ desktop MVP with a Rust core and a Tauri/CodeMirror interface.
   selection now runs JATS grammar and SPS rules as separate visible stages using
   only assets explicitly installed through the project catalog. SPS 1.11/JATS
   1.4 is exposed only as `SPS-1.11-candidate`, never as a silent default.
-- Phases 4–5: planned; Schematron/JATS/SPS validation is not presented as
-  complete yet.
+- Phase 4: in progress; a reusable transformation core and supervised Saxon HE
+  adapter execute self-contained XSLT with private staging, deadlines, bounded
+  accepted output, and denied external/dynamic resource access.
+- Phase 5: planned; Schematron/JATS/SPS validation is not presented as complete
+  while licensed upstream packs and conformance corpora are not installed.
 
 ## Build and run
 

@@ -4716,6 +4716,18 @@ dependencies = [
 ]
 
 [[package]]
+name = "xml-transform"
+version = "0.1.0"
+dependencies = [
+ "quick-xml 0.40.1",
+ "tempfile",
+ "thiserror 2.0.21",
+ "tokio",
+ "tracing",
+ "xml-domain",
+]
+
+[[package]]
 name = "xml-validation"
 version = "0.1.0"
 dependencies = [

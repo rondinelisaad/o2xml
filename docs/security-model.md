@@ -62,6 +62,13 @@ its trusted host environment, never from a webview command or document. All
 three values are required together, and project Schematron is still resolved
 through the offline catalog and project-root policy.
 
+The Phase 4 Saxon transformation adapter applies the same DTD-free input and
+trusted-host engine boundary. Its initial profile accepts only self-contained
+stylesheets: imports/includes, packages, schema imports, source documents,
+dynamic evaluation, secondary results, and known document/collection functions
+are denied before execution. This syntactic preflight is deliberately not
+described as a general URI sandbox; brokered resource support remains disabled.
+
 DTD completion extraction runs in the isolated libxml2 helper and uses the same
 deny-by-default resource callback as validation. Raw FFI pointers never cross
 the process boundary. Element, particle, attribute, and enumeration counts or

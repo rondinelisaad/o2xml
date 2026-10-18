@@ -22,6 +22,10 @@ phase gate. CI will add `cargo audit`, `cargo deny`, npm audit, and license chec
 | `pkg-config` 0.3 | Build-time discovery of system libxml2 | MIT OR Apache-2.0 | Small, established build helper; never shipped as application runtime code |
 | `tempfile` 3.27 | Private staging files for supervised JVM engines | MIT OR Apache-2.0 | Mature cross-platform implementation; named files default to owner-only permissions and are deleted on drop |
 
+`xml-transform` reuses the reviewed `quick-xml`, `tempfile`, `tokio`,
+`thiserror`, and `tracing` set; it introduces no additional third-party crate.
+Its Saxon adapter requires an explicit user-installed HE JAR.
+
 ## Phase 1 frontend
 
 | Dependency | Purpose | License | Rationale / constraint |

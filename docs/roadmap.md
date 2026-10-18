@@ -134,6 +134,18 @@ installed lawfully; golden diagnostics pass on synthetic articles.
 Add libxslt and Saxon HE adapters, transformation scenarios, safe HTML preview,
 and XQuery if the Saxon process contract proves portable.
 
+Current progress:
+
+- [x] Add a reusable Rust transformation core and supervised Saxon HE process
+  adapter for self-contained XSLT, with private staging, DTD/external resource
+  denial, deadlines, bounded stderr, and accepted-output limits.
+- [ ] Add the isolated libxslt XSLT 1.0 adapter behind the catalog broker.
+- [ ] Add project transformation scenarios and desktop execution/output panels.
+- [ ] Add a safe HTML preview that never grants transformed content application
+  privileges or ambient network access.
+- [ ] Evaluate the Saxon XQuery process contract separately; do not infer safety
+  from the XSLT adapter.
+
 Gate: filesystem/network sandbox tests pass and outputs are reproducible.
 
 ## Phase 5 — advanced workflows
