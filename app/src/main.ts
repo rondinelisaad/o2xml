@@ -24,6 +24,15 @@ import {
 import { invoke } from "@tauri-apps/api/core";
 import { open, save } from "@tauri-apps/plugin-dialog";
 
+import {
+  getLocale,
+  initializeLocale,
+  isLocale,
+  persistLocale,
+  t,
+  type MessageKey,
+} from "./i18n";
+
 import type {
   AnalysisPayload,
   AuthorContent,
@@ -58,44 +67,53 @@ interface OpenDocument extends DocumentPayload {
 const app = document.querySelector<HTMLDivElement>("#app");
 if (!app) throw new Error("application root is missing");
 
+initializeLocale(window.localStorage);
+document.documentElement.lang = getLocale();
+
 app.innerHTML = `
   <div class="shell">
     <header class="menubar">
       <strong class="brand">O2XML</strong>
-      <button data-action="new">New</button>
-      <button data-action="open">Open…</button>
-      <button data-action="save">Save</button>
-      <button data-action="project">Project…</button>
-      <button data-action="format">Pretty Print</button>
-      <button data-action="validate">Validate</button>
-      <select id="transform-scenario" class="transform-select" aria-label="Transformation scenario" disabled>
-        <option>No scenarios</option>
+      <button data-action="new">${t("menu.new")}</button>
+      <button data-action="open">${t("menu.open")}</button>
+      <button data-action="save">${t("menu.save")}</button>
+      <button data-action="project">${t("menu.project")}</button>
+      <button data-action="format">${t("menu.prettyPrint")}</button>
+      <button data-action="validate">${t("menu.validate")}</button>
+      <select id="transform-scenario" class="transform-select" aria-label="${t("transform.scenario")}" disabled>
+        <option>${t("transform.noScenarios")}</option>
       </select>
-      <button data-action="transform" disabled>Transform</button>
-      <button data-action="diff">Compare…</button>
-      <button data-action="author">Author Mode</button>
+      <button data-action="transform" disabled>${t("menu.transform")}</button>
+      <button data-action="diff">${t("menu.compare")}</button>
+      <button data-action="author">${t("menu.authorMode")}</button>
       <button data-action="xpath">XPath</button>
       <span class="spacer"></span>
-      <button data-action="theme" aria-label="Toggle color theme">Theme</button>
+      <label class="language-control"><span>${t("language.label")}</span>
+        <select id="language" aria-label="${t("language.label")}">
+          <option value="pt-BR">${t("language.portuguese")}</option>
+          <option value="en">${t("language.english")}</option>
+        </select>
+      </label>
+      <button data-action="theme" aria-label="${t("menu.toggleTheme")}">${t("menu.theme")}</button>
     </header>
     <main class="workspace">
       <aside class="sidebar">
         <section>
-          <h2>Project</h2>
-          <div id="project-title" class="muted">No project open</div>
+          <h2>${t("sidebar.project")}</h2>
+          <div id="project-title" class="muted">${t("sidebar.noProject")}</div>
           <div id="project-files" class="tree"></div>
         </section>
         <section class="outline-section">
-          <h2>Outline</h2>
+          <h2>${t("sidebar.outline")}</h2>
           <div id="outline" class="tree"></div>
         </section>
         <section class="outline-section">
-          <h2>JATS Inspector</h2>
-          <div id="jats-inspector" class="tree"><div class="empty">Not a JATS article</div></div>
+          <h2>${t("sidebar.jatsInspector")}</h2>
+          <div id="jats-inspector" class="tree"><div class="empty">${t("sidebar.notJats")}</div></div>
         </section>
         <section class="outline-section">
-          <h2>Validation Framework</h2>
-          <div id="framework-stages" class="tree"><div class="empty">No framework active</div></div>
+          <h2>${t("sidebar.validationFramework")}</h2>
+          <div id="framework-stages" class="tree"><div class="empty">${t("sidebar.noFramework")}</div></div>
         </section>
       </aside>
       <section class="editor-column">
@@ -103,8 +121,8 @@ app.innerHTML = `
         <div id="editor" class="editor"></div>
         <div id="author-view" class="author-view" hidden>
           <div class="author-toolbar">
-            <strong>Structured Author Mode</strong>
-            <span>XML remains the source of truth · click an element label to inspect source</span>
+            <strong>${t("author.title")}</strong>
+            <span>${t("author.description")}</span>
           </div>
           <div id="author-document" class="author-document" aria-live="polite"></div>
         </div>
@@ -112,57 +130,57 @@ app.innerHTML = `
     </main>
     <section class="bottom-panel">
       <div class="panel-tabs">
-        <button class="active" data-panel="problems">Problems <span id="problem-count">0</span></button>
-        <button data-panel="output">Output</button>
+        <button class="active" data-panel="problems">${t("panel.problems")} <span id="problem-count">0</span></button>
+        <button data-panel="output">${t("panel.output")}</button>
         <button data-panel="xpath">XPath</button>
         <button data-panel="xquery">XQuery</button>
-        <button data-panel="grid">XML Grid</button>
-        <span id="status" class="status">Ready</span>
+        <button data-panel="grid">${t("panel.grid")}</button>
+        <span id="status" class="status">${t("status.ready")}</span>
       </div>
       <div id="problems" class="panel-content active problems" data-panel-content="problems" aria-live="polite"></div>
-      <div id="output-panel" class="panel-content" data-panel-content="output"><div class="empty">No output</div></div>
+      <div id="output-panel" class="panel-content" data-panel-content="output"><div class="empty">${t("output.none")}</div></div>
       <div id="xpath-panel" class="panel-content xpath-panel" data-panel-content="xpath">
         <div class="xpath-controls">
-          <input id="xpath-expression" type="text" value="//*" aria-label="XPath expression" spellcheck="false" />
-          <button id="xpath-run" type="button">Run</button>
+          <input id="xpath-expression" type="text" value="//*" aria-label="${t("xpath.expression")}" spellcheck="false" />
+          <button id="xpath-run" type="button">${t("common.run")}</button>
         </div>
         <div class="xpath-body">
-          <label class="xpath-namespaces">Namespaces <span>one prefix=URI per line</span>
+          <label class="xpath-namespaces">${t("xpath.namespaces")} <span>${t("xpath.namespaceHint")}</span>
             <textarea id="xpath-namespaces" spellcheck="false" placeholder="j=http://jats.nlm.nih.gov"></textarea>
           </label>
-          <div id="xpath-results" class="xpath-results" aria-live="polite"><div class="empty">Run an XPath expression</div></div>
+          <div id="xpath-results" class="xpath-results" aria-live="polite"><div class="empty">${t("xpath.initial")}</div></div>
         </div>
       </div>
       <div id="xquery-panel" class="panel-content xquery-panel" data-panel-content="xquery">
         <div class="xquery-controls">
-          <textarea id="xquery-expression" spellcheck="false" aria-label="XQuery expression">for $title in //article-title return $title</textarea>
-          <button id="xquery-run" type="button">Run</button>
+          <textarea id="xquery-expression" spellcheck="false" aria-label="${t("xquery.expression")}">for $title in //article-title return $title</textarea>
+          <button id="xquery-run" type="button">${t("common.run")}</button>
         </div>
-        <div id="xquery-results" class="xquery-results" aria-live="polite"><div class="empty">Run a self-contained XQuery 3.1 expression</div></div>
+        <div id="xquery-results" class="xquery-results" aria-live="polite"><div class="empty">${t("xquery.initial")}</div></div>
       </div>
       <div id="grid-panel" class="panel-content grid-panel" data-panel-content="grid">
         <div class="grid-controls">
-          <input id="grid-row-element" type="text" aria-label="Repeated row element" placeholder="Auto-detect, or enter contrib" spellcheck="false" />
-          <button id="grid-run" type="button">Build Grid</button>
-          <span id="grid-summary" class="muted">Editable scalar text; click a row to navigate</span>
+          <input id="grid-row-element" type="text" aria-label="${t("grid.repeatedElement")}" placeholder="${t("grid.placeholder")}" spellcheck="false" />
+          <button id="grid-run" type="button">${t("grid.build")}</button>
+          <span id="grid-summary" class="muted">${t("grid.hint")}</span>
         </div>
-        <div id="grid-results" class="grid-results" aria-live="polite"><div class="empty">Build a grid from repeated sibling elements</div></div>
+        <div id="grid-results" class="grid-results" aria-live="polite"><div class="empty">${t("grid.initial")}</div></div>
       </div>
     </section>
   </div>
   <div id="diff-dialog" class="diff-dialog" hidden>
     <div class="diff-window" role="dialog" aria-modal="true" aria-labelledby="diff-title">
       <header class="diff-header">
-        <strong id="diff-title">XML-aware comparison</strong>
+        <strong id="diff-title">${t("diff.title")}</strong>
         <span id="diff-summary" class="muted"></span>
-        <label><input id="diff-ignore-whitespace" type="checkbox" /> Ignore formatting whitespace</label>
-        <button id="diff-use-right" type="button">Use right as current</button>
-        <button id="diff-close" type="button">Close</button>
+        <label><input id="diff-ignore-whitespace" type="checkbox" /> ${t("diff.ignoreWhitespace")}</label>
+        <button id="diff-use-right" type="button">${t("diff.useRight")}</button>
+        <button id="diff-close" type="button">${t("diff.close")}</button>
       </header>
       <div id="diff-hunks" class="diff-hunks"></div>
       <div class="diff-panes">
-        <section><h2 id="diff-left-title">Current</h2><div id="diff-left" class="diff-code"></div></section>
-        <section><h2 id="diff-right-title">Selected</h2><div id="diff-right" class="diff-code"></div></section>
+        <section><h2 id="diff-left-title">${t("diff.current")}</h2><div id="diff-left" class="diff-code"></div></section>
+        <section><h2 id="diff-right-title">${t("diff.selected")}</h2><div id="diff-right" class="diff-code"></div></section>
       </div>
     </div>
   </div>
@@ -204,6 +222,8 @@ const diffLeftTitle = requiredElement<HTMLHeadingElement>("#diff-left-title");
 const diffRightTitle = requiredElement<HTMLHeadingElement>("#diff-right-title");
 const diffIgnoreWhitespace = requiredElement<HTMLInputElement>("#diff-ignore-whitespace");
 const diffUseRight = requiredElement<HTMLButtonElement>("#diff-use-right");
+const languageSelect = requiredElement<HTMLSelectElement>("#language");
+languageSelect.value = getLocale();
 
 const theme = new Compartment();
 let dark = window.matchMedia("(prefers-color-scheme: dark)").matches;
@@ -539,7 +559,7 @@ function renderTabs(): void {
     const button = window.document.createElement("button");
     button.className = item.id === activeId ? "active" : "";
     button.textContent = `${item.name}${item.dirty ? " •" : ""}`;
-    button.title = item.path ?? "Unsaved document";
+    button.title = item.path ?? t("document.unsaved");
     button.addEventListener("click", () => activateDocument(item.id));
     return button;
   });
@@ -598,7 +618,7 @@ async function synchronize(document: OpenDocument): Promise<boolean> {
 }
 
 async function analyze(document: OpenDocument): Promise<void> {
-  setStatus("Validating…");
+  setStatus(t("validation.validating"));
   try {
     const result = await invoke<AnalysisPayload>("analyze_document", { id: document.id });
     if (document.id !== activeId || result.revision !== document.revision) return;
@@ -606,7 +626,10 @@ async function analyze(document: OpenDocument): Promise<void> {
     renderOutline(result.outline);
     renderJatsInspection(result.jatsInspection);
     renderFrameworkStages(result.frameworkStages);
-    setStatus(result.diagnostics.length === 0 ? "Well-formed" : "Validation failed", result.diagnostics.length > 0);
+    setStatus(
+      result.diagnostics.length === 0 ? t("validation.wellFormed") : t("validation.failed"),
+      result.diagnostics.length > 0,
+    );
   } catch (error) {
     setStatus(String(error), true);
   }
@@ -617,14 +640,14 @@ function renderProblems(diagnostics: Diagnostic[]): void {
   if (diagnostics.length === 0) {
     const empty = window.document.createElement("div");
     empty.className = "empty";
-    empty.textContent = "No well-formedness problems";
+    empty.textContent = t("validation.noProblems");
     problemsHost.replaceChildren(empty);
     return;
   }
   const rows = diagnostics.map((diagnostic) => {
     const row = window.document.createElement("button");
     row.className = `problem ${diagnostic.severity}`;
-    row.textContent = `${diagnostic.severity.toUpperCase()}  [${diagnostic.source}] ${diagnostic.message}  (${diagnostic.span.start.line}:${diagnostic.span.start.column})`;
+    row.textContent = `${translatedSeverity(diagnostic.severity)}  [${translatedDiagnosticSource(diagnostic.source)}] ${diagnostic.message}  (${diagnostic.span.start.line}:${diagnostic.span.start.column})`;
     row.addEventListener("click", () => goToByte(diagnostic.span.start.byte));
     return row;
   });
@@ -647,7 +670,7 @@ function renderJatsInspection(inspection: JatsInspection | null): void {
   if (!inspection) {
     const empty = window.document.createElement("div");
     empty.className = "empty";
-    empty.textContent = "Not a JATS article";
+    empty.textContent = t("sidebar.notJats");
     jatsInspectorHost.replaceChildren(empty);
     return;
   }
@@ -655,7 +678,7 @@ function renderJatsInspection(inspection: JatsInspection | null): void {
     const button = window.document.createElement("button");
     button.className = "tree-row";
     button.style.paddingInlineStart = `${12 + entry.depth * 16}px`;
-    button.textContent = entry.label;
+    button.textContent = translatedJatsLabel(entry.elementName, entry.label);
     button.title = entry.elementName;
     button.addEventListener("click", () => goToByte(entry.span.start.byte));
     return button;
@@ -667,18 +690,58 @@ function renderFrameworkStages(stages: FrameworkStage[]): void {
   if (stages.length === 0) {
     const empty = window.document.createElement("div");
     empty.className = "empty";
-    empty.textContent = "No framework active";
+    empty.textContent = t("sidebar.noFramework");
     frameworkStagesHost.replaceChildren(empty);
     return;
   }
   const rows = stages.map((stage) => {
     const row = window.document.createElement("div");
     row.className = `tree-row static ${stage.status}`;
-    row.textContent = `${stage.label}: ${stage.status}`;
-    row.title = `${stage.engine} · ${stage.diagnostics.length} diagnostic(s)`;
+    row.textContent = `${stage.label}: ${translatedFrameworkStatus(stage.status)}`;
+    row.title = `${stage.engine} · ${t("framework.diagnostics", { count: stage.diagnostics.length })}`;
     return row;
   });
   frameworkStagesHost.replaceChildren(...rows);
+}
+
+function translatedSeverity(severity: Diagnostic["severity"]): string {
+  if (severity === "error") return t("severity.error");
+  if (severity === "warning") return t("severity.warning");
+  return t("severity.info");
+}
+
+function translatedDiagnosticSource(source: string): string {
+  return source === "well-formedness" ? t("source.wellFormedness") : source;
+}
+
+function translatedFrameworkStatus(status: string): string {
+  const keys: Record<string, MessageKey> = {
+    passed: "framework.status.passed",
+    failed: "framework.status.failed",
+    skipped: "framework.status.skipped",
+    unavailable: "framework.status.unavailable",
+  };
+  const key = keys[status];
+  return key ? t(key) : status;
+}
+
+function translatedJatsLabel(elementName: string, fallback: string): string {
+  const keys: Record<string, MessageKey> = {
+    article: "jats.article",
+    front: "jats.front",
+    "journal-meta": "jats.journal-meta",
+    "article-meta": "jats.article-meta",
+    "title-group": "jats.title-group",
+    "article-title": "jats.article-title",
+    "contrib-group": "jats.contrib-group",
+    body: "jats.body",
+    sec: "jats.sec",
+    back: "jats.back",
+    "ref-list": "jats.ref-list",
+    "floats-group": "jats.floats-group",
+  };
+  const key = keys[elementName];
+  return key ? t(key) : fallback;
 }
 
 function byteToUtf16(text: string, targetByte: number): number {
@@ -710,7 +773,7 @@ function showSourceMode(): void {
   activeAuthor = null;
   authorView.hidden = true;
   editorHost.hidden = false;
-  authorButton.textContent = "Author Mode";
+  authorButton.textContent = t("menu.authorMode");
 }
 
 function showSourceAt(byte: number): void {
@@ -721,7 +784,7 @@ function showSourceAt(byte: number): void {
 async function toggleAuthorMode(): Promise<void> {
   if (authorActive) {
     showSourceMode();
-    setStatus("XML source mode");
+    setStatus(t("status.xmlSource"));
     return;
   }
   await runAuthorMode();
@@ -731,7 +794,7 @@ async function runAuthorMode(): Promise<void> {
   const document = activeDocument();
   if (!document) return;
   if (document.dirty && !(await synchronize(document))) return;
-  setStatus("Building structured Author Mode…");
+  setStatus(t("status.buildingAuthor"));
   authorButton.disabled = true;
   try {
     const payload = await invoke<AuthorPayload>("inspect_author", { id: document.id });
@@ -741,8 +804,8 @@ async function runAuthorMode(): Promise<void> {
     renderAuthor(payload);
     editorHost.hidden = true;
     authorView.hidden = false;
-    authorButton.textContent = "XML Source";
-    setStatus("Author Mode ready");
+    authorButton.textContent = t("menu.xmlSource");
+    setStatus(t("status.authorReady"));
   } catch (error) {
     showSourceMode();
     setStatus(String(error), true);
@@ -779,14 +842,17 @@ function renderAuthorElement(
   const node = window.document.createElement(inline ? "span" : "section");
   node.className = `author-element author-role-${element.role}`;
   node.dataset.depth = String(depth);
-  node.title = inline ? `${element.label} · line ${element.span.start.line}` : "";
+  node.title = inline ? `${element.label} · ${t("xpath.resultLine", { line: element.span.start.line })}` : "";
 
   if (!inline) {
     const label = window.document.createElement("button");
     label.className = "author-element-label";
     label.type = "button";
     label.textContent = element.label;
-    label.title = `Inspect <${element.label}> at line ${element.span.start.line}`;
+    label.title = t("author.inspect", {
+      element: element.label,
+      line: element.span.start.line,
+    });
     label.addEventListener("click", () => showSourceAt(element.span.start.byte));
     node.append(label);
   }
@@ -818,14 +884,14 @@ function renderAuthorText(payload: AuthorPayload, run: AuthorTextRun): HTMLEleme
   text.dataset.sourceEnd = String(run.sourceSpan.end.byte);
   text.textContent = run.text;
   text.title = run.editable
-    ? `Editable XML text · line ${run.sourceSpan.start.line}`
-    : "Read-only lexical content (CDATA or entity reference)";
+    ? t("author.editable", { line: run.sourceSpan.start.line })
+    : t("author.readOnly");
   if (!run.editable) return text;
 
   text.contentEditable = "plaintext-only";
   text.spellcheck = true;
   text.setAttribute("role", "textbox");
-  text.setAttribute("aria-label", `XML text on line ${run.sourceSpan.start.line}`);
+  text.setAttribute("aria-label", t("author.textAria", { line: run.sourceSpan.start.line }));
   text.addEventListener("keydown", (event) => {
     if (event.key === "Enter") {
       event.preventDefault();
@@ -876,11 +942,11 @@ async function editAuthorText(
     || editor.state.doc.toString() !== document.text
   ) {
     textNode.textContent = run.text;
-    setStatus("Author Mode is stale; rebuild it", true);
+    setStatus(t("status.authorStale"), true);
     return;
   }
   textNode.contentEditable = "false";
-  setStatus("Validating Author Mode edit…");
+  setStatus(t("status.validatingAuthorEdit"));
   try {
     const payload = await invoke<AuthorEditPayload>("edit_author_text", {
       id: document.id,
@@ -894,7 +960,7 @@ async function editAuthorText(
       || editor.state.doc.toString() !== document.text
     ) {
       showSourceMode();
-      setStatus("Document changed while the Author Mode edit was being validated", true);
+      setStatus(t("status.authorChanged"), true);
       return;
     }
     editor.dispatch({
@@ -904,8 +970,8 @@ async function editAuthorText(
     if (synchronized) {
       setStatus(
         payload.schemaValidated
-          ? "Schema-validated Author edit applied; Undo is available"
-          : "Well-formed Author edit applied; Undo is available",
+          ? t("status.authorSchemaApplied")
+          : t("status.authorWellFormedApplied"),
       );
       await runAuthorMode();
     }
@@ -933,7 +999,7 @@ async function runGrid(): Promise<void> {
   if (!document) return;
   if (document.dirty && !(await synchronize(document))) return;
   selectBottomPanel("grid");
-  setStatus("Building XML Grid…");
+  setStatus(t("status.buildingGrid"));
   gridRun.disabled = true;
   try {
     const rowElement = gridRowElement.value.trim() || null;
@@ -943,10 +1009,10 @@ async function runGrid(): Promise<void> {
     });
     if (document.id !== activeId || payload.revision !== document.revision) return;
     renderGrid(payload);
-    setStatus("XML Grid ready");
+    setStatus(t("status.gridReady"));
   } catch (error) {
     gridResults.replaceChildren(messageElement(String(error), "empty error-text"));
-    gridSummary.textContent = "Editable scalar text; click a row to navigate";
+    gridSummary.textContent = t("grid.hint");
     setStatus(String(error), true);
   } finally {
     gridRun.disabled = false;
@@ -955,13 +1021,17 @@ async function runGrid(): Promise<void> {
 
 function renderGrid(payload: GridPayload): void {
   const { grid } = payload;
-  gridSummary.textContent = `${grid.rows.length} ${grid.rowElement} row${grid.rows.length === 1 ? "" : "s"}${grid.truncated ? " (limited)" : ""}`;
+  gridSummary.textContent = t("grid.summary", {
+    count: grid.rows.length,
+    element: grid.rowElement,
+    limited: grid.truncated ? t("common.limited") : "",
+  });
   const table = window.document.createElement("table");
   table.className = "xml-grid-table";
   const head = window.document.createElement("thead");
   const headerRow = window.document.createElement("tr");
   const lineHeader = window.document.createElement("th");
-  lineHeader.textContent = "Line";
+  lineHeader.textContent = t("grid.line");
   headerRow.append(lineHeader);
   for (const column of grid.columns) {
     const cell = window.document.createElement("th");
@@ -973,7 +1043,7 @@ function renderGrid(payload: GridPayload): void {
   for (const [rowIndex, row] of grid.rows.entries()) {
     const tableRow = window.document.createElement("tr");
     tableRow.tabIndex = 0;
-    tableRow.title = `Go to line ${row.span.start.line}`;
+    tableRow.title = t("grid.goToLine", { line: row.span.start.line });
     const navigate = (): void => goToByte(row.span.start.byte);
     tableRow.addEventListener("click", navigate);
     tableRow.addEventListener("keydown", (event) => {
@@ -991,7 +1061,10 @@ function renderGrid(payload: GridPayload): void {
         const input = window.document.createElement("input");
         input.className = "grid-cell-input";
         input.value = gridCell.value;
-        input.setAttribute("aria-label", `${column} row ${rowIndex + 1}`);
+        input.setAttribute("aria-label", t("grid.cellAria", {
+          column,
+          row: rowIndex + 1,
+        }));
         input.addEventListener("click", (event) => event.stopPropagation());
         input.addEventListener("keydown", (event) => {
           event.stopPropagation();
@@ -1009,7 +1082,7 @@ function renderGrid(payload: GridPayload): void {
         cell.append(input);
       } else {
         cell.textContent = gridCell.value;
-        cell.title = "Read-only: attributes, repeated values, and mixed XML are not edited in Grid";
+        cell.title = t("grid.readOnly");
       }
       tableRow.append(cell);
     }
@@ -1031,11 +1104,11 @@ async function editGridCell(
     || gridPayload.revision !== document.revision
     || editor.state.doc.toString() !== document.text
   ) {
-    setStatus("XML Grid is stale; build it again", true);
+    setStatus(t("status.gridStale"), true);
     return;
   }
   input.disabled = true;
-  setStatus("Validating XML Grid edit…");
+  setStatus(t("status.validatingGridEdit"));
   try {
     const payload = await invoke<GridEditPayload>("edit_grid_cell", {
       id: document.id,
@@ -1050,7 +1123,7 @@ async function editGridCell(
       || editor.state.doc.toString() !== document.text
     ) {
       input.disabled = false;
-      setStatus("Document changed while the Grid edit was being validated", true);
+      setStatus(t("status.gridChanged"), true);
       return;
     }
     editor.dispatch({
@@ -1060,8 +1133,8 @@ async function editGridCell(
     if (synchronized) {
       setStatus(
         payload.schemaValidated
-          ? "Schema-validated Grid edit applied; Undo is available"
-          : "Well-formed Grid edit applied; Undo is available",
+          ? t("status.gridSchemaApplied")
+          : t("status.gridWellFormedApplied"),
       );
       await runGrid();
     }
@@ -1078,12 +1151,12 @@ function parseNamespaces(source: string): Record<string, string> {
     if (!line) continue;
     const separator = line.indexOf("=");
     if (separator <= 0 || separator === line.length - 1) {
-      throw new Error(`Invalid namespace binding on line ${index + 1}`);
+      throw new Error(t("namespace.invalidBinding", { line: index + 1 }));
     }
     const prefix = line.slice(0, separator).trim();
     const uri = line.slice(separator + 1).trim();
     if (!/^[A-Za-z_][A-Za-z0-9._-]*$/u.test(prefix)) {
-      throw new Error(`Invalid namespace prefix on line ${index + 1}`);
+      throw new Error(t("namespace.invalidPrefix", { line: index + 1 }));
     }
     namespaces[prefix] = uri;
   }
@@ -1095,7 +1168,7 @@ async function runXPath(): Promise<void> {
   if (!document) return;
   const expression = xpathExpression.value.trim();
   if (!expression) {
-    setStatus("Enter an XPath expression", true);
+    setStatus(t("status.enterXPath"), true);
     return;
   }
   let namespaces: Record<string, string>;
@@ -1107,7 +1180,7 @@ async function runXPath(): Promise<void> {
   }
   if (document.dirty && !(await synchronize(document))) return;
   selectBottomPanel("xpath");
-  setStatus("Evaluating XPath…");
+  setStatus(t("status.evaluatingXPath"));
   xpathRun.disabled = true;
   try {
     const report = await invoke<XPathReport>("evaluate_xpath", {
@@ -1117,7 +1190,7 @@ async function runXPath(): Promise<void> {
     });
     if (document.id !== activeId || report.revision !== document.revision) return;
     renderXPath(report);
-    setStatus("XPath complete");
+    setStatus(t("status.xpathComplete"));
   } catch (error) {
     xpathResults.replaceChildren(messageElement(String(error), "empty error-text"));
     setStatus(String(error), true);
@@ -1140,17 +1213,20 @@ function renderXPath(report: XPathReport): void {
   }
   const { items, truncated } = report.value.value;
   if (items.length === 0) {
-    xpathResults.replaceChildren(messageElement("No matching nodes", "empty"));
+    xpathResults.replaceChildren(messageElement(t("xpath.noMatches"), "empty"));
     return;
   }
   const summary = messageElement(
-    `${items.length} result${items.length === 1 ? "" : "s"}${truncated ? " (limited)" : ""}`,
+    t("xpath.results", {
+      count: items.length,
+      limited: truncated ? t("common.limited") : "",
+    }),
     "xpath-summary",
   );
   const rows = items.map((item) => {
     const row = window.document.createElement("button");
     row.className = "xpath-result";
-    row.textContent = `${item.path}  ·  line ${item.span.start.line}`;
+    row.textContent = `${item.path}  ·  ${t("xpath.resultLine", { line: item.span.start.line })}`;
     row.addEventListener("click", () => goToByte(item.span.start.byte));
     return row;
   });
@@ -1161,13 +1237,13 @@ async function runXQuery(): Promise<void> {
   const document = activeDocument();
   const query = xqueryExpression.value.trim();
   if (!document || !query) {
-    setStatus("Enter an XQuery expression", true);
+    setStatus(t("status.enterXQuery"), true);
     return;
   }
   if (document.dirty && !(await synchronize(document))) return;
   selectBottomPanel("xquery");
   xqueryRun.disabled = true;
-  setStatus("Evaluating XQuery…");
+  setStatus(t("status.evaluatingXQuery"));
   try {
     const report = await invoke<XQueryPayload>("evaluate_xquery", {
       id: document.id,
@@ -1175,14 +1251,14 @@ async function runXQuery(): Promise<void> {
     });
     if (document.id !== activeId || report.revision !== document.revision) return;
     const summary = messageElement(
-      `${report.engine} · ${report.bytes} bytes${report.truncated ? " · preview limited" : ""}`,
+      `${report.engine} · ${report.bytes} bytes${report.truncated ? t("xquery.previewLimited") : ""}`,
       "output-summary",
     );
     const output = window.document.createElement("pre");
     output.className = "output-preview";
     output.textContent = report.preview;
     xqueryResults.replaceChildren(summary, output);
-    setStatus("XQuery complete");
+    setStatus(t("status.xqueryComplete"));
   } catch (error) {
     xqueryResults.replaceChildren(messageElement(String(error), "empty error-text"));
     setStatus(String(error), true);
@@ -1207,7 +1283,7 @@ async function compareWithSelectedFile(): Promise<void> {
   const document = activeDocument();
   if (!document || !diffOtherPath) return;
   if (document.dirty && !(await synchronize(document))) return;
-  setStatus("Comparing XML…");
+  setStatus(t("status.comparing"));
   try {
     const result = await invoke<DiffPayload>("compare_document", {
       id: document.id,
@@ -1218,7 +1294,11 @@ async function compareWithSelectedFile(): Promise<void> {
     activeDiff = result;
     renderDiff(document, result);
     diffDialog.hidden = false;
-    setStatus(result.report.semanticEqual ? "XML is semantically equal" : `${result.report.hunks.length} XML difference(s)`);
+    setStatus(
+      result.report.semanticEqual
+        ? t("status.semanticEqual")
+        : t("status.xmlDifferences", { count: result.report.hunks.length }),
+    );
   } catch (error) {
     setStatus(String(error), true);
   }
@@ -1228,8 +1308,11 @@ function renderDiff(document: OpenDocument, result: DiffPayload): void {
   diffLeftTitle.textContent = document.name;
   diffRightTitle.textContent = result.otherName;
   diffSummary.textContent = result.report.semanticEqual
-    ? result.report.exactEqual ? "Exact match" : "Semantic match"
-    : `${result.report.hunks.length} hunk${result.report.hunks.length === 1 ? "" : "s"}${result.report.coarse ? " · coarse" : ""}`;
+    ? result.report.exactEqual ? t("diff.exactMatch") : t("diff.semanticMatch")
+    : t("diff.hunks", {
+      count: result.report.hunks.length,
+      coarse: result.report.coarse ? t("diff.coarse") : "",
+    });
   renderDiffLines(diffLeft, document.text, result.report.hunks.flatMap((hunk) => hunk.left ? [hunk.left] : []), "left");
   renderDiffLines(diffRight, result.otherText, result.report.hunks.flatMap((hunk) => hunk.right ? [hunk.right] : []), "right");
   const buttons = result.report.hunks.map((hunk, index) => {
@@ -1245,8 +1328,8 @@ function renderDiff(document: OpenDocument, result: DiffPayload): void {
     const apply = window.document.createElement("button");
     apply.type = "button";
     apply.className = "diff-apply";
-    apply.textContent = "Apply";
-    apply.title = "Apply this hunk from the right and re-parse the result";
+    apply.textContent = t("diff.apply");
+    apply.title = t("diff.applyTitle");
     apply.addEventListener("click", () => void applyDiffHunk(index));
     group.append(button, apply);
     return group;
@@ -1257,10 +1340,10 @@ function renderDiff(document: OpenDocument, result: DiffPayload): void {
 async function applyDiffHunk(index: number): Promise<void> {
   const document = activeDocument();
   if (!document || !activeDiff || !diffOtherPath || activeDiff.revision !== document.revision) {
-    setStatus("Comparison is stale; run it again", true);
+    setStatus(t("status.comparisonStale"), true);
     return;
   }
-  setStatus("Validating XML merge…");
+  setStatus(t("status.validatingMerge"));
   try {
     const payload = await invoke<MergePayload>("merge_diff_hunk", {
       id: document.id,
@@ -1273,7 +1356,7 @@ async function applyDiffHunk(index: number): Promise<void> {
       changes: { from: 0, to: editor.state.doc.length, insert: payload.text },
     });
     diffDialog.hidden = true;
-    setStatus("Validated XML hunk applied; Undo is available");
+    setStatus(t("status.hunkApplied"));
   } catch (error) {
     setStatus(String(error), true);
   }
@@ -1283,7 +1366,7 @@ function renderDiffLines(host: HTMLDivElement, source: string, spans: SourceSpan
   const lines = source.split(/\r?\n/u);
   if (lines.length > 50_000) {
     const preview = window.document.createElement("pre");
-    preview.textContent = `${source.slice(0, 2 * 1024 * 1024)}\n… display limited …`;
+    preview.textContent = `${source.slice(0, 2 * 1024 * 1024)}\n${t("diff.displayLimited")}`;
     host.replaceChildren(preview);
     return;
   }
@@ -1314,14 +1397,14 @@ function scrollDiffLine(host: HTMLDivElement, line: number | undefined): void {
 function useRightDiffVersion(): void {
   const document = activeDocument();
   if (!document || !activeDiff || activeDiff.revision !== document.revision) {
-    setStatus("Comparison is stale; run it again", true);
+    setStatus(t("status.comparisonStale"), true);
     return;
   }
   editor.dispatch({
     changes: { from: 0, to: editor.state.doc.length, insert: activeDiff.otherText },
   });
   diffDialog.hidden = true;
-  setStatus("Right version applied; Undo is available");
+  setStatus(t("status.rightApplied"));
 }
 
 async function createNew(): Promise<void> {
@@ -1352,7 +1435,7 @@ async function saveFile(): Promise<void> {
     const payload = await invoke<DocumentPayload>("save_document", { id: document.id, path: target });
     Object.assign(document, payload, { viewState: editor.state });
     renderTabs();
-    setStatus("Saved");
+    setStatus(t("status.saved"));
   } catch (error) {
     setStatus(String(error), true);
   }
@@ -1380,7 +1463,7 @@ async function openProject(): Promise<void> {
 function renderTransformScenarios(project: ProjectPayload): void {
   const scenarios = project.manifest.transform.scenarios;
   if (scenarios.length === 0) {
-    transformScenario.replaceChildren(new Option("No scenarios", ""));
+    transformScenario.replaceChildren(new Option(t("transform.noScenarios"), ""));
     transformScenario.disabled = true;
     transformButton.disabled = true;
     return;
@@ -1402,7 +1485,7 @@ async function runTransformation(): Promise<void> {
   if (document.dirty && !(await synchronize(document))) return;
   selectBottomPanel("output");
   transformButton.disabled = true;
-  setStatus("Transforming…");
+  setStatus(t("status.transforming"));
   try {
     const result = await invoke<TransformPayload>("run_transformation", {
       id: document.id,
@@ -1410,11 +1493,11 @@ async function runTransformation(): Promise<void> {
     });
     if (document.id !== activeId || result.revision !== document.revision) return;
     const summary = messageElement(
-      `${result.scenario} · ${result.engine} · ${result.mediaType} · ${result.bytesWritten} bytes → ${result.outputPath}${result.previewTruncated ? " · preview limited" : ""}`,
+      `${result.scenario} · ${result.engine} · ${result.mediaType} · ${result.bytesWritten} bytes → ${result.outputPath}${result.previewTruncated ? t("transform.previewLimited") : ""}`,
       "output-summary",
     );
     renderTransformationOutput(summary, result);
-    setStatus("Transformation complete");
+    setStatus(t("status.transformationComplete"));
   } catch (error) {
     outputPanel.replaceChildren(messageElement(String(error), "empty error-text"));
     setStatus(String(error), true);
@@ -1436,13 +1519,13 @@ function renderTransformationOutput(summary: HTMLDivElement, result: TransformPa
   controls.className = "output-view-controls";
   const textButton = window.document.createElement("button");
   textButton.type = "button";
-  textButton.textContent = "Source";
+  textButton.textContent = t("transform.source");
   const previewButton = window.document.createElement("button");
   previewButton.type = "button";
-  previewButton.textContent = "Safe preview";
+  previewButton.textContent = t("transform.safePreview");
   const frame = window.document.createElement("iframe");
   frame.className = "html-preview";
-  frame.title = "Sandboxed transformation preview";
+  frame.title = t("transform.previewTitle");
   frame.setAttribute("sandbox", "");
   frame.referrerPolicy = "no-referrer";
   frame.srcdoc = sanitizePreviewHtml(result.preview);
@@ -1478,7 +1561,7 @@ function sanitizePreviewHtml(source: string): string {
     "class", "id", "title", "lang", "dir", "colspan", "rowspan", "scope",
   ]);
   const elements = [...parsed.querySelectorAll("*")];
-  if (elements.length > 50_000) throw new Error("HTML preview exceeds the element limit");
+  if (elements.length > 50_000) throw new Error(t("transform.previewElementLimit"));
   for (const element of elements) {
     if (!element.isConnected) continue;
     const name = element.localName.toLowerCase();
@@ -1505,7 +1588,7 @@ async function formatActive(): Promise<void> {
   try {
     const formatted = await invoke<string>("format_document", { id: document.id, indentSize: 2 });
     editor.dispatch({ changes: { from: 0, to: editor.state.doc.length, insert: formatted } });
-    setStatus("Formatted");
+    setStatus(t("status.formatted"));
   } catch (error) {
     setStatus(String(error), true);
   }
@@ -1515,6 +1598,16 @@ function toggleTheme(): void {
   dark = !dark;
   document.documentElement.dataset.theme = dark ? "dark" : "light";
   editor.dispatch({ effects: theme.reconfigure(dark ? oneDark : []) });
+}
+
+function changeLanguage(value: string): void {
+  if (!isLocale(value) || value === getLocale()) return;
+  if (documents.some((document) => document.dirty) && !window.confirm(t("language.reloadWarning"))) {
+    languageSelect.value = getLocale();
+    return;
+  }
+  persistLocale(value, window.localStorage);
+  window.location.reload();
 }
 
 document.documentElement.dataset.theme = dark ? "dark" : "light";
@@ -1551,6 +1644,7 @@ xpathExpression.addEventListener("keydown", (event) => {
 });
 xqueryRun.addEventListener("click", () => void runXQuery());
 gridRun.addEventListener("click", () => void runGrid());
+languageSelect.addEventListener("change", () => changeLanguage(languageSelect.value));
 gridRowElement.addEventListener("keydown", (event) => {
   if (event.key === "Enter") void runGrid();
 });
