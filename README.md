@@ -112,7 +112,7 @@ npm run tauri dev
 
 The desktop locates the helper in the workspace build output or beside the app
 executable. Packagers can set `O2XML_LIBXML2_HELPER` to an explicit executable
-path until platform bundle assembly is automated.
+path. Release bundles stage the target-specific helper automatically.
 
 The bundled helper provides catalog-brokered XSLT 1.0 through libxslt. To opt
 into XSLT 3.0, set trusted host variables `O2XML_JAVA` and
@@ -143,6 +143,11 @@ A debug macOS bundle can be produced with:
 cd app
 npx tauri build --debug --bundles app
 ```
+
+The manual GitHub Actions release workflow builds draft installers for Linux,
+Windows, macOS Apple Silicon, and macOS Intel. See
+[docs/release.md](docs/release.md) for local packaging, CI operation, signing,
+smoke tests, and publication requirements.
 
 ## Repository layout
 

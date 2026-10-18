@@ -23,6 +23,7 @@ phase gate. CI will add `cargo audit`, `cargo deny`, npm audit, and license chec
 | `url` 2.5.8 | URI parsing and relative-reference resolution | MIT OR Apache-2.0 | Active rust-url project; avoids ad hoc catalog URI normalization |
 | `zeroize` 1.9 | Clear transient WebDAV passwords on drop | Apache-2.0 OR MIT | Small audited primitive; credentials are neither serialized nor logged |
 | `pkg-config` 0.3 | Build-time discovery of system libxml2 | MIT OR Apache-2.0 | Small, established build helper; never shipped as application runtime code |
+| `vcpkg` 0.2 | Build-time discovery of libxml2/libxslt on Windows MSVC | MIT OR Apache-2.0 | Uses the GitHub runner's pinned native dependency installation; never shipped as application runtime code |
 | `tempfile` 3.27 | Private staging files for supervised JVM engines | MIT OR Apache-2.0 | Mature cross-platform implementation; named files default to owner-only permissions and are deleted on drop |
 | `wasmtime` 48.0.6 LTS | Embedded WebAssembly Component Model plugin runtime | Apache-2.0 WITH LLVM-exception | Minimal Component Model/Cranelift/runtime features; no WASI host imports in the initial profile; bounded memory, fuel, instances, and deadline |
 | `wat` 1.262 (dev) | Compile the Component Model integration fixture | Apache-2.0 WITH LLVM-exception | Test-only parser; not linked into production artifacts |

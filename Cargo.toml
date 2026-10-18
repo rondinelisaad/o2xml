@@ -24,7 +24,7 @@ members = [
 resolver = "2"
 
 [workspace.package]
-version = "0.1.0"
+version = "0.2.0"
 edition = "2021"
 license = "MIT OR Apache-2.0"
 repository = "https://github.com/scieloorg/o2xml"
@@ -38,6 +38,7 @@ serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 sha2 = "0.11.1"
 pkg-config = "0.3"
+vcpkg = "0.2"
 tauri = "2"
 tauri-plugin-dialog = "2"
 tempfile = "3.27"

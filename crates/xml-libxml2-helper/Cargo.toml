@@ -15,6 +15,7 @@ xml-xsd = { path = "../xml-xsd" }
 
 [build-dependencies]
 pkg-config.workspace = true
+vcpkg.workspace = true
 
 [dev-dependencies]
 tokio.workspace = true

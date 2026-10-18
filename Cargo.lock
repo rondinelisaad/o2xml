@@ -2435,7 +2435,7 @@ dependencies = [
 
 [[package]]
 name = "o2xml-desktop"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "anyhow",
  "serde",
@@ -3055,7 +3055,7 @@ dependencies = [
  "once_cell",
  "socket2",
  "tracing",
- "windows-sys 0.60.2",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]
@@ -3370,7 +3370,7 @@ dependencies = [
  "security-framework",
  "security-framework-sys",
  "webpki-root-certs",
- "windows-sys 0.60.2",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]
@@ -4801,6 +4801,12 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "ba73ea9cf16a25df0c8caa16c51acb937d5712a8429db78a3ee29d5dcacd3a65"
 
 [[package]]
+name = "vcpkg"
+version = "0.2.15"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "accd4ea62f7bb7a82fe23066fb0957d48ef677f6eeb8215f372f52e48bb32426"
+
+[[package]]
 name = "version-compare"
 version = "0.2.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -5884,7 +5890,7 @@ dependencies = [
 
 [[package]]
 name = "xml-author"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "quick-xml 0.40.1",
  "serde",
@@ -5896,7 +5902,7 @@ dependencies = [
 
 [[package]]
 name = "xml-diff"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "quick-xml 0.40.1",
  "serde",
@@ -5908,7 +5914,7 @@ dependencies = [
 
 [[package]]
 name = "xml-document"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "ropey",
  "thiserror 2.0.21",
@@ -5917,14 +5923,14 @@ dependencies = [
 
 [[package]]
 name = "xml-domain"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "serde",
 ]
 
 [[package]]
 name = "xml-dtd"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "serde",
  "serde_json",
@@ -5938,7 +5944,7 @@ dependencies = [
 
 [[package]]
 name = "xml-framework"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "serde",
  "thiserror 2.0.21",
@@ -5946,7 +5952,7 @@ dependencies = [
 
 [[package]]
 name = "xml-grid"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "quick-xml 0.40.1",
  "serde",
@@ -5958,7 +5964,7 @@ dependencies = [
 
 [[package]]
 name = "xml-jats"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "quick-xml 0.40.1",
  "serde",
@@ -5969,12 +5975,13 @@ dependencies = [
 
 [[package]]
 name = "xml-libxml2-helper"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "pkg-config",
  "serde",
  "serde_json",
  "tokio",
+ "vcpkg",
  "xml-domain",
  "xml-dtd",
  "xml-framework",
@@ -5988,7 +5995,7 @@ dependencies = [
 
 [[package]]
 name = "xml-plugin-api"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "serde",
  "serde_json",
@@ -6004,7 +6011,7 @@ dependencies = [
 
 [[package]]
 name = "xml-project"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "serde",
  "thiserror 2.0.21",
@@ -6013,7 +6020,7 @@ dependencies = [
 
 [[package]]
 name = "xml-resource"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "quick-xml 0.40.1",
  "reqwest",
@@ -6026,7 +6033,7 @@ dependencies = [
 
 [[package]]
 name = "xml-schema"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "serde",
  "thiserror 2.0.21",
@@ -6034,7 +6041,7 @@ dependencies = [
 
 [[package]]
 name = "xml-schematron"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "quick-xml 0.40.1",
  "serde",
@@ -6049,7 +6056,7 @@ dependencies = [
 
 [[package]]
 name = "xml-syntax"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "quick-xml 0.40.1",
  "thiserror 2.0.21",
@@ -6059,7 +6066,7 @@ dependencies = [
 
 [[package]]
 name = "xml-transform"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "quick-xml 0.40.1",
  "serde",
@@ -6075,7 +6082,7 @@ dependencies = [
 
 [[package]]
 name = "xml-validation"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "quick-xml 0.40.1",
  "serde",
@@ -6092,7 +6099,7 @@ dependencies = [
 
 [[package]]
 name = "xml-xpath"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "serde",
  "serde_json",
@@ -6105,7 +6112,7 @@ dependencies = [
 
 [[package]]
 name = "xml-xsd"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "serde",
  "serde_json",

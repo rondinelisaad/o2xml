@@ -1,7 +1,7 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
   "productName": "O2XML",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "identifier": "org.scielo.o2xml",
   "build": {
     "beforeDevCommand": "npm run dev",
@@ -26,6 +26,9 @@
   "bundle": {
     "active": true,
     "targets": "all",
+    "externalBin": [
+      "binaries/xml-libxml2-helper"
+    ],
     "icon": [
       "generated-icons/32x32.png",
       "generated-icons/128x128.png",

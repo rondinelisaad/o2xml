@@ -1,0 +1,183 @@
+name: Build installers
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: o2xml-release
+  cancel-in-progress: false
+
+jobs:
+  quality:
+    name: Quality gates
+    runs-on: ubuntu-22.04
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@b725eda525362e7cf34af9a7243cac1e3f01a7ec
+        with:
+          toolchain: stable
+          components: rustfmt, clippy
+
+      - name: Install Node.js
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: app/package-lock.json
+
+      - name: Install Linux dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            libwebkit2gtk-4.1-dev \
+            libappindicator3-dev \
+            librsvg2-dev \
+            libxml2-dev \
+            libxslt1-dev \
+            pkg-config \
+            patchelf
+
+      - name: Test Rust workspace
+        run: |
+          cargo fmt --all -- --check
+          cargo clippy --workspace --all-targets --locked -- -D warnings
+          cargo test --workspace --locked
+
+      - name: Test frontend
+        working-directory: app
+        run: |
+          npm ci
+          npm run test:i18n
+          npm run build
+
+  installers:
+    name: ${{ matrix.name }}
+    needs: quality
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: Linux x64
+            os: ubuntu-22.04
+            target: x86_64-unknown-linux-gnu
+            bundles: deb,appimage
+          - name: Windows x64
+            os: windows-2022
+            target: x86_64-pc-windows-msvc
+            bundles: msi,nsis
+          - name: macOS Apple Silicon
+            os: macos-15
+            target: aarch64-apple-darwin
+            bundles: app,dmg
+          - name: macOS Intel
+            os: macos-15-intel
+            target: x86_64-apple-darwin
+            bundles: app,dmg
+
+    runs-on: ${{ matrix.os }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+
+      - name: Install Node.js
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: app/package-lock.json
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@b725eda525362e7cf34af9a7243cac1e3f01a7ec
+        with:
+          toolchain: stable
+          targets: ${{ matrix.target }}
+
+      - name: Install Linux dependencies
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            libwebkit2gtk-4.1-dev \
+            libappindicator3-dev \
+            librsvg2-dev \
+            libxml2-dev \
+            libxslt1-dev \
+            pkg-config \
+            patchelf
+
+      - name: Install macOS dependencies
+        if: runner.os == 'macOS'
+        run: brew install pkg-config libxml2 libxslt
+
+      - name: Configure macOS pkg-config
+        if: runner.os == 'macOS'
+        run: |
+          echo "PKG_CONFIG_PATH=$(brew --prefix libxml2)/lib/pkgconfig:$(brew --prefix libxslt)/lib/pkgconfig" >> "$GITHUB_ENV"
+
+      - name: Install Windows native dependencies
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          & "$env:VCPKG_INSTALLATION_ROOT\vcpkg.exe" install `
+            "libxml2:x64-windows-static-md" `
+            "libxslt:x64-windows-static-md"
+          "VCPKG_ROOT=$env:VCPKG_INSTALLATION_ROOT" | Out-File -Append -FilePath $env:GITHUB_ENV
+          "VCPKGRS_TRIPLET=x64-windows-static-md" | Out-File -Append -FilePath $env:GITHUB_ENV
+
+      - name: Install frontend dependencies
+        working-directory: app
+        run: npm ci
+
+      - name: Verify native runner target
+        shell: bash
+        run: test "$(rustc --print host-tuple)" = "${{ matrix.target }}"
+
+      - name: Build isolated XML helper on Unix
+        if: runner.os != 'Windows'
+        shell: bash
+        run: |
+          O2XML_STATIC_XML_LIBS=1 cargo build \
+            --locked \
+            --release \
+            --package xml-libxml2-helper \
+            --target "${{ matrix.target }}"
+          node app/scripts/stage-sidecar.mjs "${{ matrix.target }}"
+
+      - name: Build isolated XML helper on Windows
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          cargo build `
+            --locked `
+            --release `
+            --package xml-libxml2-helper `
+            --target "${{ matrix.target }}"
+          node app/scripts/stage-sidecar.mjs "${{ matrix.target }}"
+
+      - name: Build installers and create draft release
+        uses: tauri-apps/tauri-action@1deb371b0cd8bd54025b384f1cd735e725c4060f # action-v1.0.0
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          APPLE_SIGNING_IDENTITY: ${{ runner.os == 'macOS' && '-' || '' }}
+        with:
+          projectPath: app
+          tagName: o2xml-v__VERSION__
+          releaseName: O2XML v__VERSION__
+          releaseBody: |
+            Instaladores multiplataforma do O2XML.
+
+            Esta release permanece como rascunho até os smoke tests dos instaladores.
+          releaseDraft: true
+          prerelease: false
+          generateReleaseNotes: true
+          args: >-
+            --target ${{ matrix.target }}
+            --bundles ${{ matrix.bundles }}
