@@ -15,6 +15,7 @@ use xml_xsd::{XsdContent, XsdElementDeclaration};
 
 const XML_PARSE_NONET: c_int = 1 << 11;
 const XML_CHAR_ENCODING_NONE: c_int = 0;
+const XML_SCHEMATRON_OUT_ERROR: c_int = 1 << 3;
 
 type XmlDoc = c_void;
 type XmlDtd = c_void;
@@ -28,6 +29,9 @@ type XmlRelaxNgValidCtxt = c_void;
 type XmlSchema = c_void;
 type XmlSchemaParserCtxt = c_void;
 type XmlSchemaValidCtxt = c_void;
+type XmlSchematron = c_void;
+type XmlSchematronParserCtxt = c_void;
+type XmlSchematronValidCtxt = c_void;
 type XmlValidCtxt = c_void;
 type XmlXPathContext = c_void;
 type XmlNode = c_void;
@@ -40,6 +44,26 @@ type ExternalEntityLoader = Option<
         context: *mut XmlParserCtxt,
     ) -> *mut XmlParserInput,
 >;
+
+type StructuredErrorHandler =
+    Option<unsafe extern "C" fn(context: *mut c_void, error: *mut XmlErrorLayout)>;
+
+#[repr(C)]
+struct XmlErrorLayout {
+    domain: c_int,
+    code: c_int,
+    message: *mut c_char,
+    level: c_int,
+    file: *mut c_char,
+    line: c_int,
+    str1: *mut c_char,
+    str2: *mut c_char,
+    str3: *mut c_char,
+    int1: c_int,
+    int2: c_int,
+    context: *mut c_void,
+    node: *mut c_void,
+}
 
 #[repr(C)]
 struct ParserInputPrefix {
@@ -265,6 +289,24 @@ extern "C" {
     fn xmlRelaxNGNewValidCtxt(schema: *mut XmlRelaxNg) -> *mut XmlRelaxNgValidCtxt;
     fn xmlRelaxNGFreeValidCtxt(context: *mut XmlRelaxNgValidCtxt);
     fn xmlRelaxNGValidateDoc(context: *mut XmlRelaxNgValidCtxt, document: *mut XmlDoc) -> c_int;
+    fn xmlSchematronNewParserCtxt(url: *const c_char) -> *mut XmlSchematronParserCtxt;
+    fn xmlSchematronFreeParserCtxt(context: *mut XmlSchematronParserCtxt);
+    fn xmlSchematronParse(context: *mut XmlSchematronParserCtxt) -> *mut XmlSchematron;
+    fn xmlSchematronFree(schema: *mut XmlSchematron);
+    fn xmlSchematronNewValidCtxt(
+        schema: *mut XmlSchematron,
+        options: c_int,
+    ) -> *mut XmlSchematronValidCtxt;
+    fn xmlSchematronSetValidStructuredErrors(
+        context: *mut XmlSchematronValidCtxt,
+        handler: StructuredErrorHandler,
+        user_data: *mut c_void,
+    );
+    fn xmlSchematronFreeValidCtxt(context: *mut XmlSchematronValidCtxt);
+    fn xmlSchematronValidateDoc(
+        context: *mut XmlSchematronValidCtxt,
+        document: *mut XmlDoc,
+    ) -> c_int;
     fn xmlXPathNewContext(document: *mut XmlDoc) -> *mut XmlXPathContext;
     fn xmlXPathFreeContext(context: *mut XmlXPathContext);
     fn xmlXPathRegisterNs(
@@ -308,6 +350,7 @@ enum Mode {
     Xsd,
     #[serde(rename = "relax_ng")]
     RelaxNg,
+    Schematron,
     #[serde(rename = "xsd_index")]
     XsdIndex,
     XPath,
@@ -531,9 +574,12 @@ fn run() -> Result<bool, String> {
         xmlInitParser();
         xmlSetExternalEntityLoader(Some(match request.mode {
             Mode::XPath => deny_resource_loader,
-            Mode::Dtd | Mode::DtdIndex | Mode::Xsd | Mode::XsdIndex | Mode::RelaxNg => {
-                resource_loader
-            }
+            Mode::Dtd
+            | Mode::DtdIndex
+            | Mode::Xsd
+            | Mode::XsdIndex
+            | Mode::RelaxNg
+            | Mode::Schematron => resource_loader,
         }));
     }
 
@@ -588,6 +634,7 @@ fn run() -> Result<bool, String> {
             Mode::Dtd => validate_dtd(document_ptr, &grammar_uri, public_id.as_ref()),
             Mode::Xsd => validate_xsd(document_ptr, &grammar_uri),
             Mode::RelaxNg => validate_relax_ng(document_ptr, &grammar_uri),
+            Mode::Schematron => validate_schematron(document_ptr, &grammar_uri),
             Mode::DtdIndex => Err("DTD index request reached the validation path".into()),
             Mode::XsdIndex => Err("XSD index request reached the validation path".into()),
             Mode::XPath => Err("XPath request reached the validation path".into()),
@@ -1581,6 +1628,86 @@ unsafe fn validate_relax_ng(document: *mut XmlDoc, grammar_uri: &CString) -> Res
         xmlRelaxNGFree(schema);
     }
     Ok(result == 0)
+}
+
+unsafe fn validate_schematron(
+    document: *mut XmlDoc,
+    grammar_uri: &CString,
+) -> Result<bool, String> {
+    let parser = unsafe { xmlSchematronNewParserCtxt(grammar_uri.as_ptr()) };
+    if parser.is_null() {
+        return Err("cannot allocate Schematron parser context".into());
+    }
+    let schema = unsafe { xmlSchematronParse(parser) };
+    unsafe { xmlSchematronFreeParserCtxt(parser) };
+    if schema.is_null() {
+        return Ok(false);
+    }
+    let context = unsafe { xmlSchematronNewValidCtxt(schema, XML_SCHEMATRON_OUT_ERROR) };
+    if context.is_null() {
+        unsafe { xmlSchematronFree(schema) };
+        return Err("cannot allocate Schematron validation context".into());
+    }
+    unsafe {
+        xmlSchematronSetValidStructuredErrors(
+            context,
+            Some(schematron_structured_error),
+            ptr::null_mut(),
+        )
+    };
+    let result = unsafe { xmlSchematronValidateDoc(context, document) };
+    unsafe {
+        xmlSchematronFreeValidCtxt(context);
+        xmlSchematronFree(schema);
+    }
+    Ok(result == 0)
+}
+
+unsafe extern "C" fn schematron_structured_error(
+    _context: *mut c_void,
+    error: *mut XmlErrorLayout,
+) {
+    if error.is_null() {
+        return;
+    }
+    let message = unsafe { optional_c_string((*error).message) }
+        .unwrap_or_else(|| "Schematron assertion failed".to_owned());
+    let message = message
+        .chars()
+        .take(8 * 1024)
+        .map(|character| {
+            if character.is_control() {
+                ' '
+            } else {
+                character
+            }
+        })
+        .collect::<String>();
+    let error_line = unsafe { (*error).line };
+    let error_node = unsafe { (*error).node };
+    let node_line = if error_node.is_null() {
+        0
+    } else {
+        unsafe { xmlGetLineNo(error_node) }
+    };
+    let line = i64::from(error_line).max(node_line).max(1);
+    let output = format!(
+        "document.xml:{line}: schematron error : {}\n",
+        message.trim()
+    );
+    let mut stderr = io::stderr().lock();
+    let _ = stderr.write_all(output.as_bytes());
+}
+
+unsafe fn optional_c_string(pointer: *const c_char) -> Option<String> {
+    if pointer.is_null() {
+        return None;
+    }
+    Some(
+        unsafe { CStr::from_ptr(pointer) }
+            .to_string_lossy()
+            .into_owned(),
+    )
 }
 
 unsafe fn evaluate_xpath(

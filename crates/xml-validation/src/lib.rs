@@ -38,6 +38,9 @@ pub enum GrammarReference<'a> {
     RelaxNgCompact {
         uri: &'a str,
     },
+    Schematron {
+        uri: &'a str,
+    },
 }
 
 impl GrammarReference<'_> {
@@ -47,6 +50,7 @@ impl GrammarReference<'_> {
             Self::Xsd { .. } => "libxml2-xsd",
             Self::RelaxNg { .. } => "libxml2-relax-ng",
             Self::RelaxNgCompact { .. } => "jing-rnc",
+            Self::Schematron { .. } => "libxml2-schematron",
         }
     }
 }
@@ -335,6 +339,7 @@ impl<'a> HelperRequest<'a> {
             GrammarReference::Xsd { uri } => ("xsd", uri, None),
             GrammarReference::RelaxNg { uri } => ("relax_ng", uri, None),
             GrammarReference::RelaxNgCompact { .. } => ("unsupported", "", None),
+            GrammarReference::Schematron { uri } => ("schematron", uri, None),
         };
         Self {
             mode,
@@ -487,6 +492,7 @@ fn resolve_broker_resource(
         GrammarReference::Xsd { uri } => url == uri,
         GrammarReference::RelaxNg { uri } => url == uri,
         GrammarReference::RelaxNgCompact { uri } => url == uri,
+        GrammarReference::Schematron { uri } => url == uri,
     };
     if is_root {
         return Ok(root.clone());
@@ -583,6 +589,7 @@ fn resolve_grammar(
         GrammarReference::Xsd { uri } => catalog.resolve_uri(uri)?,
         GrammarReference::RelaxNg { uri } => catalog.resolve_uri(uri)?,
         GrammarReference::RelaxNgCompact { uri } => catalog.resolve_uri(uri)?,
+        GrammarReference::Schematron { uri } => catalog.resolve_uri(uri)?,
     };
     resolved.ok_or(ValidationError::GrammarNotFound)
 }

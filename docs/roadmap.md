@@ -111,6 +111,8 @@ Current progress:
   and run the upstream conformance corpus with the real user-installed JAR.
 - [x] Add bounded SVRL parsing for failed assertions and successful reports,
   severity metadata, rule identity, and navigable diagnostic normalization.
+- [x] Add a catalog-brokered, process-isolated libxml2 Schematron baseline for
+  immediate XPath 1.0 assertions with bounded structured diagnostics.
 - [ ] Add the policy-controlled SchXslt/Saxon execution pipeline that produces
   SVRL from ISO Schematron.
 - [ ] Wire framework selection, installed assets, and separate grammar/rule

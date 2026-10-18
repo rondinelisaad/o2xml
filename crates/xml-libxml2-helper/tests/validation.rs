@@ -24,7 +24,7 @@ fn runtime() -> Result<tokio::runtime::Runtime, std::io::Error> {
 }
 
 #[test]
-fn validates_dtd_xsd_relax_ng_and_brokered_dependencies() -> Result<(), Box<dyn Error>> {
+fn validates_dtd_xsd_relax_ng_schematron_and_brokered_dependencies() -> Result<(), Box<dyn Error>> {
     let engine = Libxml2ProcessEngine::new(env!("CARGO_BIN_EXE_xml-libxml2-helper"))?;
     let catalog = resolver()?;
     let runtime = runtime()?;
@@ -85,6 +85,24 @@ fn validates_dtd_xsd_relax_ng_and_brokered_dependencies() -> Result<(), Box<dyn 
             uri: "https://example.org/article.rng",
         },
     }))?;
+    let schematron_report = runtime.block_on(engine.validate(ValidationRequest {
+        source: "<article article-type=\"research-article\"/>",
+        revision: Revision(7),
+        file: Some("article.xml"),
+        catalog: &catalog,
+        grammar: GrammarReference::Schematron {
+            uri: "https://example.org/article.sch",
+        },
+    }))?;
+    let invalid_schematron = runtime.block_on(engine.validate(ValidationRequest {
+        source: "<article/>",
+        revision: Revision(8),
+        file: Some("invalid.xml"),
+        catalog: &catalog,
+        grammar: GrammarReference::Schematron {
+            uri: "https://example.org/article.sch",
+        },
+    }))?;
 
     assert!(dtd_report.diagnostics.is_empty());
     assert_eq!(dtd_report.approved_grammar_resources, 2);
@@ -95,6 +113,15 @@ fn validates_dtd_xsd_relax_ng_and_brokered_dependencies() -> Result<(), Box<dyn 
     assert!(relax_ng_report.diagnostics.is_empty());
     assert_eq!(relax_ng_report.approved_grammar_resources, 2);
     assert!(!invalid_relax_ng.diagnostics.is_empty());
+    assert!(schematron_report.diagnostics.is_empty());
+    assert!(!invalid_schematron.diagnostics.is_empty());
+    assert!(
+        invalid_schematron.diagnostics[0]
+            .message
+            .contains("article-type"),
+        "unexpected Schematron diagnostics: {:?}",
+        invalid_schematron.diagnostics
+    );
     Ok(())
 }
 

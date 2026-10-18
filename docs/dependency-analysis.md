@@ -28,8 +28,9 @@ claim that a version is current.
    resource broker. A supervised Jing V20241231 adapter handles self-contained
    RNC. RNC `include`/`external` stays denied until a brokered resolver replaces
    Jing's ambient resource access.
-10. **Schematron:** ISO Schematron compiled to XSLT/SVRL using SchXslt or the ISO
-    skeleton, then executed by a selected XSLT processor. Quick Fix is later.
+10. **Schematron:** an isolated libxml2 baseline provides immediate XPath 1.0
+    assertions behind the catalog broker. Conforming ISO processing compiles to
+    XSLT/SVRL with SchXslt and Saxon; Quick Fix remains later.
 11. **XPath:** libxml2 for 1.0; Saxon HE for non-schema-aware 3.1.
 12. **XSLT:** libxslt for 1.0; Saxon HE for 3.0. Each scenario names its engine.
 13. **XQuery:** Saxon HE in a supervised JVM process; XQuery is Phase 4 and can
@@ -69,7 +70,8 @@ claim that a version is current.
 | XSD 1.1 | Xerces2-J special distribution | No (JVM) | Apache-2.0 | EXPERIMENTAL | 5 |
 | RELAX NG XML | libxml2 helper | No | MIT | MEDIUM | 3 |
 | RELAX NG compact | Jing V20241231 | No (JVM) | 3-clause BSD | MEDIUM | 3 |
-| Schematron | SchXslt/ISO skeleton + XSLT | No | MIT / implementation-specific | HIGH | 3 |
+| Schematron baseline | libxml2 helper | No | MIT | HIGH | 3 |
+| ISO Schematron/SVRL | SchXslt + Saxon HE | No | MIT / MPL-2.0 | HIGH | 3–4 |
 | XPath 1.0 | libxml2 | No | MIT | MEDIUM | 2 |
 | XPath 3.1 | Saxon HE | No (JVM) | MPL-2.0 | MEDIUM | 2 |
 | XSLT 1.0 | libxslt | No (C) | MIT | HIGH | 4 |

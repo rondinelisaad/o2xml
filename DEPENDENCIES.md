@@ -33,7 +33,8 @@ phase gate. CI will add `cargo audit`, `cargo deny`, npm audit, and license chec
 
 ## Future external engines
 
-libxml2 2.9+ (MIT) is now required to build the isolated DTD/XSD/RELAX NG validation
+libxml2 2.9+ (MIT) is now required to build the isolated
+DTD/XSD/RELAX NG/Schematron validation
 helper. The Rust core does not link to libxml2: the helper is a separate process
 and all grammar bytes are brokered through the native catalog policy. Jing
 (3-clause BSD) is an optional, user-installed adapter for self-contained RNC;

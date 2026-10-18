@@ -32,7 +32,8 @@ desktop MVP with a Rust core and a Tauri/CodeMirror interface.
   self-contained compact syntax has an optional supervised Jing adapter, while
   RNC resource directives remain denied pending a fully brokered resolver. The
   Schematron core now normalizes bounded SVRL reports into navigable diagnostics;
-  SchXslt/Saxon execution is the next pipeline increment.
+  an isolated libxml2 baseline executes XPath 1.0 assertions, while SchXslt/Saxon
+  remains the conforming ISO/SVRL pipeline increment.
 - Phases 4–5: planned; Schematron/JATS/SPS validation is not presented as
   complete yet.
 

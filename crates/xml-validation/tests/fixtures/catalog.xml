@@ -15,4 +15,5 @@
   <uri name="https://example.org/article.rng" uri="schemas/article.rng"/>
   <uri name="https://example.org/body.rng" uri="schemas/body.rng"/>
   <uri name="https://example.org/escape.rng" uri="schemas/escape.rng"/>
+  <uri name="https://example.org/article.sch" uri="schemas/article.sch"/>
 </catalog>
