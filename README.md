@@ -12,7 +12,7 @@ desktop MVP with a Rust core and a Tauri/CodeMirror interface.
 
 - Phase 0: architecture and technical investigation documented.
 - Phase 1: desktop MVP implemented and verified on macOS.
-- Phase 2: in progress; offline XML Catalog resolution, isolated libxml2 DTD/XSD
+- Phase 2: complete; offline XML Catalog resolution, isolated libxml2 DTD/XSD
   validation, XPath 1.0 with a desktop query panel, and the common schema
   content-model index are implemented. Normalized DTD particles can already be
   compiled for completion and extracted through the isolated libxml2 helper;
@@ -21,11 +21,13 @@ desktop MVP with a Rust core and a Tauri/CodeMirror interface.
   engine, and global declarations are extracted through the catalog-brokered
   libxml2 helper. Local sequence/choice particles, occurrences, references, and
   attribute uses are projected from libxml2-resolved types. Same-document
-  attribute groups and enumeration facets are supported; model groups, exact
-  `all`, constrained wildcards, inherited content, cross-document groups, and
-  advanced XSD content-model projection remains.
-- Phases 3–5: planned; Schematron/JATS/SPS validation is not presented as
-  implemented yet.
+  attribute groups, model groups, exact `all`, constrained wildcards, inherited
+  content, and cross-document groups are supported.
+- Phase 3: in progress; the bounded framework registry models SPS 1.9/JATS 1.1
+  and SPS 1.10/JATS 1.3 as separate grammar and rules stages. External JATS/SPS
+  assets remain user-supplied and are not redistributed by O2XML.
+- Phases 4–5: planned; Schematron/JATS/SPS validation is not presented as
+  complete yet.
 
 ## Build and run
 

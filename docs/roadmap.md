@@ -94,6 +94,19 @@ Add RNG/RNC, ISO Schematron/SVRL, JATS inspector, and versioned SPS 1.9/1.10
 framework manifests. Investigate SPS 1.11/JATS 1.4 as a compatible manifest,
 without changing the committed baseline silently.
 
+Current progress:
+
+- [x] Add a bounded, serializable framework registry with explicit grammar and
+  Schematron rule stages for SPS 1.9/JATS 1.1 and SPS 1.10/JATS 1.3.
+- [x] Mark JATS/SPS assets as externally required so licensed or third-party
+  resources are never silently redistributed.
+- [ ] Add the JATS structural inspector.
+- [ ] Add supervised Relax NG/RNC validation.
+- [ ] Add ISO Schematron validation with normalized SVRL diagnostics.
+- [ ] Wire framework selection, installed assets, and separate grammar/rule
+  diagnostics into project and desktop services.
+- [ ] Add synthetic golden fixtures and investigate SPS 1.11/JATS 1.4.
+
 Gate: JATS grammar and SPS rules are reported separately; licensed resources are
 installed lawfully; golden diagnostics pass on synthetic articles.
 

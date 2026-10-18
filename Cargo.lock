@@ -4592,6 +4592,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "xml-framework"
+version = "0.1.0"
+dependencies = [
+ "serde",
+ "thiserror 2.0.21",
+]
+
+[[package]]
 name = "xml-libxml2-helper"
 version = "0.1.0"
 dependencies = [
