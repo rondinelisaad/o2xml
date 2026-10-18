@@ -1757,6 +1757,9 @@ unsafe extern "C" fn schematron_structured_error(
     } else {
         unsafe { xmlGetLineNo(error_node) }
     };
+    // `c_long` is i32 on Windows/MSVC and i64 on the supported Unix targets.
+    #[allow(clippy::useless_conversion)]
+    let node_line = i64::from(node_line);
     let line = i64::from(error_line).max(node_line).max(1);
     let output = format!(
         "document.xml:{line}: schematron error : {}\n",
