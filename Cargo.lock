@@ -1929,7 +1929,10 @@ dependencies = [
  "tracing-subscriber",
  "xml-document",
  "xml-domain",
+ "xml-dtd",
  "xml-project",
+ "xml-resource",
+ "xml-schema",
  "xml-syntax",
  "xml-xpath",
 ]

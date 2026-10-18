@@ -56,8 +56,10 @@ Current progress:
   isolated libxml2 helper without introducing a second DTD parser.
 - [x] Broker DTD extraction through the offline catalog policy with process,
   resource-count, byte, output, and deadline limits plus sanitized audit events.
-- [ ] Expose context-sensitive DTD completion through the application service
-  and CodeMirror completion source.
+- [x] Expose project-bound, context-sensitive DTD element, attribute, and enum
+  completion through an audited Tauri service and asynchronous CodeMirror source.
+- [ ] Compile XSD 1.0 declarations into the common content-model index, starting
+  with global elements, local sequences/choices, and attribute uses.
 
 Gate: relevant standards/conformance fixtures pass, offline catalog scenarios are
 demonstrated, and all resource-policy denial tests pass.

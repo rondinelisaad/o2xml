@@ -1,8 +1,15 @@
 import "./styles.css";
 
-import { closeBrackets, closeBracketsKeymap, completionKeymap } from "@codemirror/autocomplete";
+import {
+  autocompletion,
+  closeBrackets,
+  closeBracketsKeymap,
+  completionKeymap,
+  type CompletionContext,
+  type CompletionResult,
+} from "@codemirror/autocomplete";
 import { defaultKeymap, history, historyKeymap, indentWithTab } from "@codemirror/commands";
-import { foldGutter, foldKeymap, indentOnInput } from "@codemirror/language";
+import { foldGutter, foldKeymap, indentOnInput, syntaxTree } from "@codemirror/language";
 import { xml } from "@codemirror/lang-xml";
 import { searchKeymap } from "@codemirror/search";
 import { Compartment, EditorState, type Extension } from "@codemirror/state";
@@ -21,6 +28,7 @@ import type {
   AnalysisPayload,
   Diagnostic,
   DocumentPayload,
+  DtdCompletionPayload,
   OutlineEntry,
   ProjectPayload,
   XPathReport,
@@ -130,6 +138,7 @@ function baseExtensions(): Extension[] {
     foldGutter(),
     indentOnInput(),
     closeBrackets(),
+    autocompletion({ override: [dtdCompletionSource] }),
     xml(),
     keymap.of([
       ...closeBracketsKeymap,
@@ -152,6 +161,157 @@ function baseExtensions(): Extension[] {
     }),
     theme.of(dark ? oneDark : []),
   ];
+}
+
+type XmlSyntaxNode = ReturnType<typeof syntaxTree>["topNode"];
+
+function tagName(node: XmlSyntaxNode, state: EditorState): string {
+  const tag = node.name === "Element" ? node.firstChild : node;
+  const name = tag?.getChild("TagName");
+  return name ? state.doc.sliceString(name.from, name.to) : "";
+}
+
+function nearestNode(node: XmlSyntaxNode, names: ReadonlySet<string>): XmlSyntaxNode | null {
+  for (let current: XmlSyntaxNode | null = node; current; current = current.parent) {
+    if (names.has(current.name)) return current;
+  }
+  return null;
+}
+
+function parentElement(node: XmlSyntaxNode | null): XmlSyntaxNode | null {
+  for (let current = node?.parent ?? null; current; current = current.parent) {
+    if (current.name === "Element") return current;
+  }
+  return null;
+}
+
+function directChildNames(element: XmlSyntaxNode, before: number, state: EditorState): string[] {
+  const names: string[] = [];
+  for (let child = element.firstChild; child; child = child.nextSibling) {
+    if (child.from >= before) break;
+    if (child.name === "Element" || child.name === "SelfClosingTag") {
+      const name = tagName(child, state);
+      if (name) names.push(name);
+    }
+  }
+  return names;
+}
+
+function attributeNames(tag: XmlSyntaxNode, state: EditorState): string[] {
+  return tag.getChildren("Attribute").flatMap((attribute) => {
+    const name = attribute.getChild("AttributeName");
+    return name ? [state.doc.sliceString(name.from, name.to)] : [];
+  });
+}
+
+async function requestDtdCompletion(
+  document: OpenDocument,
+  parent: string,
+  precedingChildren: string[],
+  presentAttributes: string[],
+): Promise<DtdCompletionPayload | null> {
+  if (!(await synchronize(document))) return null;
+  try {
+    const result = await invoke<DtdCompletionPayload>("complete_dtd", {
+      id: document.id,
+      parent,
+      precedingChildren,
+      presentAttributes,
+    });
+    return document.id === activeId && result.revision === document.revision ? result : null;
+  } catch {
+    return null;
+  }
+}
+
+async function dtdCompletionSource(
+  context: CompletionContext,
+): Promise<CompletionResult | null> {
+  const document = activeDocument();
+  if (!document) return null;
+  const tree = syntaxTree(context.state);
+  const resolved = tree.resolveInner(Math.max(0, context.pos - 1), 1);
+  const tag = nearestNode(resolved, new Set(["OpenTag", "SelfClosingTag"]));
+  const word = context.matchBefore(/[:\-.\w\u00b7-\uffff]*/u);
+
+  if (tag) {
+    const name = tagName(tag, context.state);
+    const nameNode = tag.getChild("TagName");
+    const valueNode = nearestNode(resolved, new Set(["AttributeValue"]));
+    if (name && valueNode) {
+      const attribute = nearestNode(valueNode, new Set(["Attribute"]));
+      const attributeNameNode = attribute?.getChild("AttributeName");
+      const attributeName = attributeNameNode
+        ? context.state.doc.sliceString(attributeNameNode.from, attributeNameNode.to)
+        : "";
+      const present = attributeNames(tag, context.state).filter((item) => item !== attributeName);
+      const result = await requestDtdCompletion(document, name, [], present);
+      const specification = result?.attributes.find((item) => item.name === attributeName);
+      if (!specification || specification.values.length === 0) return null;
+      return {
+        from: valueNode.from,
+        to: valueNode.to,
+        options: specification.values.map((value) => ({
+          label: `"${value}"`,
+          type: "constant",
+        })),
+      };
+    }
+    if (name && nameNode && nameNode.to < context.pos && word) {
+      const result = await requestDtdCompletion(
+        document,
+        name,
+        [],
+        attributeNames(tag, context.state),
+      );
+      if (!result) return null;
+      return {
+        from: word.from,
+        options: result.attributes.map((attribute) => ({
+          label: attribute.name,
+          type: "property",
+          detail: attribute.required ? "required" : attribute.fixed ? "fixed" : undefined,
+          apply: `${attribute.name}="${attribute.defaultValue ?? ""}"`,
+        })),
+      };
+    }
+  }
+
+  const closing = context.matchBefore(/<\/[:\-.\w\u00b7-\uffff]*/u);
+  if (closing) {
+    const element = nearestNode(resolved, new Set(["Element"]));
+    const name = element ? tagName(element, context.state) : "";
+    return name
+      ? {
+          from: closing.from + 2,
+          options: [{ label: `${name}>`, type: "type", boost: 2 }],
+        }
+      : null;
+  }
+
+  const opening = context.matchBefore(/<[:\-.\w\u00b7-\uffff]*/u);
+  if (!opening || (!context.explicit && opening.from === opening.to)) return null;
+  let element = nearestNode(resolved, new Set(["Element"]));
+  if (element) {
+    const openTag = element.firstChild;
+    if (openTag && openTag.from <= context.pos && openTag.to >= context.pos) {
+      element = parentElement(element);
+    }
+  }
+  if (!element) return null;
+  const name = tagName(element, context.state);
+  if (!name) return null;
+  const result = await requestDtdCompletion(
+    document,
+    name,
+    directChildNames(element, context.pos, context.state),
+    [],
+  );
+  if (!result) return null;
+  return {
+    from: opening.from + 1,
+    options: result.children.map((child) => ({ label: child, type: "type" })),
+  };
 }
 
 function createEditorState(text: string): EditorState {

@@ -69,3 +69,19 @@ export interface XPathReport {
   revision: number;
   value: XPathValue;
 }
+
+export interface DtdAttributeCompletion {
+  name: string;
+  required: boolean;
+  values: string[];
+  defaultValue: string | null;
+  fixed: boolean;
+}
+
+export interface DtdCompletionPayload {
+  revision: number;
+  children: string[];
+  attributes: DtdAttributeCompletion[];
+  canClose: boolean;
+  acceptsAny: boolean;
+}

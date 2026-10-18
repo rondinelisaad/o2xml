@@ -16,7 +16,8 @@ desktop MVP with a Rust core and a Tauri/CodeMirror interface.
   validation, XPath 1.0 with a desktop query panel, and the common schema
   content-model index are implemented. Normalized DTD particles can already be
   compiled for completion and extracted through the isolated libxml2 helper;
-  offline catalog brokering is enforced. Application/UI integration remains.
+  offline catalog brokering and context-sensitive desktop completion are wired.
+  XSD-aware completion remains.
 - Phases 3–5: planned; Schematron/JATS/SPS validation is not presented as
   implemented yet.
 

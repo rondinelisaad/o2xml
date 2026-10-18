@@ -1,0 +1,15 @@
+<!ELEMENT article (front, body, back?)>
+<!ATTLIST article
+  article-type (research-article | review-article) #REQUIRED
+  dtd-version CDATA #FIXED "1.3"
+  specific-use CDATA #IMPLIED>
+<!ELEMENT front (article-meta)>
+<!ELEMENT article-meta (title-group)>
+<!ELEMENT title-group (article-title)>
+<!ELEMENT article-title (#PCDATA)>
+<!ELEMENT body (sec*)>
+<!ELEMENT sec (title, p*)>
+<!ELEMENT title (#PCDATA)>
+<!ELEMENT p (#PCDATA)>
+<!ELEMENT back (ref-list?)>
+<!ELEMENT ref-list EMPTY>

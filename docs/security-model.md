@@ -56,6 +56,10 @@ independent NFA/DFA state and transition limits. The parent process additionally
 caps individual and aggregate grammar bytes, resource count, helper output, and
 execution time. Audit events record only result, duration, engine, resource
 count, element count, and a bounded error class—not paths or grammar identifiers.
+The desktop completion command accepts element/attribute context only. It uses
+the catalog registered by `open_project`, rejects document and catalog paths
+outside that canonical project root, and never accepts a catalog path from the
+webview completion request.
 
 ## Processor profiles
 

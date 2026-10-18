@@ -15,13 +15,24 @@ use tauri::State;
 use tracing_subscriber::EnvFilter;
 use xml_document::XmlDocument;
 use xml_domain::{Diagnostic, OutlineEntry, Revision};
+use xml_dtd::{DtdIndexEngine, DtdIndexRequest, Libxml2DtdIndexEngine};
 use xml_project::ProjectManifest;
+use xml_resource::{CatalogResolver, ResourcePolicy};
+use xml_schema::{AttributeUse, ExpandedName, SchemaIndex, ValueConstraint};
 use xml_xpath::{Libxml2XPathEngine, XPathEngine, XPathReport, XPathRequest};
 
 #[derive(Default)]
 struct AppState {
     next_id: AtomicU64,
     documents: Mutex<HashMap<u64, XmlDocument>>,
+    project: Mutex<Option<OpenedProject>>,
+    dtd_indexes: Mutex<HashMap<(String, Option<String>), SchemaIndex>>,
+}
+
+#[derive(Clone)]
+struct OpenedProject {
+    root: PathBuf,
+    manifest: ProjectManifest,
 }
 
 #[derive(Debug, Serialize)]
@@ -49,6 +60,26 @@ struct ProjectPayload {
     path: String,
     manifest: ProjectManifest,
     files: Vec<String>,
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct DtdCompletionPayload {
+    revision: Revision,
+    children: Vec<String>,
+    attributes: Vec<DtdAttributePayload>,
+    can_close: bool,
+    accepts_any: bool,
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct DtdAttributePayload {
+    name: String,
+    required: bool,
+    values: Vec<String>,
+    default_value: Option<String>,
+    fixed: bool,
 }
 
 fn display_name(path: Option<&Path>) -> String {
@@ -239,7 +270,7 @@ async fn evaluate_xpath(
     };
     let revision = snapshot.revision();
     let result = async {
-        let helper = xpath_helper_path()?;
+        let helper = libxml2_helper_path()?;
         let engine = Libxml2XPathEngine::new(helper).map_err(|error| error.to_string())?;
         let source = snapshot.text();
         engine
@@ -264,7 +295,7 @@ async fn evaluate_xpath(
     result
 }
 
-fn xpath_helper_path() -> Result<PathBuf, String> {
+fn libxml2_helper_path() -> Result<PathBuf, String> {
     const ENVIRONMENT_KEY: &str = "O2XML_LIBXML2_HELPER";
     let executable_name = if cfg!(windows) {
         "xml-libxml2-helper.exe"
@@ -289,8 +320,154 @@ fn xpath_helper_path() -> Result<PathBuf, String> {
         .into_iter()
         .find(|candidate| candidate.is_file())
         .ok_or_else(|| {
-            format!("XPath helper is unavailable; build the workspace or set {ENVIRONMENT_KEY}")
+            format!("libxml2 helper is unavailable; build the workspace or set {ENVIRONMENT_KEY}")
         })
+}
+
+#[tauri::command]
+async fn complete_dtd(
+    id: u64,
+    parent: String,
+    preceding_children: Vec<String>,
+    present_attributes: Vec<String>,
+    state: State<'_, AppState>,
+) -> Result<DtdCompletionPayload, String> {
+    const MAX_CONTEXT_NAMES: usize = 4_096;
+    const MAX_NAME_BYTES: usize = 8 * 1024;
+    if preceding_children.len() > MAX_CONTEXT_NAMES
+        || present_attributes.len() > MAX_CONTEXT_NAMES
+        || std::iter::once(&parent)
+            .chain(preceding_children.iter())
+            .chain(present_attributes.iter())
+            .any(|name| name.is_empty() || name.len() > MAX_NAME_BYTES)
+    {
+        return Err("DTD completion context exceeds its safety limits".to_owned());
+    }
+    let (snapshot, document_path) = {
+        let documents = state
+            .documents
+            .lock()
+            .map_err(|_| "document store is unavailable".to_owned())?;
+        let document = documents
+            .get(&id)
+            .ok_or_else(|| "document is not open".to_owned())?;
+        (document.snapshot(), document.path().cloned())
+    };
+    let revision = snapshot.revision();
+    let result = async {
+        let project = state
+            .project
+            .lock()
+            .map_err(|_| "project store is unavailable".to_owned())?
+            .clone()
+            .ok_or_else(|| "open a project before requesting DTD completion".to_owned())?;
+        if document_path
+            .as_ref()
+            .is_some_and(|path| !path.starts_with(&project.root))
+        {
+            return Err("document is outside the active project".to_owned());
+        }
+        let catalog_setting = project
+            .manifest
+            .xml
+            .catalog
+            .as_deref()
+            .ok_or_else(|| "active project has no XML catalog".to_owned())?;
+        let catalog_path = normalized_path(&project.root.join(catalog_setting))?;
+        if !catalog_path.starts_with(&project.root) {
+            return Err("project catalog is outside the project root".to_owned());
+        }
+        let source = snapshot.text();
+        let document_type = xml_syntax::document_type(&source)
+            .map_err(|error| error.to_string())?
+            .ok_or_else(|| "document has no DOCTYPE association".to_owned())?;
+        let system_id = document_type
+            .system_id
+            .ok_or_else(|| "DOCTYPE has no external system identifier".to_owned())?;
+        let cache_key = (system_id.clone(), document_type.public_id.clone());
+        let cached = state
+            .dtd_indexes
+            .lock()
+            .map_err(|_| "DTD index cache is unavailable".to_owned())?
+            .get(&cache_key)
+            .cloned();
+        let index = if let Some(index) = cached {
+            index
+        } else {
+            let policy = ResourcePolicy::offline([project.root.clone()])
+                .map_err(|error| error.to_string())?;
+            let catalog =
+                CatalogResolver::load(&catalog_path, policy).map_err(|error| error.to_string())?;
+            let engine = Libxml2DtdIndexEngine::new(libxml2_helper_path()?)
+                .map_err(|error| error.to_string())?;
+            let report = engine
+                .compile(DtdIndexRequest {
+                    catalog: &catalog,
+                    system_id: &system_id,
+                    public_id: document_type.public_id.as_deref(),
+                })
+                .await
+                .map_err(|error| error.to_string())?;
+            state
+                .dtd_indexes
+                .lock()
+                .map_err(|_| "DTD index cache is unavailable".to_owned())?
+                .insert(cache_key, report.index.clone());
+            report.index
+        };
+        let parent = ExpandedName::new(None, &parent).map_err(|error| error.to_string())?;
+        let children = preceding_children
+            .iter()
+            .map(|name| ExpandedName::new(None, name).map_err(|error| error.to_string()))
+            .collect::<Result<Vec<_>, _>>()?;
+        let present = present_attributes
+            .iter()
+            .map(|name| ExpandedName::new(None, name).map_err(|error| error.to_string()))
+            .collect::<Result<std::collections::BTreeSet<_>, _>>()?;
+        let child_completion = index
+            .complete_children(&parent, &children)
+            .map_err(|error| error.to_string())?;
+        let attributes = index
+            .complete_attributes(&parent, &present)
+            .map_err(|error| error.to_string())?
+            .into_iter()
+            .map(|attribute| {
+                let (default_value, fixed) = match attribute.value_constraint {
+                    Some(ValueConstraint::Default(value)) => (Some(value), false),
+                    Some(ValueConstraint::Fixed(value)) => (Some(value), true),
+                    None => (None, false),
+                };
+                DtdAttributePayload {
+                    name: attribute.name.local_name,
+                    required: attribute.use_kind == AttributeUse::Required,
+                    values: attribute.allowed_values,
+                    default_value,
+                    fixed,
+                }
+            })
+            .collect();
+        Ok(DtdCompletionPayload {
+            revision,
+            children: child_completion
+                .children
+                .into_iter()
+                .map(|name| name.local_name)
+                .collect(),
+            attributes,
+            can_close: child_completion.can_close,
+            accepts_any: child_completion.accepts_any,
+        })
+    }
+    .await;
+    audit::event(
+        "completion.dtd",
+        if result.is_ok() { "success" } else { "failure" },
+        "document",
+        id,
+        Some(revision),
+        Some("libxml2"),
+    );
+    result
 }
 
 #[tauri::command]
@@ -363,7 +540,7 @@ fn save_document(
 }
 
 #[tauri::command]
-fn open_project(path: String) -> Result<ProjectPayload, String> {
+fn open_project(path: String, state: State<'_, AppState>) -> Result<ProjectPayload, String> {
     let manifest_path = normalized_path(Path::new(&path))?;
     if manifest_path.file_name().and_then(|name| name.to_str()) != Some("project.toml") {
         return Err("select a project.toml file".to_owned());
@@ -377,11 +554,25 @@ fn open_project(path: String) -> Result<ProjectPayload, String> {
     let mut files = Vec::new();
     collect_project_files(root, root, 0, &mut files)?;
     files.sort();
-    Ok(ProjectPayload {
+    let payload = ProjectPayload {
         path: root.to_string_lossy().into_owned(),
-        manifest,
+        manifest: manifest.clone(),
         files,
-    })
+    };
+    *state
+        .project
+        .lock()
+        .map_err(|_| "project store is unavailable".to_owned())? = Some(OpenedProject {
+        root: root.to_path_buf(),
+        manifest,
+    });
+    state
+        .dtd_indexes
+        .lock()
+        .map_err(|_| "DTD index cache is unavailable".to_owned())?
+        .clear();
+    audit::event("project.open", "success", "project", 0, None, None);
+    Ok(payload)
 }
 
 fn collect_project_files(
@@ -435,6 +626,7 @@ pub fn run() {
             update_document,
             analyze_document,
             evaluate_xpath,
+            complete_dtd,
             format_document,
             save_document,
             open_project,
