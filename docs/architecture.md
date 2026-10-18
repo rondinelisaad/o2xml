@@ -69,6 +69,11 @@ by `xml-schema`. Grammar resources are brokered through `xml-resource`, while
 validation remains behind `xml-validation`. RNG and Schematron stay adapters
 there until their dependency and release lifecycles justify extraction.
 
+Remote connectors must consume `RemoteResourcePolicy`; they cannot reuse the
+offline catalog path as an implicit network escape. URL origin approval and
+post-DNS public-address approval are distinct steps so a transport can pin the
+approved addresses and defend against DNS rebinding on each redirect.
+
 ## Editable document model
 
 `XmlDocument` contains a `ropey::Rope`, monotonically increasing `Revision`,

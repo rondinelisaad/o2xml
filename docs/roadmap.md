@@ -192,6 +192,9 @@ Current progress:
   bounded protocol streams, response correlation, and minimal audit events.
 - [ ] Add an embedded resource-limited WASI Component runtime; loading a
   manifest alone must never execute plugin code.
+- [x] Add the transport-independent opt-in HTTPS policy: exact origin/port
+  allowlist, credential denial, public-IP DNS result gate, redirect/resource
+  limits, and mandatory revalidation hooks for redirects.
 - [ ] Add opt-in remote resources, WebDAV, and database adapters.
 - [ ] Add schema-preserving Author Mode after the structural editing primitives
   and conformance gates exist.

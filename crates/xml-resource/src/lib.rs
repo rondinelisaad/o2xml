@@ -1,18 +1,157 @@
-use std::{
-    collections::HashSet,
-    fs,
-    path::{Path, PathBuf},
-};
-
 use quick_xml::{
     events::{BytesStart, Event},
     name::ResolveResult,
     reader::NsReader,
     XmlVersion,
 };
+use std::{
+    collections::{BTreeSet, HashSet},
+    fs,
+    net::{IpAddr, Ipv4Addr, Ipv6Addr, SocketAddr},
+    path::{Path, PathBuf},
+};
 use thiserror::Error;
 use tracing::{debug, warn};
 use url::Url;
+
+const MAX_REMOTE_URI_BYTES: usize = 8 * 1024;
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct RemoteResourcePolicy {
+    origins: BTreeSet<(String, u16)>,
+    pub max_redirects: usize,
+    pub max_resource_bytes: u64,
+}
+
+impl RemoteResourcePolicy {
+    /// Creates an explicit HTTPS-only origin allowlist. An empty list is the
+    /// normal offline configuration and cannot approve a URL.
+    pub fn new(origins: impl IntoIterator<Item = String>) -> Result<Self, RemotePolicyError> {
+        let mut approved = BTreeSet::new();
+        for origin in origins {
+            let parsed = parse_remote_url(&origin)?;
+            if parsed.path() != "/" || parsed.query().is_some() || parsed.fragment().is_some() {
+                return Err(RemotePolicyError::InvalidOrigin(origin));
+            }
+            approved.insert(origin_key(&parsed)?);
+        }
+        Ok(Self {
+            origins: approved,
+            max_redirects: 3,
+            max_resource_bytes: 16 * 1024 * 1024,
+        })
+    }
+
+    pub fn approve_url(&self, value: &str) -> Result<Url, RemotePolicyError> {
+        let parsed = parse_remote_url(value)?;
+        if !self.origins.contains(&origin_key(&parsed)?) {
+            return Err(RemotePolicyError::OriginDenied);
+        }
+        Ok(parsed)
+    }
+
+    /// Validates resolver output before a connector pins a connection to these
+    /// exact addresses. The connector must repeat this check for every redirect.
+    pub fn approve_addresses(
+        &self,
+        url: Url,
+        addresses: impl IntoIterator<Item = SocketAddr>,
+    ) -> Result<ApprovedRemoteResource, RemotePolicyError> {
+        if !self.origins.contains(&origin_key(&url)?) {
+            return Err(RemotePolicyError::OriginDenied);
+        }
+        let addresses = addresses.into_iter().collect::<BTreeSet<_>>();
+        if addresses.is_empty() {
+            return Err(RemotePolicyError::NoAddresses);
+        }
+        if addresses.iter().any(|address| !is_public_ip(address.ip())) {
+            return Err(RemotePolicyError::PrivateAddressDenied);
+        }
+        Ok(ApprovedRemoteResource { url, addresses })
+    }
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct ApprovedRemoteResource {
+    pub url: Url,
+    pub addresses: BTreeSet<SocketAddr>,
+}
+
+fn parse_remote_url(value: &str) -> Result<Url, RemotePolicyError> {
+    if value.is_empty() || value.len() > MAX_REMOTE_URI_BYTES {
+        return Err(RemotePolicyError::InvalidUrl);
+    }
+    let parsed = Url::parse(value).map_err(|_| RemotePolicyError::InvalidUrl)?;
+    if parsed.scheme() != "https"
+        || parsed.host_str().is_none()
+        || !parsed.username().is_empty()
+        || parsed.password().is_some()
+    {
+        return Err(RemotePolicyError::InvalidUrl);
+    }
+    Ok(parsed)
+}
+
+fn origin_key(url: &Url) -> Result<(String, u16), RemotePolicyError> {
+    let host = url
+        .host_str()
+        .ok_or(RemotePolicyError::InvalidUrl)?
+        .to_ascii_lowercase();
+    let port = url
+        .port_or_known_default()
+        .ok_or(RemotePolicyError::InvalidUrl)?;
+    Ok((host, port))
+}
+
+fn is_public_ip(ip: IpAddr) -> bool {
+    match ip {
+        IpAddr::V4(ip) => is_public_v4(ip),
+        IpAddr::V6(ip) => is_public_v6(ip),
+    }
+}
+
+fn is_public_v4(ip: Ipv4Addr) -> bool {
+    let octets = ip.octets();
+    !(ip.is_unspecified()
+        || ip.is_loopback()
+        || ip.is_private()
+        || ip.is_link_local()
+        || ip.is_multicast()
+        || ip.is_broadcast()
+        || ip.is_documentation()
+        || octets[0] == 0
+        || (octets[0] == 100 && (64..=127).contains(&octets[1]))
+        || (octets[0] == 198 && matches!(octets[1], 18 | 19))
+        || octets[0] >= 240)
+}
+
+fn is_public_v6(ip: Ipv6Addr) -> bool {
+    let segments = ip.segments();
+    if let Some(mapped) = ip.to_ipv4_mapped() {
+        return is_public_v4(mapped);
+    }
+    !(ip.is_unspecified()
+        || ip.is_loopback()
+        || ip.is_multicast()
+        || (segments[0] & 0xfe00) == 0xfc00
+        || (segments[0] & 0xffc0) == 0xfe80
+        || (segments[0] & 0xffc0) == 0xfec0
+        || (segments[0] == 0x2001 && segments[1] == 0x0db8))
+}
+
+#[derive(Debug, Error, Eq, PartialEq)]
+pub enum RemotePolicyError {
+    #[error("remote resource URL must be an HTTPS URL without credentials")]
+    InvalidUrl,
+    #[error("remote resource origin is invalid: {0}")]
+    InvalidOrigin(String),
+    #[error("remote resource origin is not allowlisted")]
+    OriginDenied,
+    #[error("remote resource name resolved to no addresses")]
+    NoAddresses,
+    #[error("remote resource resolved to a private, local, reserved, or documentation address")]
+    PrivateAddressDenied,
+}
 
 const CATALOG_NAMESPACE: &[u8] = b"urn:oasis:names:tc:entity:xmlns:xml:catalog";
 const XML_BASE: &[u8] = b"xml:base";
@@ -680,6 +819,57 @@ fn normalize_public_id(value: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn remote_policy_is_opt_in_and_origin_scoped() -> Result<(), RemotePolicyError> {
+        let offline = RemoteResourcePolicy::new(Vec::new())?;
+        assert!(matches!(
+            offline.approve_url("https://schemas.example.org/jats.xsd"),
+            Err(RemotePolicyError::OriginDenied)
+        ));
+        let policy = RemoteResourcePolicy::new(["https://schemas.example.org".to_owned()])?;
+        assert!(policy
+            .approve_url("https://schemas.example.org/jats.xsd")
+            .is_ok());
+        assert!(matches!(
+            policy.approve_url("https://other.example.org/jats.xsd"),
+            Err(RemotePolicyError::OriginDenied)
+        ));
+        assert!(matches!(
+            RemoteResourcePolicy::new(["http://schemas.example.org".to_owned()]),
+            Err(RemotePolicyError::InvalidUrl)
+        ));
+        Ok(())
+    }
+
+    #[test]
+    fn remote_policy_rejects_ssrf_address_classes() -> Result<(), RemotePolicyError> {
+        let policy = RemoteResourcePolicy::new(["https://schemas.example.org".to_owned()])?;
+        let url = policy.approve_url("https://schemas.example.org/jats.xsd")?;
+        for address in [
+            "127.0.0.1:443",
+            "10.0.0.1:443",
+            "169.254.1.1:443",
+            "100.64.0.1:443",
+            "[::1]:443",
+            "[fc00::1]:443",
+            "[fe80::1]:443",
+            "[2001:db8::1]:443",
+        ] {
+            let address = address
+                .parse::<SocketAddr>()
+                .map_err(|_| RemotePolicyError::NoAddresses)?;
+            assert_eq!(
+                policy.approve_addresses(url.clone(), [address]),
+                Err(RemotePolicyError::PrivateAddressDenied)
+            );
+        }
+        let public = "93.184.216.34:443"
+            .parse::<SocketAddr>()
+            .map_err(|_| RemotePolicyError::NoAddresses)?;
+        assert!(policy.approve_addresses(url, [public]).is_ok());
+        Ok(())
+    }
     use std::error::Error;
 
     fn fixtures() -> PathBuf {

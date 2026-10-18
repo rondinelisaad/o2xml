@@ -150,6 +150,15 @@ Audit events include only action, result, validated plugin id, request id,
 method, and runtime—not parameters, source XML, output, paths, or stderr. WASI
 execution remains disabled until the embedded runtime limits are implemented.
 
+Remote transport policy is separate from the offline catalog resolver and is
+empty by default. It accepts only credential-free HTTPS URLs on an exact
+host/port allowlist. A connector must resolve DNS, pass every candidate address
+through the policy, pin the connection to the approved set, and repeat URL/DNS
+approval after every redirect. Loopback, private, link-local, shared-address,
+benchmark, documentation, multicast, unspecified, and reserved IPv4/IPv6 ranges
+are rejected, including IPv4-mapped IPv6. Policy defaults cap redirects at three
+and a resource at 16 MiB. No HTTP/WebDAV connector is enabled yet.
+
 DTD completion extraction runs in the isolated libxml2 helper and uses the same
 deny-by-default resource callback as validation. Raw FFI pointers never cross
 the process boundary. Element, particle, attribute, and enumeration counts or
