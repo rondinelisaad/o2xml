@@ -206,6 +206,16 @@ must provision a distinct BaseX account with only local `read` permission for
 the intended database. No REST `query`, `command`, `run`, PUT, POST, or DELETE
 operation is represented by the Rust API.
 
+Author Mode receives only the current bounded in-memory source and never loads
+external entities or resources. Its presentation tree is disposable; the XML
+rope remains authoritative. Each writable item identifies one complete
+ordinary text event by a generated run ID and source span. Replacement text is
+size-limited, XML-escaped, and accepted only after a full well-formedness parse;
+the desktop additionally performs project-framework validation and a revision
+gate. CDATA and general entity references are read-only, comments and processing
+instructions are preserved in source but omitted from the visual projection,
+and no raw HTML produced from document content is rendered.
+
 DTD completion extraction runs in the isolated libxml2 helper and uses the same
 deny-by-default resource callback as validation. Raw FFI pointers never cross
 the process boundary. Element, particle, attribute, and enumeration counts or

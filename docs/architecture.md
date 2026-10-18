@@ -56,6 +56,7 @@ crate per acronym:
 | `xml-framework` | versioned JATS/SPS/TEI/DocBook manifests and rule composition |
 | `xml-jats` | bounded JATS recognition and navigable editorial structure |
 | `xml-grid` | bounded projection and transactional scalar-text edits for repeated sibling structures |
+| `xml-author` | source-mapped structured view and transactional plain-text run edits |
 | `xml-schematron` | bounded SVRL normalization and diagnostic mapping |
 | `xml-transform` | XSLT/XQuery process and FFI adapters, scenarios |
 | `xml-plugin-api` | stable capability-based host contracts; added after core traits settle |
@@ -128,6 +129,16 @@ Incremental editing does not imply incremental standards validation. Phase 1
 uses incremental UI parsing and debounced full well-formedness validation. Later
 work may revalidate affected subtrees only where engine semantics make that
 sound; full validation remains the correctness fallback.
+
+Author Mode is a projection, never a second document model. `xml-author` walks
+the namespace-aware event stream into a bounded recursive tree, preserves mixed
+content order, assigns every visible text run exact source and linear author
+spans, and classifies common JATS/DocBook/TEI element roles for presentation.
+An edit replaces one complete ordinary text event with escaped content and
+reparses the whole XML. CDATA and general entity references are visible but
+read-only until their distinct lexical semantics can be preserved. The desktop
+layer applies the same project-framework gate and stale-revision check used by
+XML Grid before committing a projected edit to the authoritative rope.
 
 ## Engine plan
 

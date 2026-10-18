@@ -1,0 +1,16 @@
+[package]
+name = "xml-author"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+quick-xml.workspace = true
+serde.workspace = true
+thiserror.workspace = true
+xml-document = { path = "../xml-document" }
+xml-domain = { path = "../xml-domain" }
+xml-syntax = { path = "../xml-syntax" }
+
+[lints]
+workspace = true

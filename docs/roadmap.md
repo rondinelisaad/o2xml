@@ -205,8 +205,10 @@ Current progress:
 - [x] Add the first database adapter: a BaseX REST reader scoped to one
   database, with transient non-administrative credentials and no query,
   command, redirect, or mutation API. Additional engines remain future work.
+- [x] Add the bounded Author Mode projection core with mixed-content ordering,
+  source/author span mapping, semantic roles, and reparsed plain-text-run edits.
 - [ ] Add schema-preserving Author Mode after the structural editing primitives
-  and conformance gates exist.
+  and conformance gates exist; desktop projection/edit integration remains.
 
 ## Cross-cutting performance track
 

@@ -39,6 +39,11 @@ the syntax crate performs the full post-merge well-formedness gate.
 domain, and syntax crates for a bounded projection and full-document
 well-formedness gate. It adds no third-party dependency or native engine.
 
+`xml-author` reuses the same reviewed `quick-xml`, `serde`, `thiserror`,
+document, domain, and syntax dependencies for its bounded projection, source
+mapping, escaping, and full-document reparse gate. It adds no third-party
+dependency or rendering engine.
+
 `xml-resource` uses the async-only `reqwest` Rustls profile for explicit GET
 operations. This adds Hyper, Rustls, the platform certificate verifier, and the
 AWS-LC cryptographic provider, increasing build time and binary size. Compression,
