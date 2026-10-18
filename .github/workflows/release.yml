@@ -63,9 +63,57 @@ jobs:
           npm run test:i18n
           npm run build
 
+  prepare-release:
+    name: Prepare draft release
+    needs: quality
+    runs-on: ubuntu-22.04
+    permissions:
+      contents: write
+    outputs:
+      release_id: ${{ steps.release.outputs.release_id }}
+      tag_name: ${{ steps.release.outputs.tag_name }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+
+      - name: Create or reuse one draft release
+        id: release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        shell: bash
+        run: |
+          version=$(jq -r '.version' app/src-tauri/tauri.conf.json)
+          tag="o2xml-v${version}"
+          name="O2XML v${version}"
+          body=$'Instaladores multiplataforma do O2XML.\n\nEsta release permanece como rascunho até os smoke tests dos instaladores.'
+          releases=$(gh api "repos/${GITHUB_REPOSITORY}/releases?per_page=100")
+          release_id=$(printf '%s' "$releases" | jq -r --arg tag "$tag" \
+            '[.[] | select(.draft and .tag_name == $tag)] | sort_by(.id) | first | .id // empty')
+          if [[ -n "$release_id" ]]; then
+            release_id=$(gh api --method PATCH \
+              "repos/${GITHUB_REPOSITORY}/releases/${release_id}" \
+              -f target_commitish="$GITHUB_SHA" \
+              -f name="$name" \
+              -f body="$body" \
+              -F draft=true \
+              -F prerelease=false \
+              --jq '.id')
+          else
+            payload=$(jq -n \
+              --arg tag "$tag" \
+              --arg target "$GITHUB_SHA" \
+              --arg name "$name" \
+              --arg body "$body" \
+              '{tag_name: $tag, target_commitish: $target, name: $name, body: $body, draft: true, prerelease: false, generate_release_notes: true}')
+            release_id=$(printf '%s' "$payload" | gh api --method POST \
+              "repos/${GITHUB_REPOSITORY}/releases" --input - --jq '.id')
+          fi
+          echo "release_id=${release_id}" >> "$GITHUB_OUTPUT"
+          echo "tag_name=${tag}" >> "$GITHUB_OUTPUT"
+
   installers:
     name: ${{ matrix.name }}
-    needs: quality
+    needs: [quality, prepare-release]
     strategy:
       fail-fast: false
       matrix:
@@ -174,15 +222,10 @@ jobs:
           APPLE_SIGNING_IDENTITY: ${{ runner.os == 'macOS' && '-' || '' }}
         with:
           projectPath: app
-          tagName: o2xml-v__VERSION__
-          releaseName: O2XML v__VERSION__
-          releaseBody: |
-            Instaladores multiplataforma do O2XML.
-
-            Esta release permanece como rascunho até os smoke tests dos instaladores.
+          releaseId: ${{ needs.prepare-release.outputs.release_id }}
+          tagName: ${{ needs.prepare-release.outputs.tag_name }}
           releaseDraft: true
           prerelease: false
-          generateReleaseNotes: true
           args: >-
             --target ${{ matrix.target }}
             --bundles ${{ matrix.bundles }}

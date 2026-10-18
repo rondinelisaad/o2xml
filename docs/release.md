@@ -3,7 +3,9 @@
 O2XML builds installers through the manually triggered **Build installers**
 GitHub Actions workflow. Every run first executes the Rust and frontend quality
 gates. Successful runs create or update a **draft** GitHub release; they never
-publish it automatically.
+publish it automatically. A single preparation job resolves the draft release
+ID before the platform matrix starts, so concurrent builders upload to the same
+release instead of racing to create duplicate drafts.
 
 ## Produced bundles
 
