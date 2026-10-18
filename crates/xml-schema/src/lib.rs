@@ -90,6 +90,8 @@ pub struct ContentAutomaton {
     pub start_state: StateId,
     pub accepting_states: BTreeSet<StateId>,
     pub transitions: BTreeMap<StateId, BTreeMap<ExpandedName, StateId>>,
+    #[serde(default)]
+    pub wildcard_transitions: BTreeMap<StateId, Vec<(NamespaceConstraint, StateId)>>,
 }
 
 impl ContentAutomaton {
@@ -99,7 +101,13 @@ impl ContentAutomaton {
             .values()
             .fold(0_usize, |count, transitions| {
                 count.saturating_add(transitions.len())
-            });
+            })
+            .saturating_add(
+                self.wildcard_transitions
+                    .values()
+                    .map(Vec::len)
+                    .sum::<usize>(),
+            );
         if transition_count > MAX_TRANSITIONS_PER_ELEMENT {
             return Err(SchemaIndexError::TooManyTransitions {
                 limit: MAX_TRANSITIONS_PER_ELEMENT,
@@ -115,6 +123,13 @@ impl ContentAutomaton {
                 states.insert(*target);
             }
         }
+        for (source, transitions) in &self.wildcard_transitions {
+            states.insert(*source);
+            for (constraint, target) in transitions {
+                constraint.validate()?;
+                states.insert(*target);
+            }
+        }
         if states.len() > MAX_STATES_PER_ELEMENT {
             return Err(SchemaIndexError::TooManyStates {
                 limit: MAX_STATES_PER_ELEMENT,
@@ -122,6 +137,63 @@ impl ContentAutomaton {
         }
         Ok(())
     }
+}
+
+#[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd, Serialize, Deserialize)]
+#[serde(tag = "kind", content = "value", rename_all = "snake_case")]
+pub enum NamespaceConstraint {
+    Any,
+    Other(Option<String>),
+    Enumerated(BTreeSet<Option<String>>),
+}
+
+impl NamespaceConstraint {
+    fn validate(&self) -> Result<(), SchemaIndexError> {
+        match self {
+            Self::Any => Ok(()),
+            Self::Other(namespace) => validate_namespace(namespace.as_deref()),
+            Self::Enumerated(namespaces) => {
+                for namespace in namespaces {
+                    validate_namespace(namespace.as_deref())?;
+                }
+                Ok(())
+            }
+        }
+    }
+
+    #[must_use]
+    pub fn matches(&self, name: &ExpandedName) -> bool {
+        match self {
+            Self::Any => true,
+            Self::Other(excluded) => {
+                name.namespace_uri.is_some() && &name.namespace_uri != excluded
+            }
+            Self::Enumerated(namespaces) => namespaces.contains(&name.namespace_uri),
+        }
+    }
+
+    fn overlaps(&self, other: &Self) -> bool {
+        match (self, other) {
+            (Self::Any, _) | (_, Self::Any) => true,
+            (Self::Other(_), Self::Other(_)) => true,
+            (Self::Other(excluded), Self::Enumerated(namespaces))
+            | (Self::Enumerated(namespaces), Self::Other(excluded)) => namespaces
+                .iter()
+                .any(|namespace| namespace.is_some() && namespace != excluded),
+            (Self::Enumerated(left), Self::Enumerated(right)) => {
+                left.iter().any(|namespace| right.contains(namespace))
+            }
+        }
+    }
+}
+
+fn validate_namespace(namespace: Option<&str>) -> Result<(), SchemaIndexError> {
+    if namespace.is_some_and(|value| value.len() > MAX_NAME_BYTES) {
+        return Err(SchemaIndexError::NameTooLarge {
+            limit: MAX_NAME_BYTES,
+        });
+    }
+    Ok(())
 }
 
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
@@ -138,6 +210,7 @@ pub enum ContentModel {
 #[serde(tag = "kind", content = "value", rename_all = "snake_case")]
 pub enum ContentParticle {
     Element(ExpandedName),
+    Wildcard(NamespaceConstraint),
     Sequence(Vec<ContentParticle>),
     Choice(Vec<ContentParticle>),
     All(Vec<ContentParticle>),
@@ -168,6 +241,7 @@ struct Nfa {
 struct NfaState {
     epsilon: Vec<usize>,
     transitions: Vec<(ExpandedName, usize)>,
+    wildcards: Vec<(NamespaceConstraint, usize)>,
 }
 
 #[derive(Clone, Copy)]
@@ -204,6 +278,13 @@ impl Nfa {
                 let start = self.state()?;
                 let end = self.state()?;
                 self.states[start].transitions.push((name.clone(), end));
+                Ok(Fragment { start, end })
+            }
+            ContentParticle::Wildcard(constraint) => {
+                constraint.validate()?;
+                let start = self.state()?;
+                let end = self.state()?;
+                self.states[start].wildcards.push((constraint.clone(), end));
                 Ok(Fragment { start, end })
             }
             ContentParticle::Sequence(items) => self.sequence(items, depth + 1),
@@ -377,6 +458,7 @@ fn determinize(nfa: &Nfa, fragment: Fragment) -> Result<ContentAutomaton, Schema
     let mut pending = VecDeque::from([start]);
     let mut accepting = BTreeSet::new();
     let mut transitions = BTreeMap::new();
+    let mut wildcard_transitions = BTreeMap::new();
     let mut transition_count = 0_usize;
 
     while let Some(states) = pending.pop_front() {
@@ -385,10 +467,29 @@ fn determinize(nfa: &Nfa, fragment: Fragment) -> Result<ContentAutomaton, Schema
             accepting.insert(source);
         }
         let mut targets = BTreeMap::<ExpandedName, BTreeSet<usize>>::new();
+        let mut wildcard_targets = BTreeMap::<NamespaceConstraint, BTreeSet<usize>>::new();
         for state in &states {
             for (name, target) in &nfa.states[*state].transitions {
                 targets.entry(name.clone()).or_default().insert(*target);
             }
+            for (constraint, target) in &nfa.states[*state].wildcards {
+                wildcard_targets
+                    .entry(constraint.clone())
+                    .or_default()
+                    .insert(*target);
+            }
+        }
+        if targets.keys().any(|name| {
+            wildcard_targets
+                .keys()
+                .any(|constraint| constraint.matches(name))
+        }) || wildcard_targets.keys().enumerate().any(|(index, left)| {
+            wildcard_targets
+                .keys()
+                .skip(index + 1)
+                .any(|right| left.overlaps(right))
+        }) {
+            return Err(SchemaIndexError::AmbiguousWildcard);
         }
         let mut deterministic = BTreeMap::new();
         for (name, target) in targets {
@@ -418,12 +519,41 @@ fn determinize(nfa: &Nfa, fragment: Fragment) -> Result<ContentAutomaton, Schema
         if !deterministic.is_empty() {
             transitions.insert(source, deterministic);
         }
+        let mut deterministic_wildcards = Vec::new();
+        for (constraint, target) in wildcard_targets {
+            transition_count = transition_count.saturating_add(1);
+            if transition_count > MAX_TRANSITIONS_PER_ELEMENT {
+                return Err(SchemaIndexError::TooManyTransitions {
+                    limit: MAX_TRANSITIONS_PER_ELEMENT,
+                });
+            }
+            let target = epsilon_closure(nfa, target);
+            let target_id = if let Some(id) = ids.get(&target) {
+                *id
+            } else {
+                if ids.len() >= MAX_STATES_PER_ELEMENT {
+                    return Err(SchemaIndexError::TooManyStates {
+                        limit: MAX_STATES_PER_ELEMENT,
+                    });
+                }
+                let id = StateId::try_from(ids.len())
+                    .map_err(|_| SchemaIndexError::StateIdentifierOverflow)?;
+                ids.insert(target.clone(), id);
+                pending.push_back(target);
+                id
+            };
+            deterministic_wildcards.push((constraint, target_id));
+        }
+        if !deterministic_wildcards.is_empty() {
+            wildcard_transitions.insert(source, deterministic_wildcards);
+        }
     }
 
     Ok(ContentAutomaton {
         start_state: 0,
         accepting_states: accepting,
         transitions,
+        wildcard_transitions,
     })
 }
 
@@ -542,20 +672,51 @@ impl SchemaIndex {
                         .get(&state)
                         .and_then(|transitions| transitions.get(child))
                         .copied()
+                        .or_else(|| {
+                            automaton
+                                .wildcard_transitions
+                                .get(&state)
+                                .and_then(|transitions| {
+                                    transitions
+                                        .iter()
+                                        .find(|(constraint, _)| constraint.matches(child))
+                                        .map(|(_, target)| *target)
+                                })
+                        })
                         .ok_or_else(|| SchemaIndexError::UnexpectedChild {
                             index,
                             child: child.clone(),
                         })?;
                 }
-                let children = automaton
+                let children: Vec<ExpandedName> = automaton
                     .transitions
                     .get(&state)
                     .map(|transitions| transitions.keys().cloned().collect())
                     .unwrap_or_default();
+                let wildcard_constraints = automaton
+                    .wildcard_transitions
+                    .get(&state)
+                    .map(Vec::as_slice)
+                    .unwrap_or_default();
+                let mut children = children;
+                children.extend(
+                    self.elements
+                        .keys()
+                        .filter(|name| {
+                            wildcard_constraints
+                                .iter()
+                                .any(|(constraint, _)| constraint.matches(name))
+                        })
+                        .cloned(),
+                );
+                children.sort();
+                children.dedup();
                 Ok(CompletionResult {
                     children,
                     can_close: automaton.accepting_states.contains(&state),
-                    accepts_any: false,
+                    accepts_any: wildcard_constraints
+                        .iter()
+                        .any(|(constraint, _)| constraint == &NamespaceConstraint::Any),
                 })
             }
         }
@@ -599,6 +760,8 @@ pub enum SchemaIndexError {
     ParticleTooDeep { limit: usize },
     #[error("content choice must contain at least one particle")]
     EmptyChoice,
+    #[error("content model contains overlapping wildcard or element transitions")]
+    AmbiguousWildcard,
     #[error("xs:all contains a particle other than an element with occurrence 0..1 or 1..1")]
     InvalidAllMember,
     #[error("xs:all contains duplicate element {0:?}")]
@@ -644,6 +807,7 @@ mod tests {
                 start_state: 0,
                 accepting_states: BTreeSet::from([2]),
                 transitions,
+                wildcard_transitions: BTreeMap::new(),
             }),
             attributes: BTreeMap::new(),
         });
@@ -690,6 +854,7 @@ mod tests {
                 start_state: 0,
                 accepting_states: BTreeSet::from([1]),
                 transitions: BTreeMap::from([(0, BTreeMap::from([(front, 1)]))]),
+                wildcard_transitions: BTreeMap::new(),
             }),
             attributes: BTreeMap::new(),
         });
@@ -809,5 +974,38 @@ mod tests {
             compile_content_particle(&duplicate),
             Err(SchemaIndexError::DuplicateAllMember(name("front")))
         );
+    }
+
+    #[test]
+    fn matches_namespace_constrained_wildcards() -> Result<(), SchemaIndexError> {
+        let article = ExpandedName::new(Some("urn:article"), "article")?;
+        let common = ExpandedName::new(Some("urn:common"), "extension")?;
+        let local = ExpandedName::new(None, "local")?;
+        let automaton = compile_content_particle(&ContentParticle::Wildcard(
+            NamespaceConstraint::Other(Some("urn:article".to_owned())),
+        ))?;
+        let mut index = SchemaIndex::new(SchemaLanguage::Xsd10);
+        for name in [common.clone(), local] {
+            index.insert(ElementDeclaration {
+                name,
+                content: ContentModel::Empty,
+                attributes: BTreeMap::new(),
+            })?;
+        }
+        index.insert(ElementDeclaration {
+            name: article.clone(),
+            content: ContentModel::Automaton(automaton),
+            attributes: BTreeMap::new(),
+        })?;
+
+        let completion = index.complete_children(&article, &[])?;
+        assert_eq!(completion.children, vec![common.clone()]);
+        assert!(!completion.accepts_any);
+        assert!(index.complete_children(&article, &[common])?.can_close);
+        assert!(matches!(
+            index.complete_children(&article, &[ExpandedName::new(Some("urn:article"), "body")?]),
+            Err(SchemaIndexError::UnexpectedChild { .. })
+        ));
+        Ok(())
     }
 }

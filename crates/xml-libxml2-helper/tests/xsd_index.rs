@@ -170,3 +170,33 @@ fn expands_catalog_approved_cross_document_declarations() -> Result<(), Box<dyn 
     );
     Ok(())
 }
+
+#[test]
+fn preserves_namespace_constrained_wildcards() -> Result<(), Box<dyn Error>> {
+    let root = fixtures();
+    let policy = ResourcePolicy::offline([root.clone()])?;
+    let catalog = CatalogResolver::load(root.join("catalog.xml"), policy)?;
+    let engine = Libxml2XsdIndexEngine::new(env!("CARGO_BIN_EXE_xml-libxml2-helper"))?;
+    let report = runtime()?.block_on(engine.compile(XsdIndexRequest {
+        catalog: &catalog,
+        uri: "https://example.org/wildcard.xsd",
+    }))?;
+
+    let article = ExpandedName::new(Some("urn:article"), "article")?;
+    let foreign = ExpandedName::new(Some("urn:extension"), "metadata")?;
+    let body = ExpandedName::new(Some("urn:article"), "body")?;
+    let start = report.index.complete_children(&article, &[])?;
+    assert!(start.children.is_empty());
+    assert!(!start.accepts_any);
+    let after_foreign = report.index.complete_children(&article, &[foreign])?;
+    assert_eq!(after_foreign.children, vec![body]);
+    assert!(!after_foreign.can_close);
+    assert!(report
+        .index
+        .complete_children(
+            &article,
+            &[ExpandedName::new(Some("urn:article"), "not-foreign")?]
+        )
+        .is_err());
+    Ok(())
+}

@@ -70,6 +70,7 @@ pub fn compile_dtd(
                     start_state: 0,
                     accepting_states: BTreeSet::from([0]),
                     transitions: BTreeMap::from([(0, transitions)]),
+                    wildcard_transitions: BTreeMap::new(),
                 })
             }
             DtdContent::Children(particle) => ContentModel::Automaton(compile_particle(&particle)?),

@@ -79,8 +79,11 @@ Current progress:
   chains, combining base/derived content and inherited attribute declarations.
 - [x] Resolve cross-document model groups and complex base types exclusively
   from the bounded resource graph already approved by the offline broker.
-- [ ] Add namespace-constrained wildcards without treating completion as
-  authoritative validation.
+- [x] Preserve namespace-constrained wildcards in content automata, consuming
+  only matching expanded names and suggesting only known eligible declarations.
+
+Phase 2 implementation status: complete. Remaining standards expansion belongs
+to the versioned engines and framework work in Phases 3 and 4.
 
 Gate: relevant standards/conformance fixtures pass, offline catalog scenarios are
 demonstrated, and all resource-policy denial tests pass.

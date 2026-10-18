@@ -9,8 +9,8 @@ use std::{
 
 use serde::{Deserialize, Serialize};
 use xml_dtd::{DtdContent, DtdElementDeclaration, DtdParticle};
-use xml_schema::ContentParticle;
 use xml_schema::{AttributeDeclaration, AttributeUse, ExpandedName, ValueConstraint};
+use xml_schema::{ContentParticle, NamespaceConstraint};
 use xml_xsd::{XsdContent, XsdElementDeclaration};
 
 const XML_PARSE_NONET: c_int = 1 << 11;
@@ -752,7 +752,9 @@ unsafe fn xsd_type_particle(
     }
     for child in unsafe { xsd_children(type_node) }? {
         match unsafe { node_local_name(child) }.as_deref() {
-            Some("sequence" | "choice" | "all" | "group") if unsafe { is_xsd_node(child) } => {
+            Some("sequence" | "choice" | "all" | "group" | "any")
+                if unsafe { is_xsd_node(child) } =>
+            {
                 return unsafe { xsd_particle(child, visited_groups, depth + 1) };
             }
             Some("complexContent" | "simpleContent") if unsafe { is_xsd_node(child) } => {
@@ -820,6 +822,7 @@ unsafe fn xsd_particle(
         .ok_or_else(|| "XSD content particle has no name".to_owned())?;
     let particle = match local.as_str() {
         "element" => ContentParticle::Element(unsafe { xsd_element_name(node) }?),
+        "any" => ContentParticle::Wildcard(unsafe { xsd_wildcard(node) }?),
         "sequence" | "choice" | "all" => {
             let mut particles = Vec::new();
             for child in unsafe { xsd_children(node) }? {
@@ -829,7 +832,7 @@ unsafe fn xsd_particle(
                 let child_name = unsafe { node_local_name(child) };
                 if matches!(
                     child_name.as_deref(),
-                    Some("element" | "sequence" | "choice" | "all" | "group")
+                    Some("element" | "sequence" | "choice" | "all" | "group" | "any")
                 ) {
                     let Some(particle) =
                         (unsafe { xsd_particle(child, visited_groups, depth + 1) })?
@@ -837,8 +840,6 @@ unsafe fn xsd_particle(
                         return Ok(None);
                     };
                     particles.push(particle);
-                } else if child_name.as_deref() == Some("any") {
-                    return Ok(None);
                 }
             }
             if local == "sequence" {
@@ -894,6 +895,35 @@ unsafe fn xsd_particle(
             max_occurs,
         }))
     }
+}
+
+unsafe fn xsd_wildcard(node: *mut XmlNode) -> Result<NamespaceConstraint, String> {
+    let Some(value) = unsafe { node_property(node, "namespace") }? else {
+        return Ok(NamespaceConstraint::Any);
+    };
+    if value == "##any" {
+        return Ok(NamespaceConstraint::Any);
+    }
+    let target_namespace = unsafe { schema_property(node, "targetNamespace") }?;
+    if value == "##other" {
+        return Ok(NamespaceConstraint::Other(target_namespace));
+    }
+    let mut namespaces = BTreeSet::new();
+    for token in value.split_ascii_whitespace() {
+        let namespace = match token {
+            "##targetNamespace" => target_namespace.clone(),
+            "##local" => None,
+            "##any" | "##other" => {
+                return Err("XSD wildcard combines an exclusive namespace token".into());
+            }
+            uri => Some(uri.to_owned()),
+        };
+        namespaces.insert(namespace);
+    }
+    if namespaces.is_empty() {
+        return Err("XSD wildcard namespace list is empty".into());
+    }
+    Ok(NamespaceConstraint::Enumerated(namespaces))
 }
 
 fn parse_occurs(value: &str) -> Result<u32, String> {
