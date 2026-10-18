@@ -1,5 +1,5 @@
 use std::{
-    collections::BTreeMap,
+    collections::{BTreeMap, BTreeSet, HashSet},
     ffi::{c_char, c_int, c_long, c_uint, c_void, CStr, CString},
     io::{self, BufRead, BufReader, Read, Write},
     process::ExitCode,
@@ -8,12 +8,15 @@ use std::{
 };
 
 use serde::{Deserialize, Serialize};
+use xml_dtd::{DtdContent, DtdElementDeclaration, DtdParticle};
+use xml_schema::{AttributeDeclaration, AttributeUse, ExpandedName, ValueConstraint};
 
 const XML_PARSE_NONET: c_int = 1 << 11;
 const XML_CHAR_ENCODING_NONE: c_int = 0;
 
 type XmlDoc = c_void;
 type XmlDtd = c_void;
+type XmlHashTable = c_void;
 type XmlParserCtxt = c_void;
 type XmlParserInput = c_void;
 type XmlParserInputBuffer = c_void;
@@ -53,6 +56,81 @@ struct XmlXPathObject {
     string: *mut u8,
 }
 
+#[repr(C)]
+struct XmlDtdLayout {
+    private_data: *mut c_void,
+    node_type: c_int,
+    name: *const u8,
+    children: *mut c_void,
+    last: *mut c_void,
+    parent: *mut c_void,
+    next: *mut c_void,
+    previous: *mut c_void,
+    document: *mut c_void,
+    notations: *mut c_void,
+    elements: *mut XmlHashTable,
+    attributes: *mut XmlHashTable,
+    entities: *mut XmlHashTable,
+    external_id: *const u8,
+    system_id: *const u8,
+    parameter_entities: *mut XmlHashTable,
+}
+
+#[repr(C)]
+struct XmlElementLayout {
+    private_data: *mut c_void,
+    node_type: c_int,
+    name: *const u8,
+    children: *mut c_void,
+    last: *mut c_void,
+    parent: *mut c_void,
+    next: *mut c_void,
+    previous: *mut c_void,
+    document: *mut c_void,
+    element_type: c_int,
+    content: *mut XmlElementContentLayout,
+    attributes: *mut XmlAttributeLayout,
+    prefix: *const u8,
+    content_model: *mut c_void,
+}
+
+#[repr(C)]
+struct XmlElementContentLayout {
+    content_type: c_int,
+    occurrence: c_int,
+    name: *const u8,
+    first: *mut XmlElementContentLayout,
+    second: *mut XmlElementContentLayout,
+    parent: *mut XmlElementContentLayout,
+    prefix: *const u8,
+}
+
+#[repr(C)]
+struct XmlAttributeLayout {
+    private_data: *mut c_void,
+    node_type: c_int,
+    name: *const u8,
+    children: *mut c_void,
+    last: *mut c_void,
+    parent: *mut c_void,
+    next: *mut XmlAttributeLayout,
+    previous: *mut XmlAttributeLayout,
+    document: *mut c_void,
+    next_in_hash: *mut XmlAttributeLayout,
+    attribute_type: c_int,
+    default_kind: c_int,
+    default_value: *const u8,
+    enumeration: *mut XmlEnumerationLayout,
+    prefix: *const u8,
+    element: *const u8,
+}
+
+#[repr(C)]
+struct XmlEnumerationLayout {
+    next: *mut XmlEnumerationLayout,
+    name: *const u8,
+}
+
 #[link(name = "xml2")]
 extern "C" {
     fn xmlInitParser();
@@ -79,6 +157,11 @@ extern "C" {
     fn xmlFreeDoc(document: *mut XmlDoc);
     fn xmlParseDTD(public_id: *const u8, system_id: *const u8) -> *mut XmlDtd;
     fn xmlFreeDtd(dtd: *mut XmlDtd);
+    fn xmlHashScan(
+        table: *mut XmlHashTable,
+        scanner: Option<unsafe extern "C" fn(*mut c_void, *mut c_void, *const u8)>,
+        data: *mut c_void,
+    );
     fn xmlNewValidCtxt() -> *mut XmlValidCtxt;
     fn xmlFreeValidCtxt(context: *mut XmlValidCtxt);
     fn xmlValidateDtd(context: *mut XmlValidCtxt, document: *mut XmlDoc, dtd: *mut XmlDtd)
@@ -125,6 +208,8 @@ struct Request {
 #[serde(rename_all = "lowercase")]
 enum Mode {
     Dtd,
+    #[serde(rename = "dtd_index")]
+    DtdIndex,
     Xsd,
     XPath,
 }
@@ -140,6 +225,8 @@ enum Message<'a> {
         valid: bool,
         #[serde(skip_serializing_if = "Option::is_none")]
         xpath: Option<&'a XPathValue>,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        dtd: Option<&'a [DtdElementDeclaration]>,
     },
 }
 
@@ -339,9 +426,17 @@ fn run() -> Result<bool, String> {
         xmlInitParser();
         xmlSetExternalEntityLoader(Some(match request.mode {
             Mode::XPath => deny_resource_loader,
-            Mode::Dtd | Mode::Xsd => resource_loader,
+            Mode::Dtd | Mode::DtdIndex | Mode::Xsd => resource_loader,
         }));
     }
+
+    if matches!(request.mode, Mode::DtdIndex) {
+        let declarations = unsafe { extract_dtd(&grammar_uri, public_id.as_ref()) }?;
+        let valid = declarations.is_some();
+        emit_result(valid, None, declarations.as_deref())?;
+        return Ok(valid);
+    }
+
     let document_ptr = unsafe {
         xmlReadMemory(
             document.as_ptr().cast(),
@@ -352,7 +447,7 @@ fn run() -> Result<bool, String> {
         )
     };
     if document_ptr.is_null() {
-        emit_result(false, None)?;
+        emit_result(false, None, None)?;
         return Ok(false);
     }
 
@@ -370,7 +465,7 @@ fn run() -> Result<bool, String> {
         };
         unsafe { xmlFreeDoc(document_ptr) };
         let value = value?;
-        emit_result(true, Some(&value))?;
+        emit_result(true, Some(&value), None)?;
         return Ok(true);
     }
 
@@ -378,13 +473,239 @@ fn run() -> Result<bool, String> {
         match request.mode {
             Mode::Dtd => validate_dtd(document_ptr, &grammar_uri, public_id.as_ref()),
             Mode::Xsd => validate_xsd(document_ptr, &grammar_uri),
+            Mode::DtdIndex => Err("DTD index request reached the validation path".into()),
             Mode::XPath => Err("XPath request reached the validation path".into()),
         }
     };
     unsafe { xmlFreeDoc(document_ptr) };
     let valid = valid?;
-    emit_result(valid, None)?;
+    emit_result(valid, None, None)?;
     Ok(valid)
+}
+
+struct DtdExtraction {
+    declarations: Vec<DtdElementDeclaration>,
+    error: Option<String>,
+}
+
+unsafe fn extract_dtd(
+    grammar_uri: &CString,
+    public_id: Option<&CString>,
+) -> Result<Option<Vec<DtdElementDeclaration>>, String> {
+    let public_id = public_id.map_or(ptr::null(), |value| value.as_ptr().cast());
+    let dtd = unsafe { xmlParseDTD(public_id, grammar_uri.as_ptr().cast()) };
+    if dtd.is_null() {
+        return Ok(None);
+    }
+    let elements = unsafe { (*dtd.cast::<XmlDtdLayout>()).elements };
+    let mut extraction = DtdExtraction {
+        declarations: Vec::new(),
+        error: None,
+    };
+    if !elements.is_null() {
+        unsafe {
+            xmlHashScan(
+                elements,
+                Some(scan_dtd_element),
+                (&mut extraction as *mut DtdExtraction).cast(),
+            )
+        };
+    }
+    unsafe { xmlFreeDtd(dtd) };
+    if let Some(error) = extraction.error {
+        return Err(error);
+    }
+    extraction
+        .declarations
+        .sort_by(|left, right| left.name.cmp(&right.name));
+    Ok(Some(extraction.declarations))
+}
+
+unsafe extern "C" fn scan_dtd_element(payload: *mut c_void, data: *mut c_void, _name: *const u8) {
+    if payload.is_null() || data.is_null() {
+        return;
+    }
+    let extraction = unsafe { &mut *data.cast::<DtdExtraction>() };
+    if extraction.error.is_some() {
+        return;
+    }
+    if extraction.declarations.len() >= 100_000 {
+        extraction.error = Some("DTD exceeds the 100000-element extraction limit".into());
+        return;
+    }
+    match unsafe { extract_dtd_element(&*payload.cast::<XmlElementLayout>()) } {
+        Ok(declaration) => extraction.declarations.push(declaration),
+        Err(error) => extraction.error = Some(error),
+    }
+}
+
+unsafe fn extract_dtd_element(element: &XmlElementLayout) -> Result<DtdElementDeclaration, String> {
+    let name = unsafe { expanded_lexical_name(element.name, element.prefix) }?;
+    let content = match element.element_type {
+        1 => DtdContent::Empty,
+        2 => DtdContent::Any,
+        3 => {
+            let mut children = BTreeSet::new();
+            if !element.content.is_null() {
+                unsafe { collect_mixed_names(element.content, 0, &mut children) }?;
+            }
+            DtdContent::Mixed(children)
+        }
+        4 => {
+            if element.content.is_null() {
+                return Err("DTD children declaration has no content tree".into());
+            }
+            DtdContent::Children(unsafe { extract_particle(element.content, 0) }?)
+        }
+        value => return Err(format!("unsupported libxml2 DTD element type {value}")),
+    };
+    let attributes = unsafe { extract_attributes(element.attributes) }?;
+    Ok(DtdElementDeclaration {
+        name,
+        content,
+        attributes,
+    })
+}
+
+unsafe fn collect_mixed_names(
+    content: *mut XmlElementContentLayout,
+    depth: usize,
+    names: &mut BTreeSet<ExpandedName>,
+) -> Result<(), String> {
+    if content.is_null() || depth > 128 {
+        return if content.is_null() {
+            Ok(())
+        } else {
+            Err("DTD mixed content exceeds the depth limit".into())
+        };
+    }
+    let node = unsafe { &*content };
+    match node.content_type {
+        1 => Ok(()),
+        2 => {
+            names.insert(unsafe { expanded_lexical_name(node.name, node.prefix) }?);
+            Ok(())
+        }
+        3 | 4 => {
+            unsafe { collect_mixed_names(node.first, depth + 1, names) }?;
+            unsafe { collect_mixed_names(node.second, depth + 1, names) }
+        }
+        value => Err(format!("unsupported libxml2 mixed content type {value}")),
+    }
+}
+
+unsafe fn extract_particle(
+    content: *mut XmlElementContentLayout,
+    depth: usize,
+) -> Result<DtdParticle, String> {
+    if content.is_null() {
+        return Err("DTD content particle is null".into());
+    }
+    if depth > 128 {
+        return Err("DTD content particle exceeds the depth limit".into());
+    }
+    let node = unsafe { &*content };
+    let particle = match node.content_type {
+        2 => DtdParticle::Element(unsafe { expanded_lexical_name(node.name, node.prefix) }?),
+        3 => DtdParticle::Sequence(vec![
+            unsafe { extract_particle(node.first, depth + 1) }?,
+            unsafe { extract_particle(node.second, depth + 1) }?,
+        ]),
+        4 => DtdParticle::Choice(vec![
+            unsafe { extract_particle(node.first, depth + 1) }?,
+            unsafe { extract_particle(node.second, depth + 1) }?,
+        ]),
+        1 => return Err("PCDATA is only valid in a mixed DTD declaration".into()),
+        value => return Err(format!("unsupported libxml2 DTD content type {value}")),
+    };
+    match node.occurrence {
+        1 => Ok(particle),
+        2 => Ok(DtdParticle::Optional(Box::new(particle))),
+        3 => Ok(DtdParticle::ZeroOrMore(Box::new(particle))),
+        4 => Ok(DtdParticle::OneOrMore(Box::new(particle))),
+        value => Err(format!("unsupported libxml2 DTD occurrence {value}")),
+    }
+}
+
+unsafe fn extract_attributes(
+    mut attribute: *mut XmlAttributeLayout,
+) -> Result<Vec<AttributeDeclaration>, String> {
+    let mut attributes = Vec::new();
+    let mut visited = HashSet::new();
+    while !attribute.is_null() {
+        if attributes.len() >= 4_096 {
+            return Err("DTD element exceeds the 4096-attribute extraction limit".into());
+        }
+        if !visited.insert(attribute as usize) {
+            return Err("DTD attribute list contains a cycle".into());
+        }
+        let item = unsafe { &*attribute };
+        let name = unsafe { expanded_lexical_name(item.name, item.prefix) }?;
+        let default_value = unsafe { optional_xml_string(item.default_value) };
+        let use_kind = match item.default_kind {
+            2 => AttributeUse::Required,
+            1 | 3 | 4 => AttributeUse::Optional,
+            value => return Err(format!("unsupported libxml2 attribute default {value}")),
+        };
+        let value_constraint = match (item.default_kind, default_value) {
+            (4, Some(value)) => Some(ValueConstraint::Fixed(value)),
+            (1, Some(value)) => Some(ValueConstraint::Default(value)),
+            (4, None) => return Err("fixed DTD attribute has no value".into()),
+            _ => None,
+        };
+        attributes.push(AttributeDeclaration {
+            name,
+            use_kind,
+            allowed_values: unsafe { extract_enumeration(item.enumeration) }?,
+            value_constraint,
+        });
+        attribute = item.next_in_hash;
+    }
+    Ok(attributes)
+}
+
+unsafe fn extract_enumeration(mut item: *mut XmlEnumerationLayout) -> Result<Vec<String>, String> {
+    let mut values = Vec::new();
+    let mut visited = HashSet::new();
+    while !item.is_null() {
+        if values.len() >= 4_096 {
+            return Err("DTD attribute exceeds the 4096-value enumeration limit".into());
+        }
+        if !visited.insert(item as usize) {
+            return Err("DTD attribute enumeration contains a cycle".into());
+        }
+        let value = unsafe { &*item };
+        values.push(
+            unsafe { optional_xml_string(value.name) }
+                .ok_or_else(|| "DTD enumeration value is null".to_owned())?,
+        );
+        item = value.next;
+    }
+    Ok(values)
+}
+
+unsafe fn expanded_lexical_name(
+    name: *const u8,
+    prefix: *const u8,
+) -> Result<ExpandedName, String> {
+    let name = unsafe { optional_xml_string(name) }
+        .ok_or_else(|| "DTD declaration name is null".to_owned())?;
+    let local_name = match unsafe { optional_xml_string(prefix) } {
+        Some(prefix) => format!("{prefix}:{name}"),
+        None => name,
+    };
+    ExpandedName::new(None, &local_name).map_err(|error| error.to_string())
+}
+
+unsafe fn optional_xml_string(pointer: *const u8) -> Option<String> {
+    if pointer.is_null() {
+        return None;
+    }
+    Some(
+        unsafe { CStr::from_ptr(pointer.cast()) }
+            .to_string_lossy()
+            .into_owned(),
+    )
 }
 
 unsafe fn validate_dtd(
@@ -541,14 +862,18 @@ unsafe fn xpath_value(
     }
 }
 
-fn emit_result(valid: bool, xpath: Option<&XPathValue>) -> Result<(), String> {
+fn emit_result(
+    valid: bool,
+    xpath: Option<&XPathValue>,
+    dtd: Option<&[DtdElementDeclaration]>,
+) -> Result<(), String> {
     let Some(broker) = BROKER.get() else {
         return Err("resource broker is unavailable".into());
     };
     let mut broker = broker
         .lock()
         .map_err(|_| "resource broker failed".to_owned())?;
-    serde_json::to_writer(&mut broker.writer, &Message::Result { valid, xpath })
+    serde_json::to_writer(&mut broker.writer, &Message::Result { valid, xpath, dtd })
         .map_err(|error| error.to_string())?;
     broker
         .writer

@@ -4577,6 +4577,7 @@ dependencies = [
 name = "xml-dtd"
 version = "0.1.0"
 dependencies = [
+ "serde",
  "thiserror 2.0.21",
  "xml-schema",
 ]
@@ -4590,7 +4591,9 @@ dependencies = [
  "serde_json",
  "tokio",
  "xml-domain",
+ "xml-dtd",
  "xml-resource",
+ "xml-schema",
  "xml-validation",
  "xml-xpath",
 ]

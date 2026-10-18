@@ -1,5 +1,6 @@
 use std::collections::{BTreeMap, BTreeSet, VecDeque};
 
+use serde::{Deserialize, Serialize};
 use thiserror::Error;
 use xml_schema::{
     AttributeDeclaration, ContentAutomaton, ContentModel, ElementDeclaration, ExpandedName,
@@ -13,14 +14,16 @@ const MAX_DFA_TRANSITIONS: usize = 500_000;
 
 /// A normalized DTD element declaration. libxml2 extraction is responsible for
 /// resolving parameter entities before producing this representation.
-#[derive(Clone, Debug, Eq, PartialEq)]
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
 pub struct DtdElementDeclaration {
     pub name: ExpandedName,
     pub content: DtdContent,
     pub attributes: Vec<AttributeDeclaration>,
 }
 
-#[derive(Clone, Debug, Eq, PartialEq)]
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(tag = "kind", content = "value", rename_all = "snake_case")]
 pub enum DtdContent {
     Empty,
     Any,
@@ -28,7 +31,8 @@ pub enum DtdContent {
     Children(DtdParticle),
 }
 
-#[derive(Clone, Debug, Eq, PartialEq)]
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(tag = "kind", content = "value", rename_all = "snake_case")]
 pub enum DtdParticle {
     Element(ExpandedName),
     Sequence(Vec<DtdParticle>),

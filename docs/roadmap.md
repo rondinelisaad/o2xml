@@ -52,8 +52,10 @@ Current progress:
   element and attribute completion.
 - [x] Compile normalized DTD particle trees into bounded deterministic content
   models, including sequence, choice, cardinality, mixed content, and attributes.
-- [ ] Extract normalized DTD declarations through the isolated libxml2 helper
-  and expose context-sensitive completion through the application service.
+- [x] Extract normalized DTD declarations and attribute metadata through the
+  isolated libxml2 helper without introducing a second DTD parser.
+- [ ] Broker DTD extraction through the catalog policy and expose
+  context-sensitive completion through the application service.
 
 Gate: relevant standards/conformance fixtures pass, offline catalog scenarios are
 demonstrated, and all resource-policy denial tests pass.

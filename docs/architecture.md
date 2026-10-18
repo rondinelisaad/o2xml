@@ -51,7 +51,7 @@ crate per acronym:
 | `xml-xpath` | XPath query contract, supervised engine adapter, navigable results |
 | `xml-schema` | bounded common content-model index and completion queries |
 | `xml-dtd` | normalized DTD particle/attribute compiler for the common index |
-| `xml-libxml2-helper` | isolated unsafe FFI for DTD, XSD 1.0, and XPath 1.0 |
+| `xml-libxml2-helper` | isolated unsafe FFI for DTD validation/index extraction, XSD 1.0, and XPath 1.0 |
 | `xml-framework` | versioned JATS/SPS/TEI/DocBook manifests and rule composition |
 | `xml-transform` | XSLT/XQuery process and FFI adapters, scenarios |
 | `xml-plugin-api` | stable capability-based host contracts; added after core traits settle |
@@ -116,7 +116,9 @@ sound; full validation remains the correctness fallback.
 - **Parsing/well-formedness:** `quick-xml` streaming reader in Phase 1. It is
   fast, namespace-capable, and does not fetch external entities by itself.
 - **DTD:** libxml2 adapter with custom resource loader, catalogs, `NONET`, and
-  expansion limits. DTD diagnostics are isolated from the editor parser.
+  expansion limits. DTD diagnostics and normalized declaration extraction are
+  isolated from the editor parser; only bounded owned data crosses the process
+  boundary.
 - **XSD 1.0:** libxml2 initially; conformance gaps are covered by a test corpus
   and the adapter can be swapped. Xerces-J is an optional alternate.
 - **XSD 1.1:** realistic through the separate Xerces2-J 2.12.2 XSD 1.1

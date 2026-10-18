@@ -1,0 +1,12 @@
+<!ELEMENT article (front, body+, (back | floats-group)?)>
+<!ATTLIST article
+  article-type (research-article | review-article) #REQUIRED
+  xml:lang NMTOKEN #IMPLIED
+  dtd-version CDATA #FIXED "1.3">
+<!ELEMENT front EMPTY>
+<!ELEMENT body ANY>
+<!ELEMENT back EMPTY>
+<!ELEMENT floats-group EMPTY>
+<!ELEMENT p (#PCDATA | bold | italic)*>
+<!ELEMENT bold (#PCDATA)>
+<!ELEMENT italic (#PCDATA)>

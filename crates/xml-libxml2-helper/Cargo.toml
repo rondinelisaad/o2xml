@@ -9,6 +9,8 @@ build = "build.rs"
 [dependencies]
 serde.workspace = true
 serde_json.workspace = true
+xml-dtd = { path = "../xml-dtd" }
+xml-schema = { path = "../xml-schema" }
 
 [build-dependencies]
 pkg-config.workspace = true

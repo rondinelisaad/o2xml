@@ -48,6 +48,12 @@ XPath 1.0 parses the in-memory document with a deny-all external resource loader
 This permits ordinary JATS `DOCTYPE` declarations without fetching their remote
 subsets; external entities remain unavailable to XPath evaluation.
 
+DTD completion extraction runs in the isolated libxml2 helper and uses the same
+deny-by-default resource callback as validation. Raw FFI pointers never cross
+the process boundary. Element, particle, attribute, and enumeration counts or
+depths are bounded before serialization; the safe Rust compiler then applies
+independent NFA/DFA state and transition limits.
+
 ## Processor profiles
 
 - `editor-safe`: well-formedness only, no external resource access.
