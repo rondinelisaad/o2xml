@@ -4,11 +4,11 @@
            targetNamespace="urn:article"
            elementFormDefault="qualified">
   <xs:import namespace="urn:common" schemaLocation="https://example.org/common.xsd"/>
-  <xs:element name="article">
-    <xs:complexType>
-      <xs:sequence>
-        <xs:element ref="c:common"/>
-      </xs:sequence>
-    </xs:complexType>
-  </xs:element>
+  <xs:complexType name="ArticleType">
+    <xs:sequence>
+      <xs:element ref="c:common"/>
+    </xs:sequence>
+    <xs:attribute name="article-type" use="optional" fixed="research-article"/>
+  </xs:complexType>
+  <xs:element name="article" type="a:ArticleType"/>
 </xs:schema>

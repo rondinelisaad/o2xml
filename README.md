@@ -19,7 +19,9 @@ desktop MVP with a Rust core and a Tauri/CodeMirror interface.
   offline catalog brokering and context-sensitive desktop completion are wired.
   Normalized XSD 1.0 declarations now compile through the same bounded particle
   engine, and global declarations are extracted through the catalog-brokered
-  libxml2 helper. Particle/attribute enrichment and desktop XSD completion remain.
+  libxml2 helper. Local sequence/choice particles, occurrences, references, and
+  attribute uses are projected from libxml2-resolved types; advanced groups,
+  wildcards, facets, and desktop XSD completion remain.
 - Phases 3–5: planned; Schematron/JATS/SPS validation is not presented as
   implemented yet.
 

@@ -1,7 +1,7 @@
 use std::{error::Error, path::PathBuf};
 
 use xml_resource::{CatalogError, CatalogResolver, ResourcePolicy};
-use xml_schema::{ExpandedName, SchemaLanguage};
+use xml_schema::{ExpandedName, SchemaLanguage, ValueConstraint};
 use xml_xsd::{Libxml2XsdIndexEngine, XsdIndexEngine, XsdIndexError, XsdIndexRequest};
 
 fn fixtures() -> PathBuf {
@@ -32,6 +32,20 @@ fn extracts_global_xsd_declarations_through_the_offline_broker() -> Result<(), B
         .index
         .element(&ExpandedName::new(Some("urn:article"), "article")?)
         .is_some());
+    let article = ExpandedName::new(Some("urn:article"), "article")?;
+    let common = ExpandedName::new(Some("urn:common"), "common")?;
+    let completion = report.index.complete_children(&article, &[])?;
+    assert_eq!(completion.children, vec![common]);
+    assert!(!completion.can_close);
+    let attributes = report
+        .index
+        .complete_attributes(&article, &Default::default())?;
+    assert_eq!(attributes.len(), 1);
+    assert_eq!(attributes[0].name, ExpandedName::new(None, "article-type")?);
+    assert_eq!(
+        attributes[0].value_constraint,
+        Some(ValueConstraint::Fixed("research-article".to_owned()))
+    );
     Ok(())
 }
 

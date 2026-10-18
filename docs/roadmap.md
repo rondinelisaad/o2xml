@@ -64,9 +64,11 @@ Current progress:
 - [x] Broker XSD index construction through the isolated libxml2 helper, with
   catalog-only resources, graph/output/deadline limits, audited execution, and
   conservative global element declarations from libxml2's compiled schema.
-- [ ] Enrich XSD declarations with local particles and attribute uses, then
-  resolve named types, groups, imports, and includes without treating completion
-  as authoritative validation.
+- [x] Enrich inline and resolved named XSD types with local sequences, choices,
+  element references, bounded occurrences, attribute uses, and value constraints.
+  Imported type nodes remain inside the already brokered libxml2 schema graph.
+- [ ] Add groups, `all`, wildcards, inherited attribute groups, and enumeration
+  facets without treating completion as authoritative validation.
 
 Gate: relevant standards/conformance fixtures pass, offline catalog scenarios are
 demonstrated, and all resource-policy denial tests pass.

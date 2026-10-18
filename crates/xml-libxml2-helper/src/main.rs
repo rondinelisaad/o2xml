@@ -9,6 +9,7 @@ use std::{
 
 use serde::{Deserialize, Serialize};
 use xml_dtd::{DtdContent, DtdElementDeclaration, DtdParticle};
+use xml_schema::ContentParticle;
 use xml_schema::{AttributeDeclaration, AttributeUse, ExpandedName, ValueConstraint};
 use xml_xsd::{XsdContent, XsdElementDeclaration};
 
@@ -26,6 +27,8 @@ type XmlSchemaParserCtxt = c_void;
 type XmlSchemaValidCtxt = c_void;
 type XmlValidCtxt = c_void;
 type XmlXPathContext = c_void;
+type XmlNode = c_void;
+type XmlNs = c_void;
 
 type ExternalEntityLoader = Option<
     unsafe extern "C" fn(
@@ -117,6 +120,42 @@ struct XmlSchemaElementLayout {
     reference_declaration: *mut c_void,
     content_model: *mut c_void,
     content_type: c_int,
+}
+
+#[repr(C)]
+struct XmlSchemaTypeLayout {
+    component_type: c_int,
+    next: *mut c_void,
+    name: *const u8,
+    id: *const u8,
+    reference: *const u8,
+    reference_namespace: *const u8,
+    annotation: *mut c_void,
+    subtypes: *mut c_void,
+    attributes: *mut c_void,
+    node: *mut XmlNode,
+}
+
+#[repr(C)]
+struct XmlNodeLayout {
+    private_data: *mut c_void,
+    node_type: c_int,
+    name: *const u8,
+    children: *mut XmlNode,
+    last: *mut XmlNode,
+    parent: *mut XmlNode,
+    next: *mut XmlNode,
+    previous: *mut XmlNode,
+    document: *mut XmlDoc,
+    namespace: *mut XmlNs,
+}
+
+#[repr(C)]
+struct XmlNsLayout {
+    next: *mut XmlNs,
+    node_type: c_int,
+    href: *const u8,
+    prefix: *const u8,
 }
 
 #[repr(C)]
@@ -232,6 +271,9 @@ extern "C" {
     fn xmlGetNodePath(node: *const c_void) -> *mut u8;
     fn xmlGetLineNo(node: *const c_void) -> c_long;
     fn xmlMemFree(pointer: *mut c_void);
+    fn xmlGetProp(node: *const XmlNode, name: *const u8) -> *mut u8;
+    fn xmlSearchNs(document: *mut XmlDoc, node: *mut XmlNode, prefix: *const u8) -> *mut XmlNs;
+    fn xmlDocGetRootElement(document: *const XmlDoc) -> *mut XmlNode;
 }
 
 #[derive(Deserialize)]
@@ -602,18 +644,308 @@ unsafe extern "C" fn scan_xsd_element(payload: *mut c_void, data: *mut c_void, _
             return;
         }
     };
-    // libxml2 exposes global declarations but not a stable public component API
-    // for their compiled particles. Until the DOM-backed extractor lands, keep
-    // complex content conservative instead of inventing schema restrictions.
-    let content = match element.content_type {
-        1 | 4 | 6 => XsdContent::Empty,
-        _ => XsdContent::Any,
+    let type_node = if element.subtype.is_null() {
+        ptr::null_mut()
+    } else {
+        unsafe { (*element.subtype.cast::<XmlSchemaTypeLayout>()).node }
+    };
+    let content = match unsafe { xsd_type_particle(type_node, 0) } {
+        Ok(Some(particle)) => XsdContent::Particle(particle),
+        Ok(None) if matches!(element.content_type, 1 | 4 | 6) => XsdContent::Empty,
+        Ok(None) => XsdContent::Any,
+        Err(error) => {
+            extraction.error = Some(error);
+            return;
+        }
+    };
+    let attributes = match unsafe { xsd_type_attributes(type_node) } {
+        Ok(attributes) => attributes,
+        Err(error) => {
+            extraction.error = Some(error);
+            return;
+        }
     };
     extraction.declarations.push(XsdElementDeclaration {
         name,
         content,
-        attributes: Vec::new(),
+        attributes,
     });
+}
+
+unsafe fn xsd_type_particle(
+    type_node: *mut XmlNode,
+    depth: usize,
+) -> Result<Option<ContentParticle>, String> {
+    if type_node.is_null() {
+        return Ok(None);
+    }
+    if depth > 128 {
+        return Err("XSD content particle exceeds the depth limit".into());
+    }
+    for child in unsafe { xsd_children(type_node) }? {
+        match unsafe { node_local_name(child) }.as_deref() {
+            Some("sequence" | "choice") if unsafe { is_xsd_node(child) } => {
+                return unsafe { xsd_particle(child, depth + 1) };
+            }
+            Some("complexContent" | "simpleContent") if unsafe { is_xsd_node(child) } => {
+                for derivation in unsafe { xsd_children(child) }? {
+                    if matches!(
+                        unsafe { node_local_name(derivation) }.as_deref(),
+                        Some("extension" | "restriction")
+                    ) && unsafe { is_xsd_node(derivation) }
+                    {
+                        if let Some(particle) = unsafe { xsd_type_particle(derivation, depth + 1) }?
+                        {
+                            return Ok(Some(particle));
+                        }
+                    }
+                }
+            }
+            _ => {}
+        }
+    }
+    Ok(None)
+}
+
+unsafe fn xsd_particle(
+    node: *mut XmlNode,
+    depth: usize,
+) -> Result<Option<ContentParticle>, String> {
+    if depth > 128 {
+        return Err("XSD content particle exceeds the depth limit".into());
+    }
+    let local = unsafe { node_local_name(node) }
+        .ok_or_else(|| "XSD content particle has no name".to_owned())?;
+    let particle = match local.as_str() {
+        "element" => ContentParticle::Element(unsafe { xsd_element_name(node) }?),
+        "sequence" | "choice" => {
+            let mut particles = Vec::new();
+            for child in unsafe { xsd_children(node) }? {
+                if !unsafe { is_xsd_node(child) } {
+                    continue;
+                }
+                let child_name = unsafe { node_local_name(child) };
+                if matches!(
+                    child_name.as_deref(),
+                    Some("element" | "sequence" | "choice")
+                ) {
+                    if let Some(particle) = unsafe { xsd_particle(child, depth + 1) }? {
+                        particles.push(particle);
+                    }
+                } else if matches!(child_name.as_deref(), Some("any" | "group" | "all")) {
+                    return Ok(None);
+                }
+            }
+            if local == "sequence" {
+                ContentParticle::Sequence(particles)
+            } else {
+                if particles.is_empty() {
+                    return Ok(None);
+                }
+                ContentParticle::Choice(particles)
+            }
+        }
+        _ => return Ok(None),
+    };
+    let min_occurs = unsafe { node_property(node, "minOccurs") }?
+        .map(|value| parse_occurs(&value))
+        .transpose()?
+        .unwrap_or(1);
+    let max_occurs = match unsafe { node_property(node, "maxOccurs") }? {
+        Some(value) if value == "unbounded" => None,
+        Some(value) => Some(parse_occurs(&value)?),
+        None => Some(1),
+    };
+    if min_occurs == 1 && max_occurs == Some(1) {
+        Ok(Some(particle))
+    } else {
+        Ok(Some(ContentParticle::Repeat {
+            particle: Box::new(particle),
+            min_occurs,
+            max_occurs,
+        }))
+    }
+}
+
+fn parse_occurs(value: &str) -> Result<u32, String> {
+    value
+        .parse::<u32>()
+        .map_err(|_| "XSD occurrence is not a valid non-negative integer".to_owned())
+}
+
+unsafe fn xsd_element_name(node: *mut XmlNode) -> Result<ExpandedName, String> {
+    if let Some(reference) = unsafe { node_property(node, "ref") }? {
+        return unsafe { resolve_qname(node, &reference) };
+    }
+    let local = unsafe { node_property(node, "name") }?
+        .ok_or_else(|| "local XSD element has neither name nor ref".to_owned())?;
+    let qualified = unsafe { node_property(node, "form") }?.is_some_and(|form| form == "qualified")
+        || (unsafe { node_property(node, "form") }?.is_none()
+            && unsafe { schema_property(node, "elementFormDefault") }?
+                .is_some_and(|form| form == "qualified"));
+    let namespace = if qualified {
+        unsafe { schema_property(node, "targetNamespace") }?
+    } else {
+        None
+    };
+    ExpandedName::new(namespace.as_deref(), &local).map_err(|error| error.to_string())
+}
+
+unsafe fn xsd_type_attributes(
+    type_node: *mut XmlNode,
+) -> Result<Vec<AttributeDeclaration>, String> {
+    let mut attributes = Vec::new();
+    if type_node.is_null() {
+        return Ok(attributes);
+    }
+    unsafe { collect_xsd_attributes(type_node, &mut attributes, 0) }?;
+    Ok(attributes)
+}
+
+unsafe fn collect_xsd_attributes(
+    container: *mut XmlNode,
+    output: &mut Vec<AttributeDeclaration>,
+    depth: usize,
+) -> Result<(), String> {
+    if depth > 8 {
+        return Err("XSD attribute container exceeds the depth limit".into());
+    }
+    for child in unsafe { xsd_children(container) }? {
+        if !unsafe { is_xsd_node(child) } {
+            continue;
+        }
+        match unsafe { node_local_name(child) }.as_deref() {
+            Some("attribute") => {
+                if output.len() >= 4_096 {
+                    return Err("XSD type exceeds the 4096-attribute extraction limit".into());
+                }
+                output.push(unsafe { xsd_attribute(child) }?);
+            }
+            Some("complexContent" | "simpleContent" | "extension" | "restriction") => {
+                unsafe { collect_xsd_attributes(child, output, depth + 1) }?;
+            }
+            _ => {}
+        }
+    }
+    Ok(())
+}
+
+unsafe fn xsd_attribute(node: *mut XmlNode) -> Result<AttributeDeclaration, String> {
+    let name = if let Some(reference) = unsafe { node_property(node, "ref") }? {
+        unsafe { resolve_qname(node, &reference) }?
+    } else {
+        let local = unsafe { node_property(node, "name") }?
+            .ok_or_else(|| "XSD attribute has neither name nor ref".to_owned())?;
+        let qualified = unsafe { node_property(node, "form") }?
+            .is_some_and(|form| form == "qualified")
+            || (unsafe { node_property(node, "form") }?.is_none()
+                && unsafe { schema_property(node, "attributeFormDefault") }?
+                    .is_some_and(|form| form == "qualified"));
+        let namespace = if qualified {
+            unsafe { schema_property(node, "targetNamespace") }?
+        } else {
+            None
+        };
+        ExpandedName::new(namespace.as_deref(), &local).map_err(|error| error.to_string())?
+    };
+    let use_kind = match unsafe { node_property(node, "use") }?.as_deref() {
+        Some("required") => AttributeUse::Required,
+        Some("prohibited") => AttributeUse::Prohibited,
+        _ => AttributeUse::Optional,
+    };
+    let value_constraint = if let Some(value) = unsafe { node_property(node, "fixed") }? {
+        Some(ValueConstraint::Fixed(value))
+    } else {
+        unsafe { node_property(node, "default") }?.map(ValueConstraint::Default)
+    };
+    Ok(AttributeDeclaration {
+        name,
+        use_kind,
+        allowed_values: Vec::new(),
+        value_constraint,
+    })
+}
+
+unsafe fn resolve_qname(node: *mut XmlNode, lexical: &str) -> Result<ExpandedName, String> {
+    let (prefix, local) = lexical
+        .split_once(':')
+        .map_or((None, lexical), |(prefix, local)| (Some(prefix), local));
+    let prefix = prefix
+        .map(CString::new)
+        .transpose()
+        .map_err(|_| "XSD QName prefix contains NUL".to_owned())?;
+    let layout = unsafe { &*node.cast::<XmlNodeLayout>() };
+    let namespace = unsafe {
+        xmlSearchNs(
+            layout.document,
+            node,
+            prefix
+                .as_ref()
+                .map_or(ptr::null(), |value| value.as_ptr().cast()),
+        )
+    };
+    let namespace_uri = if namespace.is_null() {
+        if prefix.is_some() {
+            return Err("XSD QName uses an unbound prefix".into());
+        }
+        None
+    } else {
+        unsafe { optional_xml_string((*namespace.cast::<XmlNsLayout>()).href) }
+    };
+    ExpandedName::new(namespace_uri.as_deref(), local).map_err(|error| error.to_string())
+}
+
+unsafe fn schema_property(node: *mut XmlNode, name: &str) -> Result<Option<String>, String> {
+    let document = unsafe { (*node.cast::<XmlNodeLayout>()).document };
+    if document.is_null() {
+        return Err("XSD node has no document".into());
+    }
+    let root = unsafe { xmlDocGetRootElement(document) };
+    if root.is_null() {
+        return Err("XSD document has no root element".into());
+    }
+    unsafe { node_property(root, name) }
+}
+
+unsafe fn node_property(node: *mut XmlNode, name: &str) -> Result<Option<String>, String> {
+    let name = CString::new(name).map_err(|_| "XSD property name contains NUL".to_owned())?;
+    let value = unsafe { xmlGetProp(node, name.as_ptr().cast()) };
+    if value.is_null() {
+        return Ok(None);
+    }
+    let text = unsafe { CStr::from_ptr(value.cast()) }
+        .to_string_lossy()
+        .into_owned();
+    unsafe { xmlMemFree(value.cast()) };
+    Ok(Some(text))
+}
+
+unsafe fn xsd_children(node: *mut XmlNode) -> Result<Vec<*mut XmlNode>, String> {
+    let mut output = Vec::new();
+    let mut visited = HashSet::new();
+    let mut child = unsafe { (*node.cast::<XmlNodeLayout>()).children };
+    while !child.is_null() {
+        if output.len() >= 100_000 {
+            return Err("XSD node exceeds the 100000-child traversal limit".into());
+        }
+        if !visited.insert(child as usize) {
+            return Err("XSD child list contains a cycle".into());
+        }
+        output.push(child);
+        child = unsafe { (*child.cast::<XmlNodeLayout>()).next };
+    }
+    Ok(output)
+}
+
+unsafe fn node_local_name(node: *mut XmlNode) -> Option<String> {
+    unsafe { optional_xml_string((*node.cast::<XmlNodeLayout>()).name) }
+}
+
+unsafe fn is_xsd_node(node: *mut XmlNode) -> bool {
+    let namespace = unsafe { (*node.cast::<XmlNodeLayout>()).namespace };
+    !namespace.is_null()
+        && unsafe { optional_xml_string((*namespace.cast::<XmlNsLayout>()).href) }
+            .is_some_and(|href| href == "http://www.w3.org/2001/XMLSchema")
 }
 
 struct DtdExtraction {
