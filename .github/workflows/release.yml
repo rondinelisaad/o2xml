@@ -45,6 +45,11 @@ jobs:
             pkg-config \
             patchelf
 
+      - name: Prepare XML helper for workspace checks
+        run: |
+          cargo build --locked --package xml-libxml2-helper
+          node app/scripts/stage-sidecar.mjs "$(rustc --print host-tuple)" debug
+
       - name: Test Rust workspace
         run: |
           cargo fmt --all -- --check

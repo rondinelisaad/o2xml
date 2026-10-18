@@ -12,21 +12,25 @@ const target = requestedTarget ?? execFileSync(
   ["--print", "host-tuple"],
   { encoding: "utf8" },
 ).trim();
+const profile = process.argv[3] ?? "release";
 
 if (!/^[A-Za-z0-9_.-]+$/u.test(target)) {
   throw new Error(`invalid Rust target triple: ${target}`);
+}
+if (profile !== "debug" && profile !== "release") {
+  throw new Error(`invalid Cargo profile: ${profile}`);
 }
 
 const extension = target.includes("-windows-") ? ".exe" : "";
 const executable = `xml-libxml2-helper${extension}`;
 const candidates = [
-  resolve(workspaceDirectory, "target", target, "release", executable),
-  resolve(workspaceDirectory, "target", "release", executable),
+  resolve(workspaceDirectory, "target", target, profile, executable),
+  resolve(workspaceDirectory, "target", profile, executable),
 ];
 const source = candidates.find((candidate) => existsSync(candidate) && statSync(candidate).isFile());
 if (!source) {
   throw new Error(
-    `xml-libxml2-helper was not found; build it for ${target} in release mode first`,
+    `xml-libxml2-helper was not found; build it for ${target} in ${profile} mode first`,
   );
 }
 
