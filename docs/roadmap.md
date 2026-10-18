@@ -108,9 +108,10 @@ Current progress:
   adapter with private staging, deadlines, and bounded diagnostics.
 - [x] Broker recursive RNC `include`/`external` references through XML Catalog,
   rewrite the approved bounded graph into private staging, and deny root escape.
-- [ ] Run the upstream conformance corpus with an explicitly installed real Jing
-  JAR; repository tests use a supervised synthetic executable and do not claim
-  external-engine conformance.
+- [x] Run the upstream compact-syntax corpus from tag `V20241231` at signed
+  commit `a6bc004` with a real locally built Jing JAR. The opt-in repository test
+  revalidates the official corpus container and recursive RNC dependency through
+  O2XML; no upstream source or binary is redistributed.
 - [x] Add bounded SVRL parsing for failed assertions and successful reports,
   severity metadata, rule identity, and navigable diagnostic normalization.
 - [x] Add a catalog-brokered, process-isolated libxml2 Schematron baseline for

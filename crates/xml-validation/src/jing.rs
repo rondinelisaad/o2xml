@@ -317,7 +317,15 @@ fn compact_resource_directives(bytes: &[u8]) -> Result<Vec<CompactDirective>, Va
                 let start = cursor;
                 skip_identifier(bytes, &mut cursor);
                 if matches!(&source[start..cursor], "include" | "external") {
-                    skip_trivia(bytes, &mut cursor)?;
+                    let after_keyword = cursor;
+                    if skip_trivia(bytes, &mut cursor).is_err()
+                        || !bytes
+                            .get(cursor)
+                            .is_some_and(|byte| matches!(byte, b'\'' | b'"'))
+                    {
+                        cursor = after_keyword;
+                        continue;
+                    }
                     let literal_start = cursor;
                     let target = parse_resource_literal(source, bytes, &mut cursor)?;
                     directives.push(CompactDirective {
@@ -512,6 +520,10 @@ mod tests {
         assert_eq!(directives[1].target, "leaf.rnc");
         assert!(compact_resource_directives(b"\\include = text")?.is_empty());
         assert!(compact_resource_directives(b"element ns:include { text }")?.is_empty());
+        assert!(compact_resource_directives(
+            b"element include { text } | element external { text }"
+        )?
+        .is_empty());
         Ok(())
     }
 

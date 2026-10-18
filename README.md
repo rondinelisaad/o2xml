@@ -131,6 +131,12 @@ cargo test --workspace
 cd app && npm run build
 ```
 
+The external Jing conformance gate is reproducible without committing its JAR:
+build upstream tag `V20241231` at its signed release commit, then set `O2XML_JING_UPSTREAM_ROOT`,
+`O2XML_JING_JAR`, and `O2XML_JAVA` and run the ignored `jing_upstream` test.
+See [docs/conformance.md](docs/conformance.md) for the exact contract and the
+recorded result.
+
 A debug macOS bundle can be produced with:
 
 ```sh
