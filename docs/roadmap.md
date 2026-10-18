@@ -139,7 +139,9 @@ Current progress:
 - [x] Add a reusable Rust transformation core and supervised Saxon HE process
   adapter for self-contained XSLT, with private staging, DTD/external resource
   denial, deadlines, bounded stderr, and accepted-output limits.
-- [ ] Add the isolated libxslt XSLT 1.0 adapter behind the catalog broker.
+- [x] Add isolated libxslt XSLT 1.0 behind the offline catalog broker, with
+  process deadlines, bounded resource graphs/output, libxslt read/write security
+  preferences, success coverage with JATS `DOCTYPE`, and network-denial tests.
 - [x] Add typed project transformation scenarios with explicit engine/media
   type, unique names, validated defaults, and safe project-relative paths.
 - [x] Add desktop scenario selection/execution, atomic project-root output, audit

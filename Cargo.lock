@@ -1934,6 +1934,7 @@ dependencies = [
  "tempfile",
  "tracing",
  "tracing-subscriber",
+ "url",
  "xml-document",
  "xml-domain",
  "xml-dtd",
@@ -4661,6 +4662,7 @@ dependencies = [
  "xml-framework",
  "xml-resource",
  "xml-schema",
+ "xml-transform",
  "xml-validation",
  "xml-xpath",
  "xml-xsd",
@@ -4722,11 +4724,15 @@ name = "xml-transform"
 version = "0.1.0"
 dependencies = [
  "quick-xml 0.40.1",
+ "serde",
+ "serde_json",
  "tempfile",
  "thiserror 2.0.21",
  "tokio",
  "tracing",
+ "url",
  "xml-domain",
+ "xml-resource",
 ]
 
 [[package]]

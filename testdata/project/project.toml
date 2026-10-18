@@ -8,11 +8,18 @@ catalog = "catalog.xml"
 framework = "SPS-1.10"
 
 [transform]
-default = "jats-html"
+default = "jats-html-libxslt"
 
 [[transform.scenarios]]
-name = "jats-html"
+name = "jats-html-libxslt"
+engine = "libxslt"
+stylesheet = "xslt/jats-html.xsl"
+output = "output/article-libxslt.html"
+media_type = "html"
+
+[[transform.scenarios]]
+name = "jats-html-saxon"
 engine = "saxon-he"
 stylesheet = "xslt/jats-html.xsl"
-output = "output/article.html"
+output = "output/article-saxon.html"
 media_type = "html"

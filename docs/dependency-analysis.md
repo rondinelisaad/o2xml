@@ -33,7 +33,8 @@ claim that a version is current.
     adapter compiles self-contained ISO rules to XSLT and then SVRL. Includes,
     imports, external document functions, and Quick Fix remain disabled.
 11. **XPath:** libxml2 for 1.0; Saxon HE for non-schema-aware 3.1.
-12. **XSLT:** libxslt for 1.0; Saxon HE for 3.0. Each scenario names its engine.
+12. **XSLT:** isolated, catalog-brokered libxslt for 1.0; supervised Saxon HE for
+    self-contained 3.0. Each scenario names its engine and the UI reports it.
 13. **XQuery:** Saxon HE in a supervised JVM process; XQuery is Phase 4 and can
     be disabled when Java is unavailable.
 14. **Catalogs:** a native Catalog 1.1 resolver with exact, longest-prefix, base

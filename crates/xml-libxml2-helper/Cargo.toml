@@ -21,6 +21,7 @@ tokio.workspace = true
 xml-domain = { path = "../xml-domain" }
 xml-framework = { path = "../xml-framework" }
 xml-resource = { path = "../xml-resource" }
+xml-transform = { path = "../xml-transform" }
 xml-validation = { path = "../xml-validation" }
 xml-xpath = { path = "../xml-xpath" }
 

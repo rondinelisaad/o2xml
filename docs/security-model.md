@@ -68,6 +68,13 @@ stylesheets: imports/includes, packages, schema imports, source documents,
 dynamic evaluation, secondary results, and known document/collection functions
 are denied before execution. This syntactic preflight is deliberately not
 described as a general URI sandbox; brokered resource support remains disabled.
+The libxslt XSLT 1.0 path runs only in the existing helper process. Stylesheet
+and parser resources are served through the offline catalog broker with count,
+individual-size, aggregate-size, deadline, and output limits. libxslt security
+preferences deny file/network reads during transformation and all file/network
+writes or directory creation; includes are resolved during compilation only
+through the parent broker. Integration tests cover a catalog-brokered JATS
+`DOCTYPE` transformation and a denied `document()` network read.
 Scenario stylesheet and output paths are bounded project-relative paths;
 absolute paths, URLs, empty components, and `.`/`..` traversal are rejected when
 the manifest is parsed, before any filesystem operation.

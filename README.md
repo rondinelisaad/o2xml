@@ -51,8 +51,9 @@ desktop MVP with a Rust core and a Tauri/CodeMirror interface.
 
 ## Build and run
 
-Prerequisites are the stable Rust toolchain, Node.js/npm, libxml2 2.9+ with
-`pkg-config`, and the [Tauri platform prerequisites](https://v2.tauri.app/start/prerequisites/).
+Prerequisites are the stable Rust toolchain, Node.js/npm, libxml2 2.9+,
+libxslt 1.1+, `pkg-config`, and the
+[Tauri platform prerequisites](https://v2.tauri.app/start/prerequisites/).
 Java, Saxon HE, SchXslt, and Jing are optional user-installed engines; O2XML
 never downloads or silently bundles them.
 
@@ -67,9 +68,10 @@ The desktop locates the helper in the workspace build output or beside the app
 executable. Packagers can set `O2XML_LIBXML2_HELPER` to an explicit executable
 path until platform bundle assembly is automated.
 
-To opt into conforming ISO Schematron processing, set all three trusted host
-variables to absolute local file paths: `O2XML_JAVA`, `O2XML_SAXON_JAR`, and
-`O2XML_SCHXSLT_PIPELINE`. The framework panel identifies the selected engine.
+The bundled helper provides catalog-brokered XSLT 1.0 through libxslt. To opt
+into XSLT 3.0, set trusted host variables `O2XML_JAVA` and
+`O2XML_SAXON_JAR` to absolute local file paths. Conforming ISO Schematron also
+requires `O2XML_SCHXSLT_PIPELINE`. The framework panel identifies the selected engine.
 When they are absent, O2XML labels and uses the isolated libxml2 XPath 1.0
 baseline; a partial configuration makes the stage unavailable instead of
 silently selecting a mixed setup.

@@ -9,4 +9,11 @@ fn main() {
         );
         std::process::exit(1);
     }
+    if let Err(error) = pkg_config::Config::new()
+        .atleast_version("1.1.0")
+        .probe("libxslt")
+    {
+        eprintln!("libxslt 1.1 or newer is required to build the isolated helper: {error}");
+        std::process::exit(1);
+    }
 }

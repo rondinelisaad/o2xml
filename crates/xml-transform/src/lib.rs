@@ -13,6 +13,10 @@ use tokio::{io::AsyncReadExt, process::Command, time::timeout};
 use tracing::info;
 use xml_domain::Revision;
 
+mod libxslt;
+
+pub use libxslt::{LibxsltProcessEngine, LibxsltRequest};
+
 const XSLT_NAMESPACE: &[u8] = b"http://www.w3.org/1999/XSL/Transform";
 const MAX_SOURCE_BYTES: usize = 128 * 1024 * 1024;
 const MAX_STYLESHEET_BYTES: usize = 16 * 1024 * 1024;
@@ -288,16 +292,36 @@ pub enum TransformError {
     Io(#[from] std::io::Error),
     #[error("cannot start Saxon: {0}")]
     Spawn(#[source] std::io::Error),
+    #[error("transformation helper stdin is unavailable")]
+    MissingStdin,
+    #[error("transformation helper stdout is unavailable")]
+    MissingStdout,
     #[error("Saxon stderr is unavailable")]
     MissingStderr,
     #[error("cannot wait for Saxon: {0}")]
     Wait(#[source] std::io::Error),
+    #[error("cannot write to transformation helper: {0}")]
+    Write(#[source] std::io::Error),
+    #[error("cannot read from transformation helper: {0}")]
+    Read(#[source] std::io::Error),
     #[error("Saxon task failed: {0}")]
     Task(#[source] tokio::task::JoinError),
     #[error("Saxon exceeded its {0:?} deadline")]
     Timeout(Duration),
     #[error("Saxon failed: {0}")]
     EngineFailed(String),
+    #[error("transformation helper protocol failed: {0}")]
+    Protocol(String),
+    #[error("stylesheet is not mapped by the XML catalog")]
+    StylesheetNotFound,
+    #[error("transformation resource exceeds its safety limit")]
+    ResourceTooLarge,
+    #[error("transformation resource count exceeds its safety limit")]
+    TooManyResources,
+    #[error("transformation resource graph exceeds its safety limit")]
+    ResourceGraphTooLarge,
+    #[error(transparent)]
+    Catalog(#[from] xml_resource::CatalogError),
 }
 
 #[cfg(test)]

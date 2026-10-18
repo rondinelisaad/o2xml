@@ -16,6 +16,11 @@ use xml_xsd::{XsdContent, XsdElementDeclaration};
 const XML_PARSE_NONET: c_int = 1 << 11;
 const XML_CHAR_ENCODING_NONE: c_int = 0;
 const XML_SCHEMATRON_OUT_ERROR: c_int = 1 << 3;
+const XSLT_SECPREF_READ_FILE: c_int = 1;
+const XSLT_SECPREF_WRITE_FILE: c_int = 2;
+const XSLT_SECPREF_CREATE_DIRECTORY: c_int = 3;
+const XSLT_SECPREF_READ_NETWORK: c_int = 4;
+const XSLT_SECPREF_WRITE_NETWORK: c_int = 5;
 
 type XmlDoc = c_void;
 type XmlDtd = c_void;
@@ -36,6 +41,9 @@ type XmlValidCtxt = c_void;
 type XmlXPathContext = c_void;
 type XmlNode = c_void;
 type XmlNs = c_void;
+type XsltStylesheet = c_void;
+type XsltTransformContext = c_void;
+type XsltSecurityPrefs = c_void;
 
 type ExternalEntityLoader = Option<
     unsafe extern "C" fn(
@@ -328,6 +336,52 @@ extern "C" {
     fn xmlDocGetRootElement(document: *const XmlDoc) -> *mut XmlNode;
 }
 
+type XsltSecurityCheck = Option<
+    unsafe extern "C" fn(*mut XsltSecurityPrefs, *mut XsltTransformContext, *const c_char) -> c_int,
+>;
+
+#[link(name = "xslt")]
+extern "C" {
+    fn xsltInit();
+    fn xsltParseStylesheetDoc(document: *mut XmlDoc) -> *mut XsltStylesheet;
+    fn xsltFreeStylesheet(stylesheet: *mut XsltStylesheet);
+    fn xsltNewTransformContext(
+        stylesheet: *mut XsltStylesheet,
+        document: *mut XmlDoc,
+    ) -> *mut XsltTransformContext;
+    fn xsltFreeTransformContext(context: *mut XsltTransformContext);
+    fn xsltApplyStylesheetUser(
+        stylesheet: *mut XsltStylesheet,
+        document: *mut XmlDoc,
+        parameters: *const *const c_char,
+        output: *const c_char,
+        profile: *mut c_void,
+        context: *mut XsltTransformContext,
+    ) -> *mut XmlDoc;
+    fn xsltSaveResultToString(
+        output: *mut *mut u8,
+        length: *mut c_int,
+        result: *mut XmlDoc,
+        stylesheet: *mut XsltStylesheet,
+    ) -> c_int;
+    fn xsltNewSecurityPrefs() -> *mut XsltSecurityPrefs;
+    fn xsltFreeSecurityPrefs(preferences: *mut XsltSecurityPrefs);
+    fn xsltSetSecurityPrefs(
+        preferences: *mut XsltSecurityPrefs,
+        option: c_int,
+        check: XsltSecurityCheck,
+    ) -> c_int;
+    fn xsltSetCtxtSecurityPrefs(
+        preferences: *mut XsltSecurityPrefs,
+        context: *mut XsltTransformContext,
+    ) -> c_int;
+    fn xsltSecurityForbid(
+        preferences: *mut XsltSecurityPrefs,
+        context: *mut XsltTransformContext,
+        value: *const c_char,
+    ) -> c_int;
+}
+
 #[derive(Deserialize)]
 struct Request {
     mode: Mode,
@@ -354,6 +408,7 @@ enum Mode {
     #[serde(rename = "xsd_index")]
     XsdIndex,
     XPath,
+    Transform,
 }
 
 #[derive(Serialize)]
@@ -371,6 +426,8 @@ enum Message<'a> {
         dtd: Option<&'a [DtdElementDeclaration]>,
         #[serde(skip_serializing_if = "Option::is_none")]
         xsd: Option<&'a [XsdElementDeclaration]>,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        output_bytes: Option<usize>,
     },
 }
 
@@ -579,7 +636,8 @@ fn run() -> Result<bool, String> {
             | Mode::Xsd
             | Mode::XsdIndex
             | Mode::RelaxNg
-            | Mode::Schematron => resource_loader,
+            | Mode::Schematron
+            | Mode::Transform => resource_loader,
         }));
     }
 
@@ -629,6 +687,14 @@ fn run() -> Result<bool, String> {
         return Ok(true);
     }
 
+    if matches!(request.mode, Mode::Transform) {
+        let output = unsafe { transform_libxslt(document_ptr, &grammar_uri) };
+        unsafe { xmlFreeDoc(document_ptr) };
+        let output = output?;
+        emit_transform_result(&output)?;
+        return Ok(true);
+    }
+
     let valid = unsafe {
         match request.mode {
             Mode::Dtd => validate_dtd(document_ptr, &grammar_uri, public_id.as_ref()),
@@ -638,6 +704,7 @@ fn run() -> Result<bool, String> {
             Mode::DtdIndex => Err("DTD index request reached the validation path".into()),
             Mode::XsdIndex => Err("XSD index request reached the validation path".into()),
             Mode::XPath => Err("XPath request reached the validation path".into()),
+            Mode::Transform => Err("transform request reached the validation path".into()),
         }
     };
     unsafe { xmlFreeDoc(document_ptr) };
@@ -1756,6 +1823,120 @@ unsafe fn evaluate_xpath(
     value
 }
 
+unsafe fn transform_libxslt(
+    document: *mut XmlDoc,
+    stylesheet_uri: &CString,
+) -> Result<Vec<u8>, String> {
+    let stylesheet_url = stylesheet_uri
+        .to_str()
+        .map_err(|_| "stylesheet URI is not UTF-8".to_owned())?;
+    let stylesheet_resource = {
+        let broker = BROKER
+            .get()
+            .ok_or_else(|| "resource broker is unavailable".to_owned())?;
+        let mut broker = broker
+            .lock()
+            .map_err(|_| "resource broker is unavailable".to_owned())?;
+        broker
+            .request(stylesheet_url, None)?
+            .ok_or_else(|| "stylesheet resource was denied".to_owned())?
+    };
+    let stylesheet_size = c_int::try_from(stylesheet_resource.bytes.len())
+        .map_err(|_| "stylesheet is too large for libxml2".to_owned())?;
+    let stylesheet_document = unsafe {
+        xmlReadMemory(
+            stylesheet_resource.bytes.as_ptr().cast(),
+            stylesheet_size,
+            stylesheet_resource.uri.as_ptr(),
+            ptr::null(),
+            XML_PARSE_NONET,
+        )
+    };
+    if stylesheet_document.is_null() {
+        return Err("cannot parse XSLT stylesheet".into());
+    }
+    unsafe { xsltInit() };
+    let stylesheet = unsafe { xsltParseStylesheetDoc(stylesheet_document) };
+    if stylesheet.is_null() {
+        return Err("cannot compile XSLT stylesheet".into());
+    }
+    let context = unsafe { xsltNewTransformContext(stylesheet, document) };
+    if context.is_null() {
+        unsafe { xsltFreeStylesheet(stylesheet) };
+        return Err("cannot allocate XSLT transform context".into());
+    }
+    let preferences = unsafe { xsltNewSecurityPrefs() };
+    if preferences.is_null() {
+        unsafe {
+            xsltFreeTransformContext(context);
+            xsltFreeStylesheet(stylesheet);
+        }
+        return Err("cannot allocate XSLT security preferences".into());
+    }
+    for option in [
+        XSLT_SECPREF_READ_FILE,
+        XSLT_SECPREF_WRITE_FILE,
+        XSLT_SECPREF_CREATE_DIRECTORY,
+        XSLT_SECPREF_READ_NETWORK,
+        XSLT_SECPREF_WRITE_NETWORK,
+    ] {
+        if unsafe { xsltSetSecurityPrefs(preferences, option, Some(xsltSecurityForbid)) } != 0 {
+            unsafe {
+                xsltFreeSecurityPrefs(preferences);
+                xsltFreeTransformContext(context);
+                xsltFreeStylesheet(stylesheet);
+            }
+            return Err("cannot configure XSLT security preferences".into());
+        }
+    }
+    if unsafe { xsltSetCtxtSecurityPrefs(preferences, context) } != 0 {
+        unsafe {
+            xsltFreeSecurityPrefs(preferences);
+            xsltFreeTransformContext(context);
+            xsltFreeStylesheet(stylesheet);
+        }
+        return Err("cannot apply XSLT security preferences".into());
+    }
+    let result = unsafe {
+        xsltApplyStylesheetUser(
+            stylesheet,
+            document,
+            ptr::null(),
+            ptr::null(),
+            ptr::null_mut(),
+            context,
+        )
+    };
+    unsafe {
+        xsltFreeSecurityPrefs(preferences);
+        xsltFreeTransformContext(context);
+    }
+    if result.is_null() {
+        unsafe { xsltFreeStylesheet(stylesheet) };
+        return Err("XSLT transformation failed".into());
+    }
+    let mut serialized = ptr::null_mut();
+    let mut serialized_length = 0;
+    let saved = unsafe {
+        xsltSaveResultToString(&mut serialized, &mut serialized_length, result, stylesheet)
+    };
+    let output = if saved < 0 || serialized.is_null() || serialized_length < 0 {
+        Err("cannot serialize XSLT result".to_owned())
+    } else {
+        let length = usize::try_from(serialized_length)
+            .map_err(|_| "XSLT result length is invalid".to_owned())?;
+        Ok(unsafe { std::slice::from_raw_parts(serialized, length) }.to_vec())
+    };
+    if !serialized.is_null() {
+        unsafe { xmlMemFree(serialized.cast()) };
+    }
+    unsafe {
+        xmlFreeDoc(result);
+        xsltFreeStylesheet(stylesheet);
+    }
+    output
+}
+
 unsafe fn xpath_value(
     object: *mut XmlXPathObject,
     max_results: usize,
@@ -1837,12 +2018,40 @@ fn emit_result(
             xpath,
             dtd,
             xsd,
+            output_bytes: None,
         },
     )
     .map_err(|error| error.to_string())?;
     broker
         .writer
         .write_all(b"\n")
+        .and_then(|()| broker.writer.flush())
+        .map_err(|error| error.to_string())
+}
+
+fn emit_transform_result(output: &[u8]) -> Result<(), String> {
+    let Some(broker) = BROKER.get() else {
+        return Err("resource broker is unavailable".into());
+    };
+    let mut broker = broker
+        .lock()
+        .map_err(|_| "resource broker failed".to_owned())?;
+    serde_json::to_writer(
+        &mut broker.writer,
+        &Message::Result {
+            valid: true,
+            xpath: None,
+            dtd: None,
+            xsd: None,
+            output_bytes: Some(output.len()),
+        },
+    )
+    .map_err(|error| error.to_string())?;
+    broker
+        .writer
+        .write_all(b"\n")
+        .and_then(|()| broker.writer.write_all(output))
+        .and_then(|()| broker.writer.write_all(b"\n"))
         .and_then(|()| broker.writer.flush())
         .map_err(|error| error.to_string())
 }

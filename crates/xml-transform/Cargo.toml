@@ -6,11 +6,15 @@ license.workspace = true
 
 [dependencies]
 quick-xml.workspace = true
+serde.workspace = true
+serde_json.workspace = true
 tempfile.workspace = true
 thiserror.workspace = true
 tokio.workspace = true
 tracing.workspace = true
 xml-domain = { path = "../xml-domain" }
+xml-resource = { path = "../xml-resource" }
+url.workspace = true
 
 [lints]
 workspace = true

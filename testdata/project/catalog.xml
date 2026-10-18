@@ -4,4 +4,6 @@
   <uri name="https://example.org/jats-synthetic.xsd" uri="schemas/jats-synthetic.xsd"/>
   <system systemId="urn:o2xml:framework:sps:1.10:jats" uri="schemas/jats-synthetic.dtd"/>
   <uri name="urn:o2xml:framework:sps:1.10:schematron" uri="schemas/sps-1.10-synthetic.sch"/>
+  <uri name="urn:o2xml:transform:jats-html" uri="xslt/jats-html.xsl"/>
+  <uri name="urn:o2xml:transform:forbidden-network" uri="xslt/forbidden-network.xsl"/>
 </catalog>

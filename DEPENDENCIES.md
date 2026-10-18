@@ -37,9 +37,9 @@ Its Saxon adapter requires an explicit user-installed HE JAR.
 
 ## Future external engines
 
-libxml2 2.9+ (MIT) is now required to build the isolated
-DTD/XSD/RELAX NG/Schematron validation
-helper. The Rust core does not link to libxml2: the helper is a separate process
+libxml2 2.9+ and libxslt 1.1+ (MIT) are now required to build the isolated
+DTD/XSD/RELAX NG/Schematron/XSLT 1.0 helper. The Rust core does not link to
+either C library: the helper is a separate process
 and all grammar bytes are brokered through the native catalog policy. Jing
 (3-clause BSD) is an optional, user-installed adapter for self-contained RNC;
 the supported baseline is upstream V20241231 and its JAR is never downloaded
@@ -47,8 +47,8 @@ silently. SchXslt (MIT) plus user-installed Saxon HE (MPL-2.0) now provide the
 optional, supervised ISO Schematron-to-SVRL pipeline for self-contained rule
 sets. The reviewed SaxonJ baseline is 13.0 (released 2026-05-29); O2XML accepts
 an explicit local JAR and trusted `pipeline-for-svrl.xsl` path rather than
-downloading either asset. libxslt (MIT) and the Xerces2-J XSD 1.1 distribution
-(Apache-2.0) remain planned optional adapters. Engine binaries, notices,
+downloading either asset. The Xerces2-J XSD 1.1 distribution (Apache-2.0)
+remains a planned optional adapter. Engine binaries, notices,
 transitive dependencies, supported versions, and platform packaging are reviewed
 before inclusion. Saxon PE/EE is commercial and is never silently bundled or
 treated as open source.

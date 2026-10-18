@@ -23,7 +23,7 @@ use xml_project::{ProjectManifest, TransformEngine, TransformMediaType};
 use xml_resource::{CatalogResolver, ResourcePolicy};
 use xml_schema::{AttributeUse, ExpandedName, SchemaIndex, ValueConstraint};
 use xml_schematron::{SchXsltProcessEngine, SchXsltRequest};
-use xml_transform::{SaxonProcessEngine, TransformRequest};
+use xml_transform::{LibxsltProcessEngine, LibxsltRequest, SaxonProcessEngine, TransformRequest};
 use xml_validation::{GrammarReference, Libxml2ProcessEngine, ValidationEngine, ValidationRequest};
 use xml_xpath::{Libxml2XPathEngine, XPathEngine, XPathReport, XPathRequest};
 use xml_xsd::{Libxml2XsdIndexEngine, XsdIndexEngine, XsdIndexRequest};
@@ -583,24 +583,53 @@ async fn run_transformation_inner(
     if metadata.len() > MAX_STYLESHEET_BYTES {
         return Err("transformation stylesheet exceeds the 16 MiB safety limit".to_owned());
     }
-    let stylesheet = fs::read_to_string(&stylesheet_path)
-        .map_err(|error| format!("cannot read transformation stylesheet as UTF-8: {error}"))?;
-    let engine_name = match scenario.engine {
-        TransformEngine::SaxonHe => "saxon-he",
-        TransformEngine::Libxslt => {
-            return Err("the isolated libxslt adapter is not available yet".to_owned())
-        }
-    };
-    let engine = saxon_transform_engine_from_environment()?;
     let source = snapshot.text();
-    let report = engine
-        .transform(TransformRequest {
-            source: &source,
-            stylesheet: &stylesheet,
-            revision: snapshot.revision(),
-        })
-        .await
-        .map_err(|error| error.to_string())?;
+    let (engine_name, report) =
+        match scenario.engine {
+            TransformEngine::SaxonHe => {
+                let stylesheet = fs::read_to_string(&stylesheet_path).map_err(|error| {
+                    format!("cannot read transformation stylesheet as UTF-8: {error}")
+                })?;
+                let engine = saxon_transform_engine_from_environment()?;
+                let report = engine
+                    .transform(TransformRequest {
+                        source: &source,
+                        stylesheet: &stylesheet,
+                        revision: snapshot.revision(),
+                    })
+                    .await
+                    .map_err(|error| error.to_string())?;
+                ("saxon-he", report)
+            }
+            TransformEngine::Libxslt => {
+                let catalog_setting =
+                    project.manifest.xml.catalog.as_deref().ok_or_else(|| {
+                        "libxslt transformations require an XML catalog".to_owned()
+                    })?;
+                let catalog_path = normalized_path(&project.root.join(catalog_setting))?;
+                if !catalog_path.starts_with(&project.root) {
+                    return Err("project catalog is outside the project root".to_owned());
+                }
+                let policy = ResourcePolicy::offline([project.root.clone()])
+                    .map_err(|error| error.to_string())?;
+                let catalog = CatalogResolver::load(catalog_path, policy)
+                    .map_err(|error| error.to_string())?;
+                let stylesheet_uri = url::Url::from_file_path(&stylesheet_path)
+                    .map_err(|()| "cannot convert stylesheet path to a file URI".to_owned())?;
+                let engine = LibxsltProcessEngine::new(libxml2_helper_path()?)
+                    .map_err(|error| error.to_string())?;
+                let report = engine
+                    .transform(LibxsltRequest {
+                        source: &source,
+                        revision: snapshot.revision(),
+                        catalog: &catalog,
+                        stylesheet_uri: stylesheet_uri.as_str(),
+                    })
+                    .await
+                    .map_err(|error| error.to_string())?;
+                ("libxslt-process", report)
+            }
+        };
 
     {
         let documents = state
