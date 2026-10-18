@@ -190,8 +190,8 @@ Current progress:
 - [x] Add a supervised JSON process executor behind an explicit OS sandbox
   launcher, with verified private staging, cleared environment, deadlines,
   bounded protocol streams, response correlation, and minimal audit events.
-- [ ] Add an embedded resource-limited WASI Component runtime; loading a
-  manifest alone must never execute plugin code.
+- [x] Add an embedded resource-limited Component Model runtime with no ambient
+  WASI imports; loading a manifest alone must never execute plugin code.
 - [x] Add the transport-independent opt-in HTTPS policy: exact origin/port
   allowlist, credential denial, public-IP DNS result gate, redirect/resource
   limits, and mandatory revalidation hooks for redirects.

@@ -18,6 +18,9 @@ use tokio::{
 };
 use url::Url;
 
+mod wasi;
+pub use wasi::WasiComponentEngine;
+
 pub const API_VERSION: u32 = 1;
 const MAX_PLUGINS: usize = 256;
 const MAX_CAPABILITIES: usize = 32;
@@ -661,6 +664,8 @@ pub enum PluginError {
     Task(String),
     #[error("plugin returned a mismatched or ambiguous response")]
     InvalidResponse,
+    #[error("plugin WebAssembly component failed: {0}")]
+    Component(String),
     #[error("plugin relative path is invalid: {0}")]
     InvalidRelativePath(String),
     #[error("plugin network origin must be an HTTPS origin without credentials or a path: {0}")]
@@ -795,6 +800,70 @@ mod tests {
             plugin.verify_entrypoint(package.path()),
             Err(PluginError::ChecksumMismatch)
         ));
+        Ok(())
+    }
+
+    #[test]
+    fn invokes_an_ambient_capability_free_component() -> Result<(), Box<dyn std::error::Error>> {
+        const COMPONENT: &str = r#"
+            (component
+              (core module $plugin
+                (memory (export "memory") 1)
+                (data (i32.const 1024)
+                  "{\"apiVersion\":1,\"requestId\":7,\"result\":{\"ok\":true},\"error\":null}")
+                (func (export "realloc")
+                  (param i32 i32 i32 i32) (result i32)
+                  i32.const 8192)
+                (func (export "invoke") (param i32 i32) (result i32)
+                  i32.const 512
+                  i32.const 1024
+                  i32.store
+                  i32.const 512
+                  i32.const 64
+                  i32.store offset=4
+                  i32.const 512))
+              (core instance $plugin-instance (instantiate $plugin))
+              (alias core export $plugin-instance "memory" (core memory $memory))
+              (alias core export $plugin-instance "realloc" (core func $realloc))
+              (alias core export $plugin-instance "invoke" (core func $invoke))
+              (type $invoke-type (func (param "request" string) (result string)))
+              (func $invoke-component (type $invoke-type)
+                (canon lift (core func $invoke)
+                  (memory $memory)
+                  (realloc $realloc)
+                  string-encoding=utf8))
+              (export "invoke" (func $invoke-component)))
+        "#;
+        let bytes = wat::parse_str(COMPONENT)?;
+        let package = tempfile::tempdir()?;
+        let bin = package.path().join("bin");
+        std::fs::create_dir(&bin)?;
+        std::fs::write(bin.join("validator.wasm"), &bytes)?;
+        let mut plugin_manifest = manifest();
+        plugin_manifest.sha256 = encode_hex(&Sha256::digest(&bytes));
+        let policy = HostPolicy {
+            capabilities: plugin_manifest.capabilities.clone(),
+            read_roots: vec![PathBuf::from("schemas")],
+            ..HostPolicy::default()
+        };
+        let mut registry = PluginRegistry::default();
+        let plugin = registry.authorize_and_insert(plugin_manifest, &policy)?;
+        let request = PluginRequest {
+            api_version: API_VERSION,
+            request_id: 7,
+            method: PluginMethod::Validate,
+            params: serde_json::json!({"revision": 3}),
+        };
+        let runtime = tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .build()?;
+        let response = runtime.block_on(WasiComponentEngine::new()?.invoke(
+            plugin,
+            package.path(),
+            &request,
+        ))?;
+        assert_eq!(response.request_id, request.request_id);
+        assert_eq!(response.result, Some(serde_json::json!({"ok": true})));
         Ok(())
     }
 

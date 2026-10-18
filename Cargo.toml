@@ -45,6 +45,8 @@ tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter", "fmt"] }
 tokio = { version = "1.53.3", features = ["io-util", "net", "process", "rt", "time"] }
 url = "2.5.8"
+wasmtime = { version = "48.0.6", default-features = false, features = ["component-model", "cranelift", "runtime", "std"] }
+wat = "1.254.0"
 
 [workspace.lints.rust]
 unsafe_code = "forbid"

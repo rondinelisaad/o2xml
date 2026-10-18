@@ -136,9 +136,8 @@ filesystem root, network origin, or process execution. A plugin receives an
 authorized handle only after all requested capabilities and scopes are a subset
 of host policy. Entrypoints are canonicalized below the package root, capped at
 256 MiB, and streamed through RustCrypto SHA-256; mismatches are rejected. This
-is an integrity hash, not password storage. WASI runtime loading remains
-disabled until fuel, memory, deadline, protocol-size, and provenance gates are
-present. Process execution additionally requires an external containment layer.
+is an integrity hash, not password storage. Process execution additionally
+requires an external containment layer.
 
 The supervised-process profile is now available only through a trusted OS
 sandbox launcher explicitly supplied by the host; direct entrypoint execution
@@ -147,8 +146,16 @@ directory, hashes the copy again, clears the environment, bounds JSON request,
 response, and stderr, enforces a five-second deadline, kills the child on drop,
 and verifies API/request correlation and an unambiguous result/error response.
 Audit events include only action, result, validated plugin id, request id,
-method, and runtime—not parameters, source XML, output, paths, or stderr. WASI
-execution remains disabled until the embedded runtime limits are implemented.
+method, and runtime—not parameters, source XML, output, paths, or stderr.
+
+The embedded Component Model profile has no linked host imports. Wasmtime
+compiles only a freshly re-read, checksum-matching component capped at 32 MiB.
+Every invocation uses a new store capped at 64 MiB linear memory, one instance,
+two memories, four tables, ten million fuel units, and a five-second epoch
+deadline. Request and response envelopes retain their independent size limits
+and response correlation gate. The timeout wakes running WebAssembly through an
+engine epoch; compilation itself is bounded by component size but is not
+preemptible, so future package installation should precompile approved modules.
 
 Remote transport policy is separate from the offline catalog resolver and is
 empty by default. It accepts only credential-free HTTPS URLs on an exact

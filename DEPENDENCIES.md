@@ -22,6 +22,8 @@ phase gate. CI will add `cargo audit`, `cargo deny`, npm audit, and license chec
 | `url` 2.5.8 | URI parsing and relative-reference resolution | MIT OR Apache-2.0 | Active rust-url project; avoids ad hoc catalog URI normalization |
 | `pkg-config` 0.3 | Build-time discovery of system libxml2 | MIT OR Apache-2.0 | Small, established build helper; never shipped as application runtime code |
 | `tempfile` 3.27 | Private staging files for supervised JVM engines | MIT OR Apache-2.0 | Mature cross-platform implementation; named files default to owner-only permissions and are deleted on drop |
+| `wasmtime` 48.0.6 LTS | Embedded WebAssembly Component Model plugin runtime | Apache-2.0 WITH LLVM-exception | Minimal Component Model/Cranelift/runtime features; no WASI host imports in the initial profile; bounded memory, fuel, instances, and deadline |
+| `wat` 1.262 (dev) | Compile the Component Model integration fixture | Apache-2.0 WITH LLVM-exception | Test-only parser; not linked into production artifacts |
 
 `xml-transform` reuses the reviewed `quick-xml`, `tempfile`, `tokio`,
 `thiserror`, and `tracing` set; it introduces no additional third-party crate.
@@ -39,8 +41,10 @@ dependency or native engine.
 versioned inert protocol, manifest validation, and HTTPS-origin checks. It uses
 RustCrypto `sha2` 0.11.1 to stream and verify the declared SHA-256 of a bounded
 entrypoint before returning a verified handle. SHA-256 is used only for file
-integrity, not credentials. The crate does not yet include or execute a WASI
-runtime.
+integrity, not credentials. Wasmtime 48.0.6 LTS provides the embedded Component
+Model runtime. The initial profile intentionally exposes no WASI imports or
+other host functions: a component receives one bounded JSON string and returns
+one bounded JSON string. `wat` is used only to build an executable test fixture.
 
 The supervised plugin adapter also reuses the existing `tokio`, `tempfile`, and
 `tracing` dependencies for bounded asynchronous pipes, private staging,

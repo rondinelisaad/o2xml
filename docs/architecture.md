@@ -204,6 +204,16 @@ deadline, response correlation, and kill-on-drop. The launcher remains
 responsible for kernel-level filesystem, network, syscall, and child-process
 containment. No launcher is configured by default.
 
+The embedded adapter uses Wasmtime 48 LTS and the root Component Model export
+`invoke: func(string) -> string`. The first profile links no host imports, so it
+has no ambient filesystem, network, clock, random, environment, or subprocess
+authority. Entrypoint bytes are capped and hashed again immediately before
+compilation. Each invocation gets a fresh store with fuel, epoch deadline,
+64 MiB linear-memory limit, and bounded instances/memories/tables; protocol
+sizes and response correlation are checked by the same API v1 contract as the
+process adapter. This is deliberately a capability-free Component Model subset,
+not a claim of general WASI Preview 2/3 compatibility.
+
 ## Observability
 
 Libraries emit `tracing` spans; binaries choose subscribers. Audit events use

@@ -48,8 +48,9 @@ claim that a version is current.
 17. **XML security:** safe parser profile, sole resource resolver, no network by
     default, approved roots, expansion/depth/size/time/output limits, and process
     isolation for complex engines.
-18. **Plugins:** internal Rust traits first; later WASI components or supervised
-    processes with declared capabilities. No stable native Rust ABI promise.
+18. **Plugins:** Wasmtime 48 LTS Component Model with an initial no-import
+    profile, plus supervised processes with declared capabilities. No stable
+    native Rust ABI promise.
 19. **Non-Rust dependencies:** OS webview; Node only for frontend builds; Java
     runtime for Saxon/Jing/Xerces adapters; libxml2/libxslt for native validation
     and XSLT. End users should not need Node.
@@ -84,7 +85,7 @@ claim that a version is current.
 | Schema completion | common model + adapters | Mixed | mixed/project | HIGH | 2 |
 | JATS framework | NLM schemas + project manifest | Mixed | verify per asset | MEDIUM | 3 |
 | SPS framework | external SPS rules/assets | Mixed | CC BY-NC 4.0 reported by upstream | HIGH | 3 |
-| Plugin host | WASI Component Model / process | Yes/mixed | mixed | EXPERIMENTAL | 5 |
+| Plugin host | Wasmtime 48 LTS Component Model / supervised process | Yes/mixed | Apache-2.0 WITH LLVM-exception / mixed | HIGH | 5 |
 | Benchmarks | Criterion | Yes | Apache-2.0 OR MIT | LOW | 1+ |
 
 ## Important findings

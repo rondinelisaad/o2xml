@@ -66,6 +66,10 @@ desktop MVP with a Rust core and a Tauri/CodeMirror interface.
   Supervised process plugins can run only through an explicitly configured OS
   sandbox launcher, with private verified staging, JSON envelopes, cleared
   environment, deadlines, bounded I/O, and content-free audit events.
+  The embedded Wasmtime 48 LTS adapter executes the same correlated JSON
+  protocol through a Component Model root export, with no host imports, fresh
+  bounded stores, fuel, epoch deadlines, memory/table/instance limits, and a
+  second checksum gate immediately before compilation.
   The remote-resource foundation remains opt-in and separately enforces HTTPS
   origin allowlists plus DNS-result rejection for private/local/reserved ranges.
   Schematron/JATS/SPS validation is not presented as complete while licensed
