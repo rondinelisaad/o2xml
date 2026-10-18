@@ -91,7 +91,9 @@ resource graph is catalog-resolved, bounded, and rewritten into private staging
 before execution. The supported baseline is upstream V20241231 and its JAR is
 never downloaded silently. SchXslt (MIT) plus user-installed Saxon HE (MPL-2.0) now provide the
 optional, supervised ISO Schematron-to-SVRL pipeline. Static rule-set dependencies
-are catalog-resolved and rewritten into private staging before execution. The
+are catalog-resolved and rewritten into private staging before execution. A
+project-owned Java source launcher uses only JAXP APIs, forces Saxon, and applies
+the engine-level deny-all protocol and URI-resolver policy. The
 reviewed SaxonJ baseline is 13.0 (released 2026-05-29); O2XML accepts
 an explicit local JAR and trusted `pipeline-for-svrl.xsl` path rather than
 downloading either asset. The Xerces2-J XSD 1.1 distribution (Apache-2.0)

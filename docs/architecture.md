@@ -168,7 +168,9 @@ the projection rather than carrying a mapping across document identities.
   enforces graph limits, and rewrites approved references into private staging.
 - **Schematron:** ISO pipeline using SchXslt/SVRL with a configured XSLT engine.
   A native graph broker resolves and rewrites static includes/imports through the
-  offline catalog; runtime document/collection access remains denied. Never rely
+  offline catalog. A project-owned JAXP launcher forces Saxon and applies
+  deny-all protocols plus fail-closed compile/runtime URI resolvers, so dynamic
+  document/collection access cannot fall through to ambient Java I/O. Never rely
   on libxml2's limited Schematron implementation as the only engine.
 - **XPath:** libxml2 for XPath 1.0; Saxon HE process adapter for non-schema-aware
   XPath 3.1 evaluation.

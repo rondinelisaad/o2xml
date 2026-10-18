@@ -31,8 +31,9 @@ claim that a version is current.
 10. **Schematron:** an isolated libxml2 baseline provides immediate XPath 1.0
     assertions behind the catalog broker. The optional supervised SchXslt/Saxon
     adapter compiles ISO rules to XSLT and then SVRL. Static includes/imports are
-    catalog-brokered into private staging; runtime external document functions
-    and Quick Fix remain disabled.
+    catalog-brokered into private staging; a project-owned JAXP launcher applies
+    Saxon's deny-all protocol policy and fail-closed URI resolvers. Quick Fix
+    remains disabled.
 11. **XPath:** libxml2 for 1.0; Saxon HE for non-schema-aware 3.1.
 12. **XSLT:** isolated, catalog-brokered libxslt for 1.0; supervised Saxon HE for
     self-contained 3.0. Each scenario names its engine and the UI reports it.
@@ -102,9 +103,10 @@ claim that a version is current.
 - Saxon HE covers non-schema-aware XPath/XSLT/XQuery; schema-aware XSD processing
   is not an HE entitlement and must not be implied.
 - SaxonJ 13.0 is the reviewed optional baseline as of this snapshot. Its CLI
-  security flag restricts extension functions but is not a URI sandbox, so the
-  current Schematron adapter permits brokered static graphs while denying
-  runtime document/collection access through conservative preflight.
+  is not used directly for Schematron execution: the project-owned JAXP launcher
+  forces Saxon, disables external functions and protocols, and installs
+  fail-closed URI resolvers. Brokered static graphs remain the only external
+  Schematron resources admitted.
 - `quick-xml` is a streaming parser, not a DTD/XSD engine or error-recovering
   incremental syntax tree. Lezer provides editor recovery; standards engines
   provide authoritative validation.

@@ -52,14 +52,17 @@ The optional SchXslt/Saxon adapter accepts DTD-free XML input. A native broker
 discovers Schematron includes/extends and embedded XSLT imports/includes,
 recursively resolves each dependency through the offline catalog, enforces
 per-resource, aggregate, and resource-count limits, and rewrites the approved
-graph into private staging. Root escape, DTDs, secondary outputs, and known XPath
-document/collection access functions are rejected before starting Java. Source,
+graph into private staging. Root escape, DTDs, and secondary outputs are rejected
+before starting Java. Source,
 schema graph, generated XSLT, and SVRL use private temporary files; the process
 has a deadline and bounded stderr/result files.
-The Saxon extension-function switch is defense in depth, not a URI sandbox.
-Until an engine-level brokered URI resolver exists, the SchXslt pipeline file is
-an explicitly trusted installed asset and runtime resource functions remain
-unavailable rather than receiving ambient filesystem or network access.
+An embedded, project-owned JAXP launcher forces Saxon's TransformerFactory,
+enables secure processing, disables external functions and every external
+protocol at the Saxon configuration level, and installs fail-closed URI
+resolvers on both compilation and execution. This engine-level control denies
+dynamic and obfuscated `doc()`/`document()` and related runtime access without
+depending on XPath lexical inspection. The SchXslt pipeline remains an
+explicitly trusted installed asset.
 The desktop accepts Java, Saxon, and SchXslt executable/asset paths only from
 its trusted host environment, never from a webview command or document. All
 three values are required together, and project Schematron is still resolved

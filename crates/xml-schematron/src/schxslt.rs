@@ -25,6 +25,7 @@ const MAX_SCHEMA_GRAPH_BYTES: u64 = 64 * 1024 * 1024;
 const MAX_SCHEMA_RESOURCES: usize = 256;
 const MAX_RESULT_BYTES: u64 = 16 * 1024 * 1024;
 const MAX_STDERR_BYTES: u64 = 1024 * 1024;
+const SAXON_BROKER_SOURCE: &[u8] = include_bytes!("../assets/O2XmlSaxonBroker.java");
 
 #[derive(Clone, Copy)]
 pub struct SchXsltRequest<'a> {
@@ -96,29 +97,34 @@ impl SchXsltProcessEngine {
         }
         preflight_document(request.source)?;
         let staged_schema = stage_schematron_graph(request.catalog, request.schematron)?;
+        let broker = stage_input(".java", SAXON_BROKER_SOURCE)?;
         let compiled = stage_output(".xsl")?;
         let document = stage_input(".xml", request.source.as_bytes())?;
         let svrl_path = stage_output(".svrl")?;
 
         let mut compile_arguments = vec![
-            format!("-s:{}", staged_schema.root.display()),
-            format!("-xsl:{}", self.pipeline_stylesheet.display()),
-            format!("-o:{}", compiled.display()),
+            staged_schema.root.display().to_string(),
+            self.pipeline_stylesheet.display().to_string(),
+            compiled.display().to_string(),
         ];
         if let Some(phase) = request.phase {
             if phase.is_empty() || phase.len() > 256 {
                 return Err(SchXsltError::InvalidPhase);
             }
-            compile_arguments.push(format!("phase={phase}"));
+            compile_arguments.push("phase".to_owned());
+            compile_arguments.push(phase.to_owned());
         }
-        let compile_stderr = self.invoke(&compile_arguments).await?;
+        let compile_stderr = self.invoke(&broker, &compile_arguments).await?;
         ensure_bounded_file(&compiled)?;
         let validation_stderr = self
-            .invoke(&[
-                format!("-s:{}", document.display()),
-                format!("-xsl:{}", compiled.display()),
-                format!("-o:{}", svrl_path.display()),
-            ])
+            .invoke(
+                &broker,
+                &[
+                    document.display().to_string(),
+                    compiled.display().to_string(),
+                    svrl_path.display().to_string(),
+                ],
+            )
             .await?;
         ensure_bounded_file(&svrl_path)?;
         let svrl = fs::read_to_string(&svrl_path).map_err(SchXsltError::Io)?;
@@ -137,14 +143,14 @@ impl SchXsltProcessEngine {
         })
     }
 
-    async fn invoke(&self, arguments: &[String]) -> Result<bool, SchXsltError> {
+    async fn invoke(&self, broker: &Path, arguments: &[String]) -> Result<bool, SchXsltError> {
         let mut child = Command::new(&self.java_executable)
             .env_clear()
             .arg("-Djava.awt.headless=true")
             .arg("-Djava.net.useSystemProxies=false")
-            .arg("-jar")
+            .arg("--class-path")
             .arg(&self.saxon_jar)
-            .arg("--allow-external-functions:false")
+            .arg(broker)
             .args(arguments)
             .stdin(Stdio::null())
             .stdout(Stdio::null())
@@ -349,14 +355,6 @@ fn analyze_schematron_resource(source: &str) -> Result<Vec<String>, SchXsltError
                             .map_err(|error| SchXsltError::InvalidSchema(error.to_string()))?;
                         href = Some(value.into_owned());
                     }
-                    if matches!(attribute.key.as_ref(), b"test" | b"select" | b"value") {
-                        let value = attribute
-                            .decoded_and_normalized_value(XmlVersion::Implicit1_0, reader.decoder())
-                            .map_err(|error| SchXsltError::InvalidSchema(error.to_string()))?;
-                        if contains_external_function(&value) {
-                            return Err(SchXsltError::ExternalResourcesDenied);
-                        }
-                    }
                 }
                 if is_schematron_resource || is_xslt_resource {
                     let href = href
@@ -472,25 +470,6 @@ fn preflight_document(source: &str) -> Result<(), SchXsltError> {
     }
 }
 
-fn contains_external_function(expression: &str) -> bool {
-    let compact = expression
-        .chars()
-        .filter(|character| !character.is_ascii_whitespace())
-        .collect::<String>()
-        .to_ascii_lowercase();
-    [
-        "doc(",
-        "document(",
-        "collection(",
-        "uri-collection(",
-        "unparsed-text(",
-        "json-doc(",
-        "transform(",
-    ]
-    .iter()
-    .any(|function| compact.contains(function))
-}
-
 #[derive(Debug, Error)]
 pub enum SchXsltError {
     #[error("SchXslt or Saxon asset is not a file: {0}")]
@@ -547,20 +526,31 @@ mod tests {
     use std::os::unix::fs::PermissionsExt;
 
     #[test]
-    fn accepts_static_resources_but_denies_runtime_external_functions() -> Result<(), SchXsltError>
-    {
+    fn embedded_saxon_broker_is_fail_closed() -> Result<(), std::str::Utf8Error> {
+        let source = std::str::from_utf8(SAXON_BROKER_SOURCE)?;
+        assert!(source.contains("net.sf.saxon.TransformerFactoryImpl"));
+        assert!(source.contains("http://saxon.sf.net/feature/allowedProtocols"));
+        assert!(source.contains("factory.setAttribute(SAXON_ALLOWED_PROTOCOLS, \"\")"));
+        assert!(source.contains("factory.setURIResolver(DENY_EXTERNAL_RESOURCES)"));
+        assert!(source.contains("transformer.setURIResolver(DENY_EXTERNAL_RESOURCES)"));
+        Ok(())
+    }
+
+    #[test]
+    fn accepts_static_and_runtime_resource_expressions_for_engine_brokering(
+    ) -> Result<(), SchXsltError> {
         assert_eq!(
             analyze_schematron_resource(
                 r#"<schema xmlns="http://purl.oclc.org/dsdl/schematron"><include href="rules.sch"/></schema>"#
             )?,
             vec!["rules.sch"]
         );
-        assert!(matches!(
+        assert!(
             analyze_schematron_resource(
                 r#"<schema xmlns="http://purl.oclc.org/dsdl/schematron"><pattern><rule context="article"><assert test="doc('file:///etc/passwd')">x</assert></rule></pattern></schema>"#
-            ),
-            Err(SchXsltError::ExternalResourcesDenied)
-        ));
+            )?
+            .is_empty()
+        );
         assert!(matches!(
             preflight_document(
                 r#"<!DOCTYPE article SYSTEM "https://example.test/article.dtd"><article/>"#
@@ -643,11 +633,13 @@ mod tests {
         fs::write(
             &java,
             r##"#!/bin/sh
+previous=""
 out=""
 for argument in "$@"; do
-  case "$argument" in
-    -o:*) out=${argument#-o:} ;;
-  esac
+  if [ "$previous" = "broker" ]; then source=$argument; previous="source"; continue; fi
+  if [ "$previous" = "source" ]; then stylesheet=$argument; previous="stylesheet"; continue; fi
+  if [ "$previous" = "stylesheet" ]; then out=$argument; break; fi
+  case "$argument" in *.java) previous="broker" ;; esac
 done
 case "$out" in
   *.xsl) printf '%s' '<xsl:stylesheet xmlns:xsl="http://www.w3.org/1999/XSL/Transform" version="2.0"/>' > "$out" ;;

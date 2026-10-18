@@ -37,7 +37,8 @@ desktop MVP with a Rust core and a Tauri/CodeMirror interface.
   SchXslt/Saxon two-step adapter compiles ISO Schematron to XSLT and normalizes
   the resulting SVRL. Static Schematron and XSLT includes/imports are recursively
   resolved through the offline catalog and rewritten into bounded private staging;
-  runtime external-resource expressions remain denied before execution. Project framework
+  an embedded JAXP launcher forces Saxon, disables external functions/protocols,
+  and installs fail-closed compile/runtime URI resolvers. Project framework
   selection now runs JATS grammar and SPS rules as separate visible stages using
   only assets explicitly installed through the project catalog. SPS 1.11/JATS
   1.4 is exposed only as `SPS-1.11-candidate`, never as a silent default.

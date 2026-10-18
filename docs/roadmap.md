@@ -121,8 +121,10 @@ Current progress:
 - [x] Broker recursive static Schematron includes/extends and embedded XSLT
   imports/includes through XML Catalog, enforce graph limits, rewrite approved
   references into private staging, and deny root escape.
-- [ ] Replace Schematron expression preflight with an engine-level brokered URI
-  resolver before permitting runtime document/collection access.
+- [x] Replace Schematron expression preflight with a project-owned JAXP launcher
+  that forces Saxon, denies all external protocols/functions, and installs
+  fail-closed compile/runtime URI resolvers. Runtime document/collection access
+  remains denied rather than falling through to ambient Java I/O.
 - [x] Wire project framework selection and catalog-installed assets into the
   desktop validation service, preserving separate JATS grammar and SPS rule
   stages with passed/failed/unavailable state, labeled diagnostics, and visible
