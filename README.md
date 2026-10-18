@@ -41,7 +41,9 @@ desktop MVP with a Rust core and a Tauri/CodeMirror interface.
   1.4 is exposed only as `SPS-1.11-candidate`, never as a silent default.
 - Phase 4: in progress; a reusable transformation core and supervised Saxon HE
   adapter execute self-contained XSLT with private staging, deadlines, bounded
-  accepted output, and denied external/dynamic resource access.
+  accepted output, and denied external/dynamic resource access. Project
+  manifests now define typed transformation scenarios with explicit engines,
+  media types, and safe project-relative stylesheet/output paths.
 - Phase 5: planned; Schematron/JATS/SPS validation is not presented as complete
   while licensed upstream packs and conformance corpora are not installed.
 

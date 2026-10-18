@@ -140,7 +140,9 @@ Current progress:
   adapter for self-contained XSLT, with private staging, DTD/external resource
   denial, deadlines, bounded stderr, and accepted-output limits.
 - [ ] Add the isolated libxslt XSLT 1.0 adapter behind the catalog broker.
-- [ ] Add project transformation scenarios and desktop execution/output panels.
+- [x] Add typed project transformation scenarios with explicit engine/media
+  type, unique names, validated defaults, and safe project-relative paths.
+- [ ] Add desktop scenario execution and output panels.
 - [ ] Add a safe HTML preview that never grants transformed content application
   privileges or ambient network access.
 - [ ] Evaluate the Saxon XQuery process contract separately; do not infer safety

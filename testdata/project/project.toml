@@ -9,3 +9,10 @@ framework = "SPS-1.10"
 
 [transform]
 default = "jats-html"
+
+[[transform.scenarios]]
+name = "jats-html"
+engine = "saxon-he"
+stylesheet = "xslt/jats-html.xsl"
+output = "output/article.html"
+media_type = "html"

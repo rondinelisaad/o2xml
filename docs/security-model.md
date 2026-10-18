@@ -68,6 +68,9 @@ stylesheets: imports/includes, packages, schema imports, source documents,
 dynamic evaluation, secondary results, and known document/collection functions
 are denied before execution. This syntactic preflight is deliberately not
 described as a general URI sandbox; brokered resource support remains disabled.
+Scenario stylesheet and output paths are bounded project-relative paths;
+absolute paths, URLs, empty components, and `.`/`..` traversal are rejected when
+the manifest is parsed, before any filesystem operation.
 
 DTD completion extraction runs in the isolated libxml2 helper and uses the same
 deny-by-default resource callback as validation. Raw FFI pointers never cross
