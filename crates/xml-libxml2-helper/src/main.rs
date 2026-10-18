@@ -248,7 +248,6 @@ struct XmlEnumerationLayout {
     name: *const u8,
 }
 
-#[link(name = "xml2")]
 extern "C" {
     fn xmlInitParser();
     fn xmlSetExternalEntityLoader(loader: ExternalEntityLoader);
@@ -340,7 +339,6 @@ type XsltSecurityCheck = Option<
     unsafe extern "C" fn(*mut XsltSecurityPrefs, *mut XsltTransformContext, *const c_char) -> c_int,
 >;
 
-#[link(name = "xslt")]
 extern "C" {
     fn xsltInit();
     fn xsltParseStylesheetDoc(document: *mut XmlDoc) -> *mut XsltStylesheet;
