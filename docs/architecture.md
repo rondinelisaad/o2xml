@@ -167,7 +167,9 @@ the projection rather than carrying a mapping across document identities.
   `include`/`external`, recursively resolves it through the offline catalog,
   enforces graph limits, and rewrites approved references into private staging.
 - **Schematron:** ISO pipeline using SchXslt/SVRL with a configured XSLT engine.
-  Never rely on libxml2's limited Schematron implementation as the only engine.
+  A native graph broker resolves and rewrites static includes/imports through the
+  offline catalog; runtime document/collection access remains denied. Never rely
+  on libxml2's limited Schematron implementation as the only engine.
 - **XPath:** libxml2 for XPath 1.0; Saxon HE process adapter for non-schema-aware
   XPath 3.1 evaluation.
 - **XSLT:** libxslt for secure XSLT 1.0 and Saxon HE for XSLT 3.0. Processor

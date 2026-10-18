@@ -25,13 +25,14 @@ claim that a version is current.
 8. **XSD 1.1:** possible, but not a default MVP feature. Xerces2-J publishes a
    separate XSD 1.1 distribution; Saxon schema-awareness requires Saxon-EE.
 9. **RELAX NG:** isolated libxml2 is the RNG XML engine and reuses the catalog
-   resource broker. A supervised Jing V20241231 adapter handles self-contained
-   RNC. RNC `include`/`external` stays denied until a brokered resolver replaces
-   Jing's ambient resource access.
+   resource broker. A supervised Jing V20241231 adapter handles RNC after a
+   native broker resolves and rewrites bounded `include`/`external` graphs into
+   private staging.
 10. **Schematron:** an isolated libxml2 baseline provides immediate XPath 1.0
     assertions behind the catalog broker. The optional supervised SchXslt/Saxon
-    adapter compiles self-contained ISO rules to XSLT and then SVRL. Includes,
-    imports, external document functions, and Quick Fix remain disabled.
+    adapter compiles ISO rules to XSLT and then SVRL. Static includes/imports are
+    catalog-brokered into private staging; runtime external document functions
+    and Quick Fix remain disabled.
 11. **XPath:** libxml2 for 1.0; Saxon HE for non-schema-aware 3.1.
 12. **XSLT:** isolated, catalog-brokered libxslt for 1.0; supervised Saxon HE for
     self-contained 3.0. Each scenario names its engine and the UI reports it.
@@ -102,7 +103,8 @@ claim that a version is current.
   is not an HE entitlement and must not be implied.
 - SaxonJ 13.0 is the reviewed optional baseline as of this snapshot. Its CLI
   security flag restricts extension functions but is not a URI sandbox, so the
-  current Schematron adapter accepts only preflighted self-contained rule sets.
+  current Schematron adapter permits brokered static graphs while denying
+  runtime document/collection access through conservative preflight.
 - `quick-xml` is a streaming parser, not a DTD/XSD engine or error-recovering
   incremental syntax tree. Lezer provides editor recovery; standards engines
   provide authoritative validation.

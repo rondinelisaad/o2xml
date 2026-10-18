@@ -90,8 +90,9 @@ and all grammar bytes are brokered through the native catalog policy. Jing
 resource graph is catalog-resolved, bounded, and rewritten into private staging
 before execution. The supported baseline is upstream V20241231 and its JAR is
 never downloaded silently. SchXslt (MIT) plus user-installed Saxon HE (MPL-2.0) now provide the
-optional, supervised ISO Schematron-to-SVRL pipeline for self-contained rule
-sets. The reviewed SaxonJ baseline is 13.0 (released 2026-05-29); O2XML accepts
+optional, supervised ISO Schematron-to-SVRL pipeline. Static rule-set dependencies
+are catalog-resolved and rewritten into private staging before execution. The
+reviewed SaxonJ baseline is 13.0 (released 2026-05-29); O2XML accepts
 an explicit local JAR and trusted `pipeline-for-svrl.xsl` path rather than
 downloading either asset. The Xerces2-J XSD 1.1 distribution (Apache-2.0)
 remains a planned optional adapter. Engine binaries, notices,

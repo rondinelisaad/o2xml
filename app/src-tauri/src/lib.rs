@@ -545,18 +545,11 @@ async fn validate_schematron_stage(
         .resolve_uri(logical_uri)
         .map_err(|error| error.to_string())?
         .ok_or_else(|| "Schematron rules are not installed in the project catalog".to_owned())?;
-    const MAX_SCHEMATRON_BYTES: u64 = 16 * 1024 * 1024;
-    let metadata = fs::metadata(&resource.path)
-        .map_err(|error| format!("cannot inspect Schematron rules: {error}"))?;
-    if metadata.len() > MAX_SCHEMATRON_BYTES {
-        return Err("Schematron rules exceed the 16 MiB safety limit".to_owned());
-    }
-    let schematron = fs::read_to_string(&resource.path)
-        .map_err(|error| format!("cannot read Schematron rules as UTF-8: {error}"))?;
     engine
         .validate(SchXsltRequest {
             source,
-            schematron: &schematron,
+            schematron: &resource,
+            catalog,
             revision,
             file,
             phase: None,

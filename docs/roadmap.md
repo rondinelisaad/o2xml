@@ -115,11 +115,14 @@ Current progress:
   severity metadata, rule identity, and navigable diagnostic normalization.
 - [x] Add a catalog-brokered, process-isolated libxml2 Schematron baseline for
   immediate XPath 1.0 assertions with bounded structured diagnostics.
-- [x] Add a supervised SchXslt/Saxon two-step pipeline for self-contained ISO
-  Schematron: private staging, explicit trusted assets, deadlines, bounded
-  stderr/output, external-resource preflight, and normalized SVRL diagnostics.
+- [x] Add a supervised SchXslt/Saxon two-step pipeline for ISO Schematron:
+  private staging, explicit trusted assets, deadlines, bounded stderr/output,
+  external-resource preflight, and normalized SVRL diagnostics.
+- [x] Broker recursive static Schematron includes/extends and embedded XSLT
+  imports/includes through XML Catalog, enforce graph limits, rewrite approved
+  references into private staging, and deny root escape.
 - [ ] Replace Schematron expression preflight with an engine-level brokered URI
-  resolver before permitting includes, imports, or document/collection access.
+  resolver before permitting runtime document/collection access.
 - [x] Wire project framework selection and catalog-installed assets into the
   desktop validation service, preserving separate JATS grammar and SPS rule
   stages with passed/failed/unavailable state, labeled diagnostics, and visible

@@ -34,9 +34,10 @@ desktop MVP with a Rust core and a Tauri/CodeMirror interface.
   bounded, rewritten into private staging, and denied on root escape. The
   Schematron core now normalizes bounded SVRL reports into navigable diagnostics;
   an isolated libxml2 baseline executes XPath 1.0 assertions. A supervised
-  SchXslt/Saxon two-step adapter compiles self-contained ISO Schematron to XSLT
-  and normalizes the resulting SVRL, with private staging, deadlines, bounded
-  output, and external-resource expressions denied before execution. Project framework
+  SchXslt/Saxon two-step adapter compiles ISO Schematron to XSLT and normalizes
+  the resulting SVRL. Static Schematron and XSLT includes/imports are recursively
+  resolved through the offline catalog and rewritten into bounded private staging;
+  runtime external-resource expressions remain denied before execution. Project framework
   selection now runs JATS grammar and SPS rules as separate visible stages using
   only assets explicitly installed through the project catalog. SPS 1.11/JATS
   1.4 is exposed only as `SPS-1.11-candidate`, never as a silent default.

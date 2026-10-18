@@ -48,15 +48,18 @@ XPath 1.0 parses the in-memory document with a deny-all external resource loader
 This permits ordinary JATS `DOCTYPE` declarations without fetching their remote
 subsets; external entities remain unavailable to XPath evaluation.
 
-The optional SchXslt/Saxon adapter currently accepts only self-contained
-Schematron and DTD-free XML input. It rejects DTDs, Schematron includes/extends, XSLT imports/includes
-and secondary outputs, and known XPath document/collection access functions
-before starting Java. Source, schema, generated XSLT, and SVRL use private
-temporary files; the process has a deadline and bounded stderr/result files.
+The optional SchXslt/Saxon adapter accepts DTD-free XML input. A native broker
+discovers Schematron includes/extends and embedded XSLT imports/includes,
+recursively resolves each dependency through the offline catalog, enforces
+per-resource, aggregate, and resource-count limits, and rewrites the approved
+graph into private staging. Root escape, DTDs, secondary outputs, and known XPath
+document/collection access functions are rejected before starting Java. Source,
+schema graph, generated XSLT, and SVRL use private temporary files; the process
+has a deadline and bounded stderr/result files.
 The Saxon extension-function switch is defense in depth, not a URI sandbox.
 Until an engine-level brokered URI resolver exists, the SchXslt pipeline file is
-an explicitly trusted installed asset and schemas requiring external resources
-remain unavailable rather than receiving ambient filesystem or network access.
+an explicitly trusted installed asset and runtime resource functions remain
+unavailable rather than receiving ambient filesystem or network access.
 The desktop accepts Java, Saxon, and SchXslt executable/asset paths only from
 its trusted host environment, never from a webview command or document. All
 three values are required together, and project Schematron is still resolved
