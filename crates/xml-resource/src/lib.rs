@@ -16,6 +16,11 @@ use url::Url;
 
 mod remote;
 pub use remote::{RemoteFetchError, RemoteResource, RemoteResourceClient};
+mod webdav;
+pub use webdav::{
+    WebDavClient, WebDavCredentials, WebDavEntry, WebDavError, WebDavRead, WebDavWriteCondition,
+    WebDavWriteResult,
+};
 
 const MAX_REMOTE_URI_BYTES: usize = 8 * 1024;
 

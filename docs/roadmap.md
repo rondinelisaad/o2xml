@@ -199,7 +199,10 @@ Current progress:
 - [x] Add an opt-in Rustls HTTPS GET connector with DNS pinning, no proxy or
   automatic redirects, per-hop policy revalidation, deadlines, and bounded
   streaming response bodies.
-- [ ] Add WebDAV and database adapters over separate least-privilege contracts.
+- [x] Add a root-scoped WebDAV adapter with bounded DAV multistatus parsing,
+  read/list capability gates, transient redacted credentials, and conditional
+  ETag writes; omit destructive methods and unconditional overwrite.
+- [ ] Add database adapters over separate read-only/least-privilege contracts.
 - [ ] Add schema-preserving Author Mode after the structural editing primitives
   and conformance gates exist.
 

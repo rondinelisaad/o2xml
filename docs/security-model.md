@@ -183,7 +183,17 @@ connect deadlines are bounded, `Content-Length` is checked when present, and
 streamed bytes are independently capped. URL credentials/fragments, non-HTTPS
 schemes, non-allowlisted redirect origins, non-success statuses, cookies, and
 authentication are rejected or unsupported. WebDAV and database adapters remain
-disabled.
+disabled unless separately configured.
+
+WebDAV reuses the pinned connector and adds an independent root-path boundary
+plus explicit read/write capability bits. It accepts only conservative relative
+paths (no absolute path, traversal, percent escapes, query, fragment, backslash,
+or NUL). Listing uses `Depth: 1`; DAV XML is capped by the transport, limited to
+256 levels and 10,000 responses, and requires the `DAV:` namespace. Uploads are
+capped at 16 MiB and require either a valid `If-Match` ETag or create-only
+`If-None-Match: *`; no unconditional PUT, DELETE, MOVE, COPY, or recursive
+operation exists. Basic-auth credentials are passed per operation, redacted from
+Debug/audit data, never serialized, and the password buffer is zeroed on drop.
 
 DTD completion extraction runs in the isolated libxml2 helper and uses the same
 deny-by-default resource callback as validation. Raw FFI pointers never cross

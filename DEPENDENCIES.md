@@ -21,6 +21,7 @@ phase gate. CI will add `cargo audit`, `cargo deny`, npm audit, and license chec
 | `tokio` 1.53.3 | Supervised engine processes, bounded I/O, deadlines | MIT | Already transitively used by Tauri; explicit minimal features for validation adapters |
 | `criterion` (dev) | Benchmarks | MIT OR Apache-2.0 | Repeatable performance tracking |
 | `url` 2.5.8 | URI parsing and relative-reference resolution | MIT OR Apache-2.0 | Active rust-url project; avoids ad hoc catalog URI normalization |
+| `zeroize` 1.9 | Clear transient WebDAV passwords on drop | Apache-2.0 OR MIT | Small audited primitive; credentials are neither serialized nor logged |
 | `pkg-config` 0.3 | Build-time discovery of system libxml2 | MIT OR Apache-2.0 | Small, established build helper; never shipped as application runtime code |
 | `tempfile` 3.27 | Private staging files for supervised JVM engines | MIT OR Apache-2.0 | Mature cross-platform implementation; named files default to owner-only permissions and are deleted on drop |
 | `wasmtime` 48.0.6 LTS | Embedded WebAssembly Component Model plugin runtime | Apache-2.0 WITH LLVM-exception | Minimal Component Model/Cranelift/runtime features; no WASI host imports in the initial profile; bounded memory, fuel, instances, and deadline |
@@ -43,6 +44,8 @@ operations. This adds Hyper, Rustls, the platform certificate verifier, and the
 AWS-LC cryptographic provider, increasing build time and binary size. Compression,
 cookies, proxies, automatic redirects, authentication helpers, and HTTP/3 are
 not enabled by O2XML. TLS certificate and hostname checks are never bypassed.
+Its WebDAV adapter also uses `zeroize` for transient Basic-auth passwords; no
+credential store or configuration serialization is provided.
 
 `xml-plugin-api` reuses `serde`, `serde_json`, `thiserror`, and `url` for its
 versioned inert protocol, manifest validation, and HTTPS-origin checks. It uses

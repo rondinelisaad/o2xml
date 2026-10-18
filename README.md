@@ -78,6 +78,9 @@ desktop MVP with a Rust core and a Tauri/CodeMirror interface.
   origin allowlists, rejects private/local/reserved DNS results, pins each
   connection to the approved addresses, manually revalidates every redirect,
   disables proxies, and bounds DNS/connect/request time plus response size.
+  A least-privilege WebDAV adapter adds bounded `PROPFIND`/GET and conditional
+  PUT under one configured root. Passwords are redacted and zeroed on drop;
+  destructive methods and unconditional overwrite are deliberately absent.
   Schematron/JATS/SPS validation is not presented as complete while licensed
   upstream packs and conformance corpora are not installed.
 
