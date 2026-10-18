@@ -93,6 +93,14 @@ export interface TransformPayload {
   previewTruncated: boolean;
 }
 
+export interface XQueryPayload {
+  revision: number;
+  engine: string;
+  bytes: number;
+  preview: string;
+  truncated: boolean;
+}
+
 export interface ProjectPayload {
   path: string;
   manifest: ProjectManifest;

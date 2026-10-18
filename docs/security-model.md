@@ -98,6 +98,10 @@ collection/text/JSON loading, dynamic function lookup, environment access,
 vendor/file namespaces, and updating syntax after removing nested comments and
 string literals. This conservative self-contained profile remains the only
 enabled XQuery mode until a brokered Saxon URI resolver exists.
+The desktop XQuery command returns at most 1 MiB as inert text and discards a
+result if the document revision changed during evaluation. Its audit event does
+not contain query text, source XML, result bytes, engine paths, or environment
+configuration.
 
 DTD completion extraction runs in the isolated libxml2 helper and uses the same
 deny-by-default resource callback as validation. Raw FFI pointers never cross

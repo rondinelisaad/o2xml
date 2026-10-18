@@ -39,7 +39,7 @@ desktop MVP with a Rust core and a Tauri/CodeMirror interface.
   selection now runs JATS grammar and SPS rules as separate visible stages using
   only assets explicitly installed through the project catalog. SPS 1.11/JATS
   1.4 is exposed only as `SPS-1.11-candidate`, never as a silent default.
-- Phase 4: in progress; a reusable transformation core and supervised Saxon HE
+- Phase 4: complete for the committed safe profiles; a reusable transformation core and supervised Saxon HE
   adapter execute self-contained XSLT with private staging, deadlines, bounded
   accepted output, and denied external/dynamic resource access. Project
   manifests now define typed transformation scenarios with explicit engines,
@@ -48,7 +48,8 @@ desktop MVP with a Rust core and a Tauri/CodeMirror interface.
   root, and show a bounded text preview with engine provenance.
   A separate supervised Saxon HE adapter now evaluates the DTD-free,
   self-contained XQuery 3.1 profile; external modules/resources, environment
-  access, extensions, and updating expressions are denied.
+  access, extensions, and updating expressions are denied. The desktop XQuery
+  panel runs the current revision and presents a bounded inert-text result.
 - Phase 5: planned; Schematron/JATS/SPS validation is not presented as complete
   while licensed upstream packs and conformance corpora are not installed.
 

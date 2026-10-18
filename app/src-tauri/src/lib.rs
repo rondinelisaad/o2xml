@@ -23,7 +23,10 @@ use xml_project::{ProjectManifest, TransformEngine, TransformMediaType};
 use xml_resource::{CatalogResolver, ResourcePolicy};
 use xml_schema::{AttributeUse, ExpandedName, SchemaIndex, ValueConstraint};
 use xml_schematron::{SchXsltProcessEngine, SchXsltRequest};
-use xml_transform::{LibxsltProcessEngine, LibxsltRequest, SaxonProcessEngine, TransformRequest};
+use xml_transform::{
+    LibxsltProcessEngine, LibxsltRequest, SaxonProcessEngine, SaxonXQueryEngine, TransformRequest,
+    XQueryRequest,
+};
 use xml_validation::{GrammarReference, Libxml2ProcessEngine, ValidationEngine, ValidationRequest};
 use xml_xpath::{Libxml2XPathEngine, XPathEngine, XPathReport, XPathRequest};
 use xml_xsd::{Libxml2XsdIndexEngine, XsdIndexEngine, XsdIndexRequest};
@@ -101,6 +104,16 @@ struct TransformPayload {
     bytes_written: usize,
     preview: String,
     preview_truncated: bool,
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct XQueryPayload {
+    revision: Revision,
+    engine: &'static str,
+    bytes: usize,
+    preview: String,
+    truncated: bool,
 }
 
 #[derive(Debug, Serialize)]
@@ -698,6 +711,78 @@ fn saxon_transform_engine_from_environment() -> Result<SaxonProcessEngine, Strin
         .map_err(|error| format!("invalid Saxon transformation configuration: {error}"))
 }
 
+#[tauri::command]
+async fn evaluate_xquery(
+    id: u64,
+    query: String,
+    state: State<'_, AppState>,
+) -> Result<XQueryPayload, String> {
+    let result = evaluate_xquery_inner(id, &query, &state).await;
+    let revision = result.as_ref().ok().map(|payload| payload.revision);
+    audit::event(
+        "xquery.evaluate",
+        if result.is_ok() { "success" } else { "failure" },
+        "document",
+        id,
+        revision,
+        Some("saxon-he-xquery"),
+    );
+    result
+}
+
+async fn evaluate_xquery_inner(
+    id: u64,
+    query: &str,
+    state: &State<'_, AppState>,
+) -> Result<XQueryPayload, String> {
+    let snapshot = {
+        let documents = state
+            .documents
+            .lock()
+            .map_err(|_| "document store is unavailable".to_owned())?;
+        documents
+            .get(&id)
+            .ok_or_else(|| "document is not open".to_owned())?
+            .snapshot()
+    };
+    const JAVA: &str = "O2XML_JAVA";
+    const SAXON: &str = "O2XML_SAXON_JAR";
+    let java = env::var_os(JAVA).ok_or_else(|| format!("set {JAVA} to enable XQuery"))?;
+    let saxon = env::var_os(SAXON).ok_or_else(|| format!("set {SAXON} to enable XQuery"))?;
+    let engine = SaxonXQueryEngine::new(java, saxon)
+        .map_err(|error| format!("invalid Saxon XQuery configuration: {error}"))?;
+    let source = snapshot.text();
+    let report = engine
+        .evaluate(XQueryRequest {
+            source: &source,
+            query,
+            revision: snapshot.revision(),
+        })
+        .await
+        .map_err(|error| error.to_string())?;
+    {
+        let documents = state
+            .documents
+            .lock()
+            .map_err(|_| "document store is unavailable".to_owned())?;
+        let current = documents
+            .get(&id)
+            .ok_or_else(|| "document is not open".to_owned())?;
+        if current.revision() != report.revision {
+            return Err("document changed while XQuery was running".to_owned());
+        }
+    }
+    const MAX_PREVIEW_BYTES: usize = 1024 * 1024;
+    let preview_length = report.output.len().min(MAX_PREVIEW_BYTES);
+    Ok(XQueryPayload {
+        revision: report.revision,
+        engine: "saxon-he-xquery",
+        bytes: report.output.len(),
+        preview: String::from_utf8_lossy(&report.output[..preview_length]).into_owned(),
+        truncated: report.output.len() > preview_length,
+    })
+}
+
 fn framework_stage_error(
     source: &str,
     revision: Revision,
@@ -1259,6 +1344,7 @@ pub fn run() {
             analyze_document,
             run_transformation,
             evaluate_xpath,
+            evaluate_xquery,
             complete_dtd,
             complete_xsd,
             format_document,

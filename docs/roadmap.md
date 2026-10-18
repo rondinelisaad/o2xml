@@ -134,6 +134,10 @@ installed lawfully; golden diagnostics pass on synthetic articles.
 Add libxslt and Saxon HE adapters, transformation scenarios, safe HTML preview,
 and XQuery if the Saxon process contract proves portable.
 
+Status: complete for the committed offline/self-contained processor profiles.
+Broader remote-resource processing remains an explicit future opt-in capability,
+not a missing safety bypass.
+
 Current progress:
 
 - [x] Add a reusable Rust transformation core and supervised Saxon HE process
@@ -153,7 +157,8 @@ Current progress:
   `net.sf.saxon.Query` entry point, DTD-free input, private staging, deadlines,
   bounded results, updates disabled, and conservative lexical denial of external
   modules/resources/environment/extension functions.
-- [ ] Add the XQuery desktop panel and navigable result presentation.
+- [x] Add an XQuery desktop panel with revision-safe execution, explicit engine
+  provenance, bounded inert-text results, and content-free audit events.
 
 Gate: filesystem/network sandbox tests pass and outputs are reproducible.
 

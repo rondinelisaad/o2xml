@@ -111,6 +111,12 @@ h2 { margin: 0; padding: 10px 12px 7px; color: var(--muted); font-size: 11px; le
 .xpath-summary, .xpath-scalar { padding: 7px 12px; color: var(--muted); border-bottom: 1px solid var(--border); }
 .xpath-result { display: block; width: 100%; padding: 6px 12px; border: 0; border-bottom: 1px solid var(--border); background: transparent; color: var(--text); text-align: left; font-family: "SFMono-Regular", Consolas, monospace; cursor: pointer; }
 .xpath-result:hover { background: var(--panel-2); }
+.xquery-panel.active { display: grid; grid-template-columns: minmax(260px, 40%) minmax(0, 1fr); overflow: hidden; }
+.xquery-controls { display: grid; grid-template-rows: minmax(0, 1fr) auto; gap: 6px; padding: 8px; border-right: 1px solid var(--border); }
+.xquery-controls textarea { min-height: 0; resize: none; border: 1px solid var(--border); border-radius: 4px; padding: 7px; background: var(--bg); color: var(--text); font-family: "SFMono-Regular", Consolas, monospace; }
+.xquery-controls button { border: 1px solid var(--border); border-radius: 4px; padding: 5px 14px; background: var(--accent); color: white; cursor: pointer; }
+.xquery-controls button:disabled { opacity: .55; cursor: default; }
+.xquery-results { min-width: 0; overflow: auto; }
 .error-text { color: var(--danger); }
 .output-summary { padding: 7px 12px; color: var(--muted); border-bottom: 1px solid var(--border); }
 .output-preview { margin: 0; padding: 10px 12px; white-space: pre-wrap; overflow-wrap: anywhere; font-family: "SFMono-Regular", Consolas, monospace; font-size: 12px; }

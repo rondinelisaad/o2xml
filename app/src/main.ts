@@ -37,6 +37,7 @@ import type {
   TransformPayload,
   XPathReport,
   XsdCompletionPayload,
+  XQueryPayload,
 } from "./contracts";
 
 interface OpenDocument extends DocumentPayload {
@@ -95,6 +96,7 @@ app.innerHTML = `
         <button class="active" data-panel="problems">Problems <span id="problem-count">0</span></button>
         <button data-panel="output">Output</button>
         <button data-panel="xpath">XPath</button>
+        <button data-panel="xquery">XQuery</button>
         <span id="status" class="status">Ready</span>
       </div>
       <div id="problems" class="panel-content active problems" data-panel-content="problems" aria-live="polite"></div>
@@ -110,6 +112,13 @@ app.innerHTML = `
           </label>
           <div id="xpath-results" class="xpath-results" aria-live="polite"><div class="empty">Run an XPath expression</div></div>
         </div>
+      </div>
+      <div id="xquery-panel" class="panel-content xquery-panel" data-panel-content="xquery">
+        <div class="xquery-controls">
+          <textarea id="xquery-expression" spellcheck="false" aria-label="XQuery expression">for $title in //article-title return $title</textarea>
+          <button id="xquery-run" type="button">Run</button>
+        </div>
+        <div id="xquery-results" class="xquery-results" aria-live="polite"><div class="empty">Run a self-contained XQuery 3.1 expression</div></div>
       </div>
     </section>
   </div>
@@ -129,6 +138,9 @@ const xpathExpression = requiredElement<HTMLInputElement>("#xpath-expression");
 const xpathNamespaces = requiredElement<HTMLTextAreaElement>("#xpath-namespaces");
 const xpathResults = requiredElement<HTMLDivElement>("#xpath-results");
 const xpathRun = requiredElement<HTMLButtonElement>("#xpath-run");
+const xqueryExpression = requiredElement<HTMLTextAreaElement>("#xquery-expression");
+const xqueryResults = requiredElement<HTMLDivElement>("#xquery-results");
+const xqueryRun = requiredElement<HTMLButtonElement>("#xquery-run");
 const transformScenario = requiredElement<HTMLSelectElement>("#transform-scenario");
 const transformButton = requiredElement<HTMLButtonElement>("[data-action='transform']");
 const outputPanel = requiredElement<HTMLDivElement>("#output-panel");
@@ -624,7 +636,7 @@ function goToByte(byte: number): void {
   editor.focus();
 }
 
-function selectBottomPanel(name: "problems" | "output" | "xpath"): void {
+function selectBottomPanel(name: "problems" | "output" | "xpath" | "xquery"): void {
   document.querySelectorAll<HTMLButtonElement>("[data-panel]").forEach((button) => {
     button.classList.toggle("active", button.dataset.panel === name);
   });
@@ -632,6 +644,7 @@ function selectBottomPanel(name: "problems" | "output" | "xpath"): void {
     panel.classList.toggle("active", panel.dataset.panelContent === name);
   });
   if (name === "xpath") xpathExpression.focus();
+  if (name === "xquery") xqueryExpression.focus();
 }
 
 function parseNamespaces(source: string): Record<string, string> {
@@ -718,6 +731,40 @@ function renderXPath(report: XPathReport): void {
     return row;
   });
   xpathResults.replaceChildren(summary, ...rows);
+}
+
+async function runXQuery(): Promise<void> {
+  const document = activeDocument();
+  const query = xqueryExpression.value.trim();
+  if (!document || !query) {
+    setStatus("Enter an XQuery expression", true);
+    return;
+  }
+  if (document.dirty && !(await synchronize(document))) return;
+  selectBottomPanel("xquery");
+  xqueryRun.disabled = true;
+  setStatus("Evaluating XQuery…");
+  try {
+    const report = await invoke<XQueryPayload>("evaluate_xquery", {
+      id: document.id,
+      query,
+    });
+    if (document.id !== activeId || report.revision !== document.revision) return;
+    const summary = messageElement(
+      `${report.engine} · ${report.bytes} bytes${report.truncated ? " · preview limited" : ""}`,
+      "output-summary",
+    );
+    const output = window.document.createElement("pre");
+    output.className = "output-preview";
+    output.textContent = report.preview;
+    xqueryResults.replaceChildren(summary, output);
+    setStatus("XQuery complete");
+  } catch (error) {
+    xqueryResults.replaceChildren(messageElement(String(error), "empty error-text"));
+    setStatus(String(error), true);
+  } finally {
+    xqueryRun.disabled = false;
+  }
 }
 
 async function createNew(): Promise<void> {
@@ -933,7 +980,7 @@ requiredElement<HTMLElement>(".menubar").addEventListener("click", (event) => {
 
 requiredElement<HTMLElement>(".panel-tabs").addEventListener("click", (event) => {
   const panel = (event.target as HTMLElement).closest<HTMLButtonElement>("[data-panel]")?.dataset.panel;
-  if (panel === "problems" || panel === "output" || panel === "xpath") selectBottomPanel(panel);
+  if (panel === "problems" || panel === "output" || panel === "xpath" || panel === "xquery") selectBottomPanel(panel);
 });
 
 xpathRun.addEventListener("click", () => void runXPath());
@@ -941,6 +988,13 @@ xpathExpression.addEventListener("keydown", (event) => {
   if (event.key === "Enter" && (event.metaKey || event.ctrlKey)) {
     event.preventDefault();
     void runXPath();
+  }
+});
+xqueryRun.addEventListener("click", () => void runXQuery());
+xqueryExpression.addEventListener("keydown", (event) => {
+  if (event.key === "Enter" && (event.metaKey || event.ctrlKey)) {
+    event.preventDefault();
+    void runXQuery();
   }
 });
 
