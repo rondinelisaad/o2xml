@@ -49,7 +49,7 @@ This permits ordinary JATS `DOCTYPE` declarations without fetching their remote
 subsets; external entities remain unavailable to XPath evaluation.
 
 The optional SchXslt/Saxon adapter currently accepts only self-contained
-Schematron. It rejects DTDs, Schematron includes/extends, XSLT imports/includes
+Schematron and DTD-free XML input. It rejects DTDs, Schematron includes/extends, XSLT imports/includes
 and secondary outputs, and known XPath document/collection access functions
 before starting Java. Source, schema, generated XSLT, and SVRL use private
 temporary files; the process has a deadline and bounded stderr/result files.

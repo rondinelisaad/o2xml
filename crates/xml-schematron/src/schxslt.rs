@@ -93,6 +93,7 @@ impl SchXsltProcessEngine {
         if request.schematron.len() > MAX_SCHEMA_BYTES {
             return Err(SchXsltError::SchemaTooLarge);
         }
+        preflight_document(request.source)?;
         preflight_schematron(request.schematron)?;
         let schema = stage_input(".sch", request.schematron.as_bytes())?;
         let compiled = stage_output(".xsl")?;
@@ -262,6 +263,20 @@ fn preflight_schematron(source: &str) -> Result<(), SchXsltError> {
     }
 }
 
+fn preflight_document(source: &str) -> Result<(), SchXsltError> {
+    let mut reader = NsReader::from_str(source);
+    loop {
+        match reader
+            .read_event()
+            .map_err(|error| SchXsltError::InvalidSource(error.to_string()))?
+        {
+            Event::DocType(_) => return Err(SchXsltError::ExternalDocumentType),
+            Event::Eof => return Ok(()),
+            _ => {}
+        }
+    }
+}
+
 fn contains_external_function(expression: &str) -> bool {
     let compact = expression
         .chars()
@@ -295,6 +310,10 @@ pub enum SchXsltError {
     ExternalResourcesDenied,
     #[error("invalid Schematron XML: {0}")]
     InvalidSchema(String),
+    #[error("invalid XML source: {0}")]
+    InvalidSource(String),
+    #[error("DOCTYPE is denied by the Saxon-safe profile")]
+    ExternalDocumentType,
     #[error("SchXslt output exceeds its limit")]
     OutputTooLarge,
     #[error("cannot access SchXslt data: {0}")]
@@ -335,6 +354,12 @@ mod tests {
                 r#"<schema xmlns="http://purl.oclc.org/dsdl/schematron"><pattern><rule context="article"><assert test="doc('file:///etc/passwd')">x</assert></rule></pattern></schema>"#
             ),
             Err(SchXsltError::ExternalResourcesDenied)
+        ));
+        assert!(matches!(
+            preflight_document(
+                r#"<!DOCTYPE article SYSTEM "https://example.test/article.dtd"><article/>"#
+            ),
+            Err(SchXsltError::ExternalDocumentType)
         ));
     }
 
