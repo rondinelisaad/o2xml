@@ -162,8 +162,10 @@ the projection rather than carrying a mapping across document identities.
   groups, and inherited content remain conservative. Xerces-J is optional.
 - **XSD 1.1:** realistic through the separate Xerces2-J 2.12.2 XSD 1.1
   distribution or commercial Saxon-EE, not as a default native feature.
-- **RELAX NG:** Jing process adapter for XML and compact syntax; libxml2 can be a
-  faster optional XML-syntax engine after differential tests.
+- **RELAX NG:** libxml2 handles catalog-brokered XML syntax. The Jing process
+  adapter handles compact syntax after a native lexer discovers every RNC
+  `include`/`external`, recursively resolves it through the offline catalog,
+  enforces graph limits, and rewrites approved references into private staging.
 - **Schematron:** ISO pipeline using SchXslt/SVRL with a configured XSLT engine.
   Never rely on libxml2's limited Schematron implementation as the only engine.
 - **XPath:** libxml2 for XPath 1.0; Saxon HE process adapter for non-schema-aware

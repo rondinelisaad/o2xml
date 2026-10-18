@@ -1,16 +1,18 @@
 use std::{
+    collections::HashMap,
     fs,
-    io::Write,
+    ops::Range,
     path::{Path, PathBuf},
     process::Stdio,
     time::{Duration, Instant},
 };
 
-use tempfile::{Builder, TempPath};
+use tempfile::TempDir;
 use tokio::{process::Command, time::timeout};
 use tracing::info;
 use xml_document::LineIndex;
 use xml_domain::{Diagnostic, Severity};
+use xml_resource::{CatalogResolver, ResolvedResource};
 
 use super::{
     error_class, has_external_doctype, read_bounded, GrammarReference, ValidationEngine,
@@ -24,6 +26,8 @@ pub struct JingProcessEngine {
     deadline: Duration,
     max_document_bytes: usize,
     max_grammar_bytes: u64,
+    max_grammar_graph_bytes: u64,
+    max_grammar_resources: usize,
     max_stderr_bytes: u64,
     max_diagnostics: usize,
 }
@@ -42,6 +46,8 @@ impl JingProcessEngine {
             deadline: Duration::from_secs(10),
             max_document_bytes: 128 * 1024 * 1024,
             max_grammar_bytes: 8 * 1024 * 1024,
+            max_grammar_graph_bytes: 64 * 1024 * 1024,
+            max_grammar_resources: 256,
             max_stderr_bytes: 1024 * 1024,
             max_diagnostics: 1_000,
         })
@@ -97,38 +103,25 @@ impl JingProcessEngine {
             .catalog
             .resolve_uri(uri)?
             .ok_or(ValidationError::GrammarNotFound)?;
-        let metadata =
-            fs::metadata(&grammar.path).map_err(|source| ValidationError::GrammarIo {
-                path: grammar.path.clone(),
-                source,
-            })?;
-        if metadata.len() > self.max_grammar_bytes {
-            return Err(ValidationError::GrammarTooLarge {
-                path: grammar.path,
-                limit: self.max_grammar_bytes,
-            });
-        }
-        let grammar_bytes =
-            fs::read(&grammar.path).map_err(|source| ValidationError::GrammarIo {
-                path: grammar.path,
-                source,
-            })?;
-        if compact_grammar_has_resource_directive(&grammar_bytes)? {
-            return Err(ValidationError::CompactGrammarResourcesUnsupported);
-        }
-
-        let grammar_path = stage_file(".rnc", &grammar_bytes)?;
-        let document_path = stage_file(".xml", request.source.as_bytes())?;
+        let staged = stage_compact_grammar_graph(
+            request.catalog,
+            grammar,
+            request.source.as_bytes(),
+            self.max_grammar_bytes,
+            self.max_grammar_graph_bytes,
+            self.max_grammar_resources,
+        )?;
         let mut command = Command::new(&self.java_executable);
         command
             .env_clear()
+            .current_dir(staged.directory.path())
             .arg("-Djava.awt.headless=true")
             .arg("-Djava.net.useSystemProxies=false")
             .arg("-jar")
             .arg(&self.jing_jar)
             .arg("-c")
-            .arg(grammar_path.as_os_str())
-            .arg(document_path.as_os_str())
+            .arg(&staged.grammar_path)
+            .arg(&staged.document_path)
             .stdin(Stdio::null())
             .stdout(Stdio::null())
             .stderr(Stdio::piped())
@@ -169,7 +162,7 @@ impl JingProcessEngine {
             revision: request.revision,
             diagnostics,
             stderr_truncated,
-            approved_grammar_resources: 1,
+            approved_grammar_resources: staged.resource_count,
         })
     }
 }
@@ -195,77 +188,258 @@ fn canonical_file(
     Ok(canonical)
 }
 
-fn stage_file(suffix: &str, bytes: &[u8]) -> Result<TempPath, ValidationError> {
-    let mut file = Builder::new()
-        .prefix("o2xml-")
-        .suffix(suffix)
-        .tempfile()
-        .map_err(ValidationError::Staging)?;
-    file.write_all(bytes).map_err(ValidationError::Staging)?;
-    file.flush().map_err(ValidationError::Staging)?;
-    Ok(file.into_temp_path())
+struct StagedCompactGrammar {
+    directory: TempDir,
+    grammar_path: PathBuf,
+    document_path: PathBuf,
+    resource_count: usize,
 }
 
-fn compact_grammar_has_resource_directive(bytes: &[u8]) -> Result<bool, ValidationError> {
-    let grammar = std::str::from_utf8(bytes)
+struct CompactGraphStager<'a> {
+    catalog: &'a CatalogResolver,
+    directory: &'a Path,
+    names: HashMap<PathBuf, String>,
+    total_bytes: u64,
+    max_resource_bytes: u64,
+    max_total_bytes: u64,
+    max_resources: usize,
+}
+
+fn stage_compact_grammar_graph(
+    catalog: &CatalogResolver,
+    grammar: ResolvedResource,
+    document: &[u8],
+    max_resource_bytes: u64,
+    max_total_bytes: u64,
+    max_resources: usize,
+) -> Result<StagedCompactGrammar, ValidationError> {
+    let directory = TempDir::new().map_err(ValidationError::Staging)?;
+    let mut stager = CompactGraphStager {
+        catalog,
+        directory: directory.path(),
+        names: HashMap::new(),
+        total_bytes: 0,
+        max_resource_bytes,
+        max_total_bytes,
+        max_resources,
+    };
+    let grammar_name = stager.stage(grammar)?;
+    let resource_count = stager.names.len();
+    let grammar_path = directory.path().join(grammar_name);
+    let document_path = directory.path().join("document.xml");
+    fs::write(&document_path, document).map_err(ValidationError::Staging)?;
+    Ok(StagedCompactGrammar {
+        directory,
+        grammar_path,
+        document_path,
+        resource_count,
+    })
+}
+
+impl CompactGraphStager<'_> {
+    fn stage(&mut self, resource: ResolvedResource) -> Result<String, ValidationError> {
+        if let Some(name) = self.names.get(&resource.path) {
+            return Ok(name.clone());
+        }
+        if self.names.len() >= self.max_resources {
+            return Err(ValidationError::TooManyGrammarResources {
+                limit: self.max_resources,
+            });
+        }
+        let name = format!("grammar-{}.rnc", self.names.len());
+        self.names.insert(resource.path.clone(), name.clone());
+
+        let metadata =
+            fs::metadata(&resource.path).map_err(|source| ValidationError::GrammarIo {
+                path: resource.path.clone(),
+                source,
+            })?;
+        if metadata.len() > self.max_resource_bytes {
+            return Err(ValidationError::GrammarTooLarge {
+                path: resource.path,
+                limit: self.max_resource_bytes,
+            });
+        }
+        self.total_bytes = self.total_bytes.saturating_add(metadata.len());
+        if self.total_bytes > self.max_total_bytes {
+            return Err(ValidationError::GrammarGraphTooLarge {
+                limit: self.max_total_bytes,
+            });
+        }
+        let bytes = fs::read(&resource.path).map_err(|source| ValidationError::GrammarIo {
+            path: resource.path.clone(),
+            source,
+        })?;
+        if bytes
+            .iter()
+            .copied()
+            .find(|byte| !byte.is_ascii_whitespace())
+            == Some(b'<')
+        {
+            return Err(ValidationError::CompactGrammarResourcesUnsupported);
+        }
+        let directives = compact_resource_directives(&bytes)?;
+        let mut replacements = Vec::with_capacity(directives.len());
+        for directive in directives {
+            let dependency = self
+                .catalog
+                .resolve_reference(&resource, &directive.target)?;
+            let staged_name = self.stage(dependency)?;
+            replacements.push((directive.literal, format!("\"{staged_name}\"")));
+        }
+        let rewritten = rewrite_directives(&bytes, replacements)?;
+        fs::write(self.directory.join(&name), rewritten).map_err(ValidationError::Staging)?;
+        Ok(name)
+    }
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+struct CompactDirective {
+    literal: Range<usize>,
+    target: String,
+}
+
+fn compact_resource_directives(bytes: &[u8]) -> Result<Vec<CompactDirective>, ValidationError> {
+    let source = std::str::from_utf8(bytes)
         .map_err(|_| ValidationError::CompactGrammarResourcesUnsupported)?;
-    let mut characters = grammar.chars().peekable();
-    while let Some(character) = characters.next() {
-        match character {
-            '#' => {
-                for next in characters.by_ref() {
-                    if next == '\n' || next == '\r' {
-                        break;
-                    }
+    let bytes = source.as_bytes();
+    let mut directives = Vec::new();
+    let mut cursor = 0_usize;
+    while cursor < bytes.len() {
+        match bytes[cursor] {
+            b'#' => skip_comment(bytes, &mut cursor),
+            b'\'' | b'"' => skip_literal(bytes, &mut cursor)?,
+            b'\\' => {
+                cursor = cursor.saturating_add(1);
+                skip_identifier(bytes, &mut cursor);
+            }
+            byte if is_identifier_start(byte) => {
+                let start = cursor;
+                skip_identifier(bytes, &mut cursor);
+                if matches!(&source[start..cursor], "include" | "external") {
+                    skip_trivia(bytes, &mut cursor)?;
+                    let literal_start = cursor;
+                    let target = parse_resource_literal(source, bytes, &mut cursor)?;
+                    directives.push(CompactDirective {
+                        literal: literal_start..cursor,
+                        target,
+                    });
                 }
             }
-            '\'' | '"' => skip_string(&mut characters, character)?,
-            value if is_identifier_start(value) => {
-                let mut identifier = String::from(value);
-                while characters
-                    .peek()
-                    .is_some_and(|next| is_identifier_part(*next))
-                {
-                    if let Some(next) = characters.next() {
-                        identifier.push(next);
-                    }
-                }
-                if matches!(identifier.as_str(), "include" | "external") {
-                    return Ok(true);
-                }
-            }
-            _ => {}
+            _ => cursor = cursor.saturating_add(1),
         }
     }
-    Ok(false)
+    Ok(directives)
 }
 
-fn skip_string<I>(
-    characters: &mut std::iter::Peekable<I>,
-    quote: char,
-) -> Result<(), ValidationError>
-where
-    I: Iterator<Item = char>,
-{
-    let mut escaped = false;
-    for character in characters.by_ref() {
-        if escaped {
-            escaped = false;
-        } else if character == '\\' {
-            escaped = true;
-        } else if character == quote {
+fn skip_trivia(bytes: &[u8], cursor: &mut usize) -> Result<(), ValidationError> {
+    loop {
+        while bytes.get(*cursor).is_some_and(u8::is_ascii_whitespace) {
+            *cursor = cursor.saturating_add(1);
+        }
+        if bytes.get(*cursor) == Some(&b'#') {
+            skip_comment(bytes, cursor);
+        } else {
+            break;
+        }
+    }
+    if *cursor >= bytes.len() {
+        return Err(ValidationError::CompactGrammarResourcesUnsupported);
+    }
+    Ok(())
+}
+
+fn skip_comment(bytes: &[u8], cursor: &mut usize) {
+    while let Some(byte) = bytes.get(*cursor) {
+        *cursor = cursor.saturating_add(1);
+        if matches!(byte, b'\n' | b'\r') {
+            break;
+        }
+    }
+}
+
+fn skip_identifier(bytes: &[u8], cursor: &mut usize) {
+    while bytes
+        .get(*cursor)
+        .is_some_and(|byte| is_identifier_part(*byte))
+    {
+        *cursor = cursor.saturating_add(1);
+    }
+}
+
+fn skip_literal(bytes: &[u8], cursor: &mut usize) -> Result<(), ValidationError> {
+    let quote = bytes[*cursor];
+    let triple = bytes.get(*cursor..cursor.saturating_add(3)) == Some(&[quote, quote, quote]);
+    *cursor = cursor.saturating_add(if triple { 3 } else { 1 });
+    while *cursor < bytes.len() {
+        if triple && bytes.get(*cursor..cursor.saturating_add(3)) == Some(&[quote, quote, quote]) {
+            *cursor = cursor.saturating_add(3);
             return Ok(());
+        }
+        if !triple && bytes[*cursor] == b'\\' {
+            *cursor = cursor.saturating_add(2).min(bytes.len());
+        } else if !triple && bytes[*cursor] == quote {
+            *cursor = cursor.saturating_add(1);
+            return Ok(());
+        } else {
+            *cursor = cursor.saturating_add(1);
         }
     }
     Err(ValidationError::CompactGrammarResourcesUnsupported)
 }
 
-const fn is_identifier_start(character: char) -> bool {
-    character.is_ascii_alphabetic() || character == '_'
+fn parse_resource_literal(
+    source: &str,
+    bytes: &[u8],
+    cursor: &mut usize,
+) -> Result<String, ValidationError> {
+    let quote = *bytes
+        .get(*cursor)
+        .filter(|byte| matches!(byte, b'\'' | b'"'))
+        .ok_or(ValidationError::CompactGrammarResourcesUnsupported)?;
+    if bytes.get(*cursor..cursor.saturating_add(3)) == Some(&[quote, quote, quote]) {
+        return Err(ValidationError::CompactGrammarResourcesUnsupported);
+    }
+    *cursor = cursor.saturating_add(1);
+    let start = *cursor;
+    while let Some(byte) = bytes.get(*cursor) {
+        if *byte == b'\\' || matches!(byte, b'\n' | b'\r') {
+            return Err(ValidationError::CompactGrammarResourcesUnsupported);
+        }
+        if *byte == quote {
+            if *cursor == start {
+                return Err(ValidationError::CompactGrammarResourcesUnsupported);
+            }
+            let target = source[start..*cursor].to_owned();
+            *cursor = cursor.saturating_add(1);
+            return Ok(target);
+        }
+        *cursor = cursor.saturating_add(1);
+    }
+    Err(ValidationError::CompactGrammarResourcesUnsupported)
 }
 
-const fn is_identifier_part(character: char) -> bool {
-    character.is_ascii_alphanumeric() || matches!(character, '_' | '-' | '.')
+fn rewrite_directives(
+    bytes: &[u8],
+    mut replacements: Vec<(Range<usize>, String)>,
+) -> Result<Vec<u8>, ValidationError> {
+    replacements.sort_by_key(|(range, _)| range.start);
+    let mut result = bytes.to_vec();
+    for (range, value) in replacements.into_iter().rev() {
+        if range.start > range.end || range.end > result.len() {
+            return Err(ValidationError::CompactGrammarResourcesUnsupported);
+        }
+        result.splice(range, value.bytes());
+    }
+    Ok(result)
+}
+
+const fn is_identifier_start(byte: u8) -> bool {
+    byte.is_ascii_alphabetic() || byte == b'_' || byte >= 0x80
+}
+
+const fn is_identifier_part(byte: u8) -> bool {
+    byte.is_ascii_alphanumeric() || matches!(byte, b'_' | b'-' | b'.' | b':') || byte >= 0x80
 }
 
 fn normalize_jing_diagnostics(
@@ -328,20 +502,109 @@ mod tests {
     use xml_resource::{CatalogResolver, ResourcePolicy};
 
     #[test]
-    fn detects_only_resource_directives_outside_comments_and_strings() -> Result<(), ValidationError>
-    {
-        assert!(!compact_grammar_has_resource_directive(
-            b"# include 'ignored.rnc'\nstart = element article { text }"
-        )?);
-        assert!(!compact_grammar_has_resource_directive(
-            b"start = element article { 'external' }"
-        )?);
-        assert!(compact_grammar_has_resource_directive(
-            b"include 'other.rnc'"
-        )?);
-        assert!(compact_grammar_has_resource_directive(
-            b"external 'other.rnc'"
-        )?);
+    fn extracts_only_resource_directives_outside_comments_and_strings(
+    ) -> Result<(), ValidationError> {
+        let directives = compact_resource_directives(
+            b"# include 'ignored.rnc'\nstart = element article { 'external' }\ninclude # note\n 'other.rnc'\nexternal \"leaf.rnc\"",
+        )?;
+        assert_eq!(directives.len(), 2);
+        assert_eq!(directives[0].target, "other.rnc");
+        assert_eq!(directives[1].target, "leaf.rnc");
+        assert!(compact_resource_directives(b"\\include = text")?.is_empty());
+        assert!(compact_resource_directives(b"element ns:include { text }")?.is_empty());
+        Ok(())
+    }
+
+    #[test]
+    fn brokers_and_rewrites_a_bounded_compact_grammar_graph() -> Result<(), Box<dyn Error>> {
+        let directory = tempfile::tempdir()?;
+        let grammar = directory.path().join("article.rnc");
+        let included = directory.path().join("included.rnc");
+        let catalog = directory.path().join("catalog.xml");
+        fs::write(
+            &grammar,
+            "include 'included.rnc'\nstart = article\narticle = element article { body }\n",
+        )?;
+        fs::write(&included, "body = element body { text }\n")?;
+        fs::write(
+            &catalog,
+            "<catalog xmlns=\"urn:oasis:names:tc:entity:xmlns:xml:catalog\"><uri name=\"urn:test:rnc\" uri=\"article.rnc\"/></catalog>",
+        )?;
+        let policy = ResourcePolicy::offline([directory.path().to_path_buf()])?;
+        let resolver = CatalogResolver::load(&catalog, policy)?;
+        let root = resolver
+            .resolve_uri("urn:test:rnc")?
+            .ok_or(ValidationError::GrammarNotFound)?;
+        let staged = stage_compact_grammar_graph(
+            &resolver,
+            root,
+            b"<article><body>text</body></article>",
+            1024,
+            4096,
+            8,
+        )?;
+        assert_eq!(staged.resource_count, 2);
+        assert_eq!(
+            fs::read_to_string(&staged.grammar_path)?,
+            "include \"grammar-1.rnc\"\nstart = article\narticle = element article { body }\n"
+        );
+        assert_eq!(
+            fs::read_to_string(staged.directory.path().join("grammar-1.rnc"))?,
+            "body = element body { text }\n"
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn compact_graph_denies_dependencies_outside_allowed_roots() -> Result<(), Box<dyn Error>> {
+        let directory = tempfile::tempdir()?;
+        let allowed = directory.path().join("allowed");
+        fs::create_dir(&allowed)?;
+        fs::write(allowed.join("article.rnc"), "include '../outside.rnc'\n")?;
+        fs::write(directory.path().join("outside.rnc"), "start = empty\n")?;
+        let catalog = allowed.join("catalog.xml");
+        fs::write(
+            &catalog,
+            "<catalog xmlns=\"urn:oasis:names:tc:entity:xmlns:xml:catalog\"><uri name=\"urn:test:rnc\" uri=\"article.rnc\"/></catalog>",
+        )?;
+        let policy = ResourcePolicy::offline([allowed])?;
+        let resolver = CatalogResolver::load(&catalog, policy)?;
+        let root = resolver
+            .resolve_uri("urn:test:rnc")?
+            .ok_or(ValidationError::GrammarNotFound)?;
+        assert!(matches!(
+            stage_compact_grammar_graph(&resolver, root, b"<article/>", 1024, 4096, 8),
+            Err(ValidationError::Catalog(
+                xml_resource::CatalogError::PathDenied(_)
+            ))
+        ));
+        Ok(())
+    }
+
+    #[test]
+    fn compact_graph_bounds_resources_and_terminates_cycles() -> Result<(), Box<dyn Error>> {
+        let directory = tempfile::tempdir()?;
+        let first = directory.path().join("first.rnc");
+        let second = directory.path().join("second.rnc");
+        let catalog = directory.path().join("catalog.xml");
+        fs::write(&first, "include 'second.rnc'\nstart = empty\n")?;
+        fs::write(&second, "include 'first.rnc'\n")?;
+        fs::write(
+            &catalog,
+            "<catalog xmlns=\"urn:oasis:names:tc:entity:xmlns:xml:catalog\"><uri name=\"urn:cycle\" uri=\"first.rnc\"/></catalog>",
+        )?;
+        let policy = ResourcePolicy::offline([directory.path().to_path_buf()])?;
+        let resolver = CatalogResolver::load(&catalog, policy)?;
+        let root = resolver
+            .resolve_uri("urn:cycle")?
+            .ok_or(ValidationError::GrammarNotFound)?;
+        let staged =
+            stage_compact_grammar_graph(&resolver, root.clone(), b"<article/>", 1024, 4096, 2)?;
+        assert_eq!(staged.resource_count, 2);
+        assert!(matches!(
+            stage_compact_grammar_graph(&resolver, root, b"<article/>", 1024, 4096, 1),
+            Err(ValidationError::TooManyGrammarResources { limit: 1 })
+        ));
         Ok(())
     }
 
@@ -383,6 +646,7 @@ mod tests {
         let executable = directory.path().join("fake-java");
         let jar = directory.path().join("jing.jar");
         let grammar = directory.path().join("article.rnc");
+        let included = directory.path().join("included.rnc");
         let catalog = directory.path().join("catalog.xml");
         fs::write(
             &executable,
@@ -392,7 +656,11 @@ mod tests {
         permissions.set_mode(0o700);
         fs::set_permissions(&executable, permissions)?;
         fs::write(&jar, [])?;
-        fs::write(&grammar, "start = element article { text }\n")?;
+        fs::write(
+            &grammar,
+            "include 'included.rnc'\nstart = element article { text }\n",
+        )?;
+        fs::write(&included, "unused = empty\n")?;
         fs::write(
             &catalog,
             "<catalog xmlns=\"urn:oasis:names:tc:entity:xmlns:xml:catalog\"><uri name=\"urn:test:rnc\" uri=\"article.rnc\"/></catalog>",
@@ -424,6 +692,7 @@ mod tests {
         }))?;
 
         assert!(valid.diagnostics.is_empty());
+        assert_eq!(valid.approved_grammar_resources, 2);
         assert_eq!(invalid.diagnostics.len(), 1);
         assert_eq!(invalid.diagnostics[0].source, "jing-rnc");
         Ok(())

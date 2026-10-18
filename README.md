@@ -29,8 +29,9 @@ desktop MVP with a Rust core and a Tauri/CodeMirror interface.
   JATS Inspector recognizes the editorial structure and provides navigable
   source positions in the desktop UI. RELAX NG XML validation runs through the
   isolated libxml2 helper and the same offline catalog broker used by DTD/XSD;
-  self-contained compact syntax has an optional supervised Jing adapter, while
-  RNC resource directives remain denied pending a fully brokered resolver. The
+  compact syntax has an optional supervised Jing adapter. RNC `include` and
+  `external` references are recursively resolved through the offline catalog,
+  bounded, rewritten into private staging, and denied on root escape. The
   Schematron core now normalizes bounded SVRL reports into navigable diagnostics;
   an isolated libxml2 baseline executes XPath 1.0 assertions. A supervised
   SchXslt/Saxon two-step adapter compiles self-contained ISO Schematron to XSLT
@@ -90,7 +91,7 @@ desktop MVP with a Rust core and a Tauri/CodeMirror interface.
   one undoable editor change. CDATA and entity-reference runs remain visible
   but read-only; structural editing and track changes are not yet claimed.
   Schematron/JATS/SPS validation is not presented as complete while licensed
-  upstream packs and conformance corpora are not installed.
+  upstream packs and real external-engine conformance corpora are not installed.
 
 ## Build and run
 

@@ -220,6 +220,16 @@ run while validation is pending, and rebuilds the projection after an accepted
 revision. Audit events `author.inspect` and `author.edit` contain only result,
 opaque document ID, revision, and engine profile—not edited text or paths.
 
+The Jing RNC adapter does not expose original grammar paths to the dependency
+resolver. A conservative native lexer finds resource directives outside strings,
+comments, and escaped identifiers; malformed, escaped, multiline, triple-quoted,
+or XML-syntax dependency targets are rejected. Every accepted target is resolved
+relative to its catalog-approved parent, canonicalized under the offline root
+policy, read under per-resource/count/aggregate limits, and rewritten to an
+opaque filename in one private temporary directory. Jing receives only that
+rewritten graph and the staged document. Cycles reuse the already assigned
+staging name, and a root-escape failure aborts before the process starts.
+
 DTD completion extraction runs in the isolated libxml2 helper and uses the same
 deny-by-default resource callback as validation. Raw FFI pointers never cross
 the process boundary. Element, particle, attribute, and enumeration counts or

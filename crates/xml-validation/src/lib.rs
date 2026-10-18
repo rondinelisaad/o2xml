@@ -129,7 +129,7 @@ pub enum ValidationError {
     InvalidEngineAsset(PathBuf),
     #[error("validation engine does not support the requested grammar type")]
     UnsupportedGrammar,
-    #[error("compact grammar resource directives are disabled by the offline policy")]
+    #[error("compact grammar contains an unsupported or malformed resource directive")]
     CompactGrammarResourcesUnsupported,
     #[error("cannot stage validation input: {0}")]
     Staging(#[source] std::io::Error),

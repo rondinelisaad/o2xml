@@ -86,9 +86,10 @@ libxml2 2.9+ and libxslt 1.1+ (MIT) are now required to build the isolated
 DTD/XSD/RELAX NG/Schematron/XSLT 1.0 helper. The Rust core does not link to
 either C library: the helper is a separate process
 and all grammar bytes are brokered through the native catalog policy. Jing
-(3-clause BSD) is an optional, user-installed adapter for self-contained RNC;
-the supported baseline is upstream V20241231 and its JAR is never downloaded
-silently. SchXslt (MIT) plus user-installed Saxon HE (MPL-2.0) now provide the
+(3-clause BSD) is an optional, user-installed adapter for RNC; its recursive
+resource graph is catalog-resolved, bounded, and rewritten into private staging
+before execution. The supported baseline is upstream V20241231 and its JAR is
+never downloaded silently. SchXslt (MIT) plus user-installed Saxon HE (MPL-2.0) now provide the
 optional, supervised ISO Schematron-to-SVRL pipeline for self-contained rule
 sets. The reviewed SaxonJ baseline is 13.0 (released 2026-05-29); O2XML accepts
 an explicit local JAR and trusted `pipeline-for-svrl.xsl` path rather than

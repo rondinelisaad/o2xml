@@ -104,11 +104,13 @@ Current progress:
   positions, and synchronized desktop navigation.
 - [x] Add supervised RELAX NG XML validation through isolated libxml2 with the
   offline catalog broker, dependency limits, deadlines, and root-escape denial.
-- [x] Add self-contained RELAX NG compact syntax through an optional,
-  policy-controlled Jing adapter with private staging, deadlines, bounded
-  diagnostics, and external resource directives denied by default.
-- [ ] Add a brokered Jing resolver before permitting RNC `include`/`external`,
-  and run the upstream conformance corpus with the real user-installed JAR.
+- [x] Add RELAX NG compact syntax through an optional, policy-controlled Jing
+  adapter with private staging, deadlines, and bounded diagnostics.
+- [x] Broker recursive RNC `include`/`external` references through XML Catalog,
+  rewrite the approved bounded graph into private staging, and deny root escape.
+- [ ] Run the upstream conformance corpus with an explicitly installed real Jing
+  JAR; repository tests use a supervised synthetic executable and do not claim
+  external-engine conformance.
 - [x] Add bounded SVRL parsing for failed assertions and successful reports,
   severity metadata, rule identity, and navigable diagnostic normalization.
 - [x] Add a catalog-brokered, process-isolated libxml2 Schematron baseline for
