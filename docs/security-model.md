@@ -195,6 +195,17 @@ capped at 16 MiB and require either a valid `If-Match` ETag or create-only
 operation exists. Basic-auth credentials are passed per operation, redacted from
 Debug/audit data, never serialized, and the password buffer is zeroed on drop.
 
+The BaseX adapter reuses the same DNS-pinned HTTPS transport but has a separate
+read-only capability boundary. It constructs only `GET` requests for a
+conservative resource path below one fixed database. Database names and paths
+cannot contain traversal, query, fragment, or percent-escape syntax; redirects
+are rejected rather than forwarding authentication. Credentials are supplied
+per operation, redacted from Debug and audit data, and passwords are zeroed on
+drop. Administrative usernames are rejected client-side, and deployment still
+must provision a distinct BaseX account with only local `read` permission for
+the intended database. No REST `query`, `command`, `run`, PUT, POST, or DELETE
+operation is represented by the Rust API.
+
 DTD completion extraction runs in the isolated libxml2 helper and uses the same
 deny-by-default resource callback as validation. Raw FFI pointers never cross
 the process boundary. Element, particle, attribute, and enumeration counts or

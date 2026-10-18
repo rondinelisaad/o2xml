@@ -16,6 +16,10 @@ use url::Url;
 
 mod remote;
 pub use remote::{RemoteFetchError, RemoteResource, RemoteResourceClient};
+mod database;
+pub use database::{
+    BaseXCredentials, BaseXDocument, BaseXReadOnlyClient, XmlDatabaseReadError, XmlDatabaseReader,
+};
 mod webdav;
 pub use webdav::{
     WebDavClient, WebDavCredentials, WebDavEntry, WebDavError, WebDavRead, WebDavWriteCondition,

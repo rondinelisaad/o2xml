@@ -46,7 +46,7 @@ crate per acronym:
 | `xml-document` | rope-backed text, edits, line index, snapshot lifecycle |
 | `xml-syntax` | well-formedness, outline, formatting, lightweight associations |
 | `xml-project` | `project.toml`, workspace paths, scenarios, settings |
-| `xml-resource` | trust policy, catalogs, DNS-pinned HTTPS, and root-scoped WebDAV |
+| `xml-resource` | trust policy, catalogs, DNS-pinned HTTPS, root-scoped WebDAV, and read-only XML database adapters |
 | `xml-validation` | engine traits, pipeline, cancellation, diagnostic normalization |
 | `xml-xpath` | XPath query contract, supervised engine adapter, navigable results |
 | `xml-schema` | bounded common content-model index, regular-particle compiler, and completion queries |
@@ -73,6 +73,14 @@ Remote connectors must consume `RemoteResourcePolicy`; they cannot reuse the
 offline catalog path as an implicit network escape. URL origin approval and
 post-DNS public-address approval are distinct steps so a transport can pin the
 approved addresses and defend against DNS rebinding on each redirect.
+
+The initial XML database contract is deliberately narrower than the general
+remote-resource contract. `XmlDatabaseReader` can retrieve a named document but
+cannot submit XQuery, database commands, or mutations. Its BaseX implementation
+is scoped to one validated database below one approved REST root, rejects
+redirects so credentials cannot cross an endpoint boundary, and accepts Basic
+credentials only per operation. Future database engines implement this same
+read-only contract before any separately reviewed write contract is considered.
 
 ## Editable document model
 

@@ -81,6 +81,9 @@ desktop MVP with a Rust core and a Tauri/CodeMirror interface.
   A least-privilege WebDAV adapter adds bounded `PROPFIND`/GET and conditional
   PUT under one configured root. Passwords are redacted and zeroed on drop;
   destructive methods and unconditional overwrite are deliberately absent.
+  A separate BaseX REST adapter retrieves one XML document with GET under a
+  fixed database scope. It accepts only non-administrative, transient
+  credentials and exposes no query, command, mutation, or redirect surface.
   Schematron/JATS/SPS validation is not presented as complete while licensed
   upstream packs and conformance corpora are not installed.
 

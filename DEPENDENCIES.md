@@ -46,6 +46,10 @@ cookies, proxies, automatic redirects, authentication helpers, and HTTP/3 are
 not enabled by O2XML. TLS certificate and hostname checks are never bypassed.
 Its WebDAV adapter also uses `zeroize` for transient Basic-auth passwords; no
 credential store or configuration serialization is provided.
+The BaseX REST reader reuses exactly this reviewed transport and dependency set.
+It is an optional client integration, so BaseX itself is not linked or bundled;
+upstream BaseX is BSD-3-Clause. The adapter implements only bounded GET document
+retrieval and requires a separately provisioned read-only server account.
 
 `xml-plugin-api` reuses `serde`, `serde_json`, `thiserror`, and `url` for its
 versioned inert protocol, manifest validation, and HTTPS-origin checks. It uses
