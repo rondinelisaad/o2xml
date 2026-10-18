@@ -24,8 +24,9 @@ claim that a version is current.
    remains an alternative for difficult schemas.
 8. **XSD 1.1:** possible, but not a default MVP feature. Xerces2-J publishes a
    separate XSD 1.1 distribution; Saxon schema-awareness requires Saxon-EE.
-9. **RELAX NG:** Jing for RNG and RNC. libxml2 RNG may be offered after
-   differential testing but does not solve compact syntax by itself.
+9. **RELAX NG:** isolated libxml2 is the initial RNG XML engine and reuses the
+   catalog resource broker. Jing remains required for RNC and may later provide
+   differential RNG testing under the same supervised-process policy.
 10. **Schematron:** ISO Schematron compiled to XSLT/SVRL using SchXslt or the ISO
     skeleton, then executed by a selected XSLT processor. Quick Fix is later.
 11. **XPath:** libxml2 for 1.0; Saxon HE for non-schema-aware 3.1.
@@ -65,7 +66,7 @@ claim that a version is current.
 | DTD | libxml2 adapter | No (C FFI/helper) | MIT | HIGH | 2 |
 | XSD 1.0 | libxml2 adapter | No (C FFI/helper) | MIT | HIGH | 2 |
 | XSD 1.1 | Xerces2-J special distribution | No (JVM) | Apache-2.0 | EXPERIMENTAL | 5 |
-| RELAX NG XML | Jing; optional libxml2 | No | BSD-like / MIT | MEDIUM | 3 |
+| RELAX NG XML | libxml2 helper | No | MIT | MEDIUM | 3 |
 | RELAX NG compact | Jing | No (JVM) | BSD-like | MEDIUM | 3 |
 | Schematron | SchXslt/ISO skeleton + XSLT | No | MIT / implementation-specific | HIGH | 3 |
 | XPath 1.0 | libxml2 | No | MIT | MEDIUM | 2 |

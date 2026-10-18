@@ -24,7 +24,7 @@ fn runtime() -> Result<tokio::runtime::Runtime, std::io::Error> {
 }
 
 #[test]
-fn validates_dtd_xsd_and_brokered_dependencies() -> Result<(), Box<dyn Error>> {
+fn validates_dtd_xsd_relax_ng_and_brokered_dependencies() -> Result<(), Box<dyn Error>> {
     let engine = Libxml2ProcessEngine::new(env!("CARGO_BIN_EXE_xml-libxml2-helper"))?;
     let catalog = resolver()?;
     let runtime = runtime()?;
@@ -67,6 +67,24 @@ fn validates_dtd_xsd_and_brokered_dependencies() -> Result<(), Box<dyn Error>> {
             uri: "https://example.org/composite.xsd",
         },
     }))?;
+    let relax_ng_report = runtime.block_on(engine.validate(ValidationRequest {
+        source: "<article><body>text</body></article>",
+        revision: Revision(5),
+        file: Some("article.xml"),
+        catalog: &catalog,
+        grammar: GrammarReference::RelaxNg {
+            uri: "https://example.org/article.rng",
+        },
+    }))?;
+    let invalid_relax_ng = runtime.block_on(engine.validate(ValidationRequest {
+        source: "<article><front/></article>",
+        revision: Revision(6),
+        file: Some("invalid.xml"),
+        catalog: &catalog,
+        grammar: GrammarReference::RelaxNg {
+            uri: "https://example.org/article.rng",
+        },
+    }))?;
 
     assert!(dtd_report.diagnostics.is_empty());
     assert_eq!(dtd_report.approved_grammar_resources, 2);
@@ -74,6 +92,9 @@ fn validates_dtd_xsd_and_brokered_dependencies() -> Result<(), Box<dyn Error>> {
     assert!(xsd_report.diagnostics.is_empty());
     assert!(composite_report.diagnostics.is_empty());
     assert_eq!(composite_report.approved_grammar_resources, 2);
+    assert!(relax_ng_report.diagnostics.is_empty());
+    assert_eq!(relax_ng_report.approved_grammar_resources, 2);
+    assert!(!invalid_relax_ng.diagnostics.is_empty());
     Ok(())
 }
 
@@ -98,6 +119,23 @@ fn denies_dependency_outside_allowed_roots() -> Result<(), Box<dyn Error>> {
             Err(ValidationError::Catalog(CatalogError::PathDenied(_)))
         ),
         "unexpected validation result: {result:?}"
+    );
+
+    let relax_ng_result = runtime.block_on(engine.validate(ValidationRequest {
+        source: "<article/>",
+        revision: Revision(6),
+        file: Some("article.xml"),
+        catalog: &catalog,
+        grammar: GrammarReference::RelaxNg {
+            uri: "https://example.org/escape.rng",
+        },
+    }));
+    assert!(
+        matches!(
+            &relax_ng_result,
+            Err(ValidationError::Catalog(CatalogError::PathDenied(_)))
+        ),
+        "unexpected RELAX NG validation result: {relax_ng_result:?}"
     );
     Ok(())
 }

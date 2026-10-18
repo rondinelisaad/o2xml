@@ -28,6 +28,9 @@ pub enum GrammarReference<'a> {
     Xsd {
         uri: &'a str,
     },
+    RelaxNg {
+        uri: &'a str,
+    },
 }
 
 impl GrammarReference<'_> {
@@ -35,6 +38,7 @@ impl GrammarReference<'_> {
         match self {
             Self::Dtd { .. } => "libxml2-dtd",
             Self::Xsd { .. } => "libxml2-xsd",
+            Self::RelaxNg { .. } => "libxml2-relax-ng",
         }
     }
 }
@@ -310,6 +314,7 @@ impl<'a> HelperRequest<'a> {
                 public_id,
             } => ("dtd", system_id, public_id),
             GrammarReference::Xsd { uri } => ("xsd", uri, None),
+            GrammarReference::RelaxNg { uri } => ("relax_ng", uri, None),
         };
         Self {
             mode,
@@ -460,6 +465,7 @@ fn resolve_broker_resource(
             public_id: expected_public,
         } => url == system_id || (public_id.is_some() && public_id == expected_public),
         GrammarReference::Xsd { uri } => url == uri,
+        GrammarReference::RelaxNg { uri } => url == uri,
     };
     if is_root {
         return Ok(root.clone());
@@ -554,6 +560,7 @@ fn resolve_grammar(
             public_id,
         } => catalog.resolve_external(Some(system_id), public_id)?,
         GrammarReference::Xsd { uri } => catalog.resolve_uri(uri)?,
+        GrammarReference::RelaxNg { uri } => catalog.resolve_uri(uri)?,
     };
     resolved.ok_or(ValidationError::GrammarNotFound)
 }

@@ -12,4 +12,7 @@
   <uri name="https://example.org/imported-models.xsd" uri="schemas/imported-models.xsd"/>
   <uri name="https://example.org/wildcard.xsd" uri="schemas/wildcard.xsd"/>
   <uri name="https://example.org/escape.xsd" uri="schemas/escape.xsd"/>
+  <uri name="https://example.org/article.rng" uri="schemas/article.rng"/>
+  <uri name="https://example.org/body.rng" uri="schemas/body.rng"/>
+  <uri name="https://example.org/escape.rng" uri="schemas/escape.rng"/>
 </catalog>

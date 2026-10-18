@@ -22,6 +22,9 @@ type XmlHashTable = c_void;
 type XmlParserCtxt = c_void;
 type XmlParserInput = c_void;
 type XmlParserInputBuffer = c_void;
+type XmlRelaxNg = c_void;
+type XmlRelaxNgParserCtxt = c_void;
+type XmlRelaxNgValidCtxt = c_void;
 type XmlSchema = c_void;
 type XmlSchemaParserCtxt = c_void;
 type XmlSchemaValidCtxt = c_void;
@@ -255,6 +258,13 @@ extern "C" {
     fn xmlSchemaNewValidCtxt(schema: *mut XmlSchema) -> *mut XmlSchemaValidCtxt;
     fn xmlSchemaFreeValidCtxt(context: *mut XmlSchemaValidCtxt);
     fn xmlSchemaValidateDoc(context: *mut XmlSchemaValidCtxt, document: *mut XmlDoc) -> c_int;
+    fn xmlRelaxNGNewParserCtxt(url: *const c_char) -> *mut XmlRelaxNgParserCtxt;
+    fn xmlRelaxNGFreeParserCtxt(context: *mut XmlRelaxNgParserCtxt);
+    fn xmlRelaxNGParse(context: *mut XmlRelaxNgParserCtxt) -> *mut XmlRelaxNg;
+    fn xmlRelaxNGFree(schema: *mut XmlRelaxNg);
+    fn xmlRelaxNGNewValidCtxt(schema: *mut XmlRelaxNg) -> *mut XmlRelaxNgValidCtxt;
+    fn xmlRelaxNGFreeValidCtxt(context: *mut XmlRelaxNgValidCtxt);
+    fn xmlRelaxNGValidateDoc(context: *mut XmlRelaxNgValidCtxt, document: *mut XmlDoc) -> c_int;
     fn xmlXPathNewContext(document: *mut XmlDoc) -> *mut XmlXPathContext;
     fn xmlXPathFreeContext(context: *mut XmlXPathContext);
     fn xmlXPathRegisterNs(
@@ -296,6 +306,8 @@ enum Mode {
     #[serde(rename = "dtd_index")]
     DtdIndex,
     Xsd,
+    #[serde(rename = "relax_ng")]
+    RelaxNg,
     #[serde(rename = "xsd_index")]
     XsdIndex,
     XPath,
@@ -519,7 +531,9 @@ fn run() -> Result<bool, String> {
         xmlInitParser();
         xmlSetExternalEntityLoader(Some(match request.mode {
             Mode::XPath => deny_resource_loader,
-            Mode::Dtd | Mode::DtdIndex | Mode::Xsd | Mode::XsdIndex => resource_loader,
+            Mode::Dtd | Mode::DtdIndex | Mode::Xsd | Mode::XsdIndex | Mode::RelaxNg => {
+                resource_loader
+            }
         }));
     }
 
@@ -573,6 +587,7 @@ fn run() -> Result<bool, String> {
         match request.mode {
             Mode::Dtd => validate_dtd(document_ptr, &grammar_uri, public_id.as_ref()),
             Mode::Xsd => validate_xsd(document_ptr, &grammar_uri),
+            Mode::RelaxNg => validate_relax_ng(document_ptr, &grammar_uri),
             Mode::DtdIndex => Err("DTD index request reached the validation path".into()),
             Mode::XsdIndex => Err("XSD index request reached the validation path".into()),
             Mode::XPath => Err("XPath request reached the validation path".into()),
@@ -1541,6 +1556,29 @@ unsafe fn validate_xsd(document: *mut XmlDoc, grammar_uri: &CString) -> Result<b
     unsafe {
         xmlSchemaFreeValidCtxt(context);
         xmlSchemaFree(schema);
+    }
+    Ok(result == 0)
+}
+
+unsafe fn validate_relax_ng(document: *mut XmlDoc, grammar_uri: &CString) -> Result<bool, String> {
+    let parser = unsafe { xmlRelaxNGNewParserCtxt(grammar_uri.as_ptr()) };
+    if parser.is_null() {
+        return Err("cannot allocate RELAX NG parser context".into());
+    }
+    let schema = unsafe { xmlRelaxNGParse(parser) };
+    unsafe { xmlRelaxNGFreeParserCtxt(parser) };
+    if schema.is_null() {
+        return Ok(false);
+    }
+    let context = unsafe { xmlRelaxNGNewValidCtxt(schema) };
+    if context.is_null() {
+        unsafe { xmlRelaxNGFree(schema) };
+        return Err("cannot allocate RELAX NG validation context".into());
+    }
+    let result = unsafe { xmlRelaxNGValidateDoc(context, document) };
+    unsafe {
+        xmlRelaxNGFreeValidCtxt(context);
+        xmlRelaxNGFree(schema);
     }
     Ok(result == 0)
 }

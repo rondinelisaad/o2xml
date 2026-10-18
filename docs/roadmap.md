@@ -102,7 +102,9 @@ Current progress:
   resources are never silently redistributed.
 - [x] Add a bounded JATS structural inspector with editorial labels, source
   positions, and synchronized desktop navigation.
-- [ ] Add supervised Relax NG/RNC validation.
+- [x] Add supervised RELAX NG XML validation through isolated libxml2 with the
+  offline catalog broker, dependency limits, deadlines, and root-escape denial.
+- [ ] Add RELAX NG compact syntax through a policy-controlled Jing adapter.
 - [ ] Add ISO Schematron validation with normalized SVRL diagnostics.
 - [ ] Wire framework selection, installed assets, and separate grammar/rule
   diagnostics into project and desktop services.
