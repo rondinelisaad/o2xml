@@ -49,8 +49,9 @@ crate per acronym:
 | `xml-resource` | trust policy, catalog resolution, cache provenance |
 | `xml-validation` | engine traits, pipeline, cancellation, diagnostic normalization |
 | `xml-xpath` | XPath query contract, supervised engine adapter, navigable results |
-| `xml-schema` | bounded common content-model index and completion queries |
-| `xml-dtd` | normalized DTD particle/attribute compiler for the common index |
+| `xml-schema` | bounded common content-model index, regular-particle compiler, and completion queries |
+| `xml-dtd` | normalized DTD declarations and mapping into the common particle model |
+| `xml-xsd` | normalized XSD 1.0 declarations and mapping into the common particle model |
 | `xml-libxml2-helper` | isolated unsafe FFI for DTD validation/index extraction, XSD 1.0, and XPath 1.0 |
 | `xml-framework` | versioned JATS/SPS/TEI/DocBook manifests and rule composition |
 | `xml-transform` | XSLT/XQuery process and FFI adapters, scenarios |
@@ -59,11 +60,11 @@ crate per acronym:
 | `app/src-tauri` | desktop composition root and audited IPC commands |
 
 Standards receive a dedicated crate when they contain reusable behavior rather
-than only forwarding to an engine. `xml-dtd`, for example, determinizes the
-normalized content trees extracted by libxml2 and brokers every grammar resource
-through `xml-resource`; validation remains behind `xml-validation`. XSD, RNG,
-and Schematron stay adapters there until their dependency and release lifecycles
-justify extraction.
+than only forwarding to an engine. `xml-dtd` and `xml-xsd`, for example, map
+engine-normalized declarations into the bounded regular-particle compiler owned
+by `xml-schema`. Grammar resources are brokered through `xml-resource`, while
+validation remains behind `xml-validation`. RNG and Schematron stay adapters
+there until their dependency and release lifecycles justify extraction.
 
 ## Editable document model
 
@@ -143,8 +144,10 @@ Grammar adapters compile a common, deliberately lossy `SchemaIndex`. Expanded
 names key element declarations; deterministic state machines describe valid next
 children and close states; attribute declarations retain required/prohibited use,
 enums, and default/fixed values. `Empty` and conservative `Any` models cover the
-boundary cases. Completion resolves the cursor's namespace and ancestor context,
-then queries this bounded model under a strict latency budget.
+boundary cases. A shared regular-particle compiler handles sequences, choices,
+and bounded or unbounded occurrences with depth/state/transition/occurrence
+limits. Completion resolves the cursor's namespace and ancestor context, then
+queries this bounded model under a strict latency budget.
 
 DTD/XSD/RNG-specific semantics stay in their compilers. If a construct cannot be
 represented safely, completion uses the conservative `Any` model; it never

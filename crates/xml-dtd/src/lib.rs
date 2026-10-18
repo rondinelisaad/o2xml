@@ -1,10 +1,11 @@
-use std::collections::{BTreeMap, BTreeSet, VecDeque};
+use std::collections::{BTreeMap, BTreeSet};
 
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
 use xml_schema::{
-    AttributeDeclaration, ContentAutomaton, ContentModel, ElementDeclaration, ExpandedName,
-    SchemaIndex, SchemaIndexError, SchemaLanguage, StateId,
+    compile_content_particle, AttributeDeclaration, ContentAutomaton, ContentModel,
+    ContentParticle, ElementDeclaration, ExpandedName, SchemaIndex, SchemaIndexError,
+    SchemaLanguage,
 };
 
 mod engine;
@@ -13,11 +14,6 @@ pub use engine::{
     DtdIndexEngine, DtdIndexError, DtdIndexFuture, DtdIndexReport, DtdIndexRequest,
     Libxml2DtdIndexEngine,
 };
-
-const MAX_PARTICLE_DEPTH: usize = 128;
-const MAX_NFA_STATES: usize = 100_000;
-const MAX_DFA_STATES: usize = 100_000;
-const MAX_DFA_TRANSITIONS: usize = 500_000;
 
 /// A normalized DTD element declaration. libxml2 extraction is responsible for
 /// resolving parameter entities before producing this representation.
@@ -87,193 +83,37 @@ pub fn compile_dtd(
     Ok(index)
 }
 
-fn compile_particle(particle: &DtdParticle) -> Result<ContentAutomaton, DtdCompileError> {
-    let mut nfa = Nfa::default();
-    let fragment = nfa.compile(particle, 0)?;
-    determinize(&nfa, fragment)
+fn compile_particle(
+    particle: &DtdParticle,
+) -> Result<xml_schema::ContentAutomaton, DtdCompileError> {
+    compile_content_particle(&normalize_particle(particle)).map_err(Into::into)
 }
 
-#[derive(Default)]
-struct Nfa {
-    states: Vec<NfaState>,
-}
-
-#[derive(Default)]
-struct NfaState {
-    epsilon: Vec<usize>,
-    transitions: Vec<(ExpandedName, usize)>,
-}
-
-#[derive(Clone, Copy)]
-struct Fragment {
-    start: usize,
-    end: usize,
-}
-
-impl Nfa {
-    fn state(&mut self) -> Result<usize, DtdCompileError> {
-        if self.states.len() >= MAX_NFA_STATES {
-            return Err(DtdCompileError::TooManyNfaStates {
-                limit: MAX_NFA_STATES,
-            });
+fn normalize_particle(particle: &DtdParticle) -> ContentParticle {
+    match particle {
+        DtdParticle::Element(name) => ContentParticle::Element(name.clone()),
+        DtdParticle::Sequence(items) => {
+            ContentParticle::Sequence(items.iter().map(normalize_particle).collect())
         }
-        let id = self.states.len();
-        self.states.push(NfaState::default());
-        Ok(id)
+        DtdParticle::Choice(items) => {
+            ContentParticle::Choice(items.iter().map(normalize_particle).collect())
+        }
+        DtdParticle::Optional(inner) => ContentParticle::Repeat {
+            particle: Box::new(normalize_particle(inner)),
+            min_occurs: 0,
+            max_occurs: Some(1),
+        },
+        DtdParticle::ZeroOrMore(inner) => ContentParticle::Repeat {
+            particle: Box::new(normalize_particle(inner)),
+            min_occurs: 0,
+            max_occurs: None,
+        },
+        DtdParticle::OneOrMore(inner) => ContentParticle::Repeat {
+            particle: Box::new(normalize_particle(inner)),
+            min_occurs: 1,
+            max_occurs: None,
+        },
     }
-
-    fn compile(
-        &mut self,
-        particle: &DtdParticle,
-        depth: usize,
-    ) -> Result<Fragment, DtdCompileError> {
-        if depth > MAX_PARTICLE_DEPTH {
-            return Err(DtdCompileError::ParticleTooDeep {
-                limit: MAX_PARTICLE_DEPTH,
-            });
-        }
-        match particle {
-            DtdParticle::Element(name) => {
-                let start = self.state()?;
-                let end = self.state()?;
-                self.states[start].transitions.push((name.clone(), end));
-                Ok(Fragment { start, end })
-            }
-            DtdParticle::Sequence(items) => self.compile_sequence(items, depth + 1),
-            DtdParticle::Choice(items) => self.compile_choice(items, depth + 1),
-            DtdParticle::Optional(inner) => {
-                let fragment = self.compile(inner, depth + 1)?;
-                let start = self.state()?;
-                let end = self.state()?;
-                self.states[start].epsilon.extend([fragment.start, end]);
-                self.states[fragment.end].epsilon.push(end);
-                Ok(Fragment { start, end })
-            }
-            DtdParticle::ZeroOrMore(inner) => {
-                let fragment = self.compile(inner, depth + 1)?;
-                let start = self.state()?;
-                let end = self.state()?;
-                self.states[start].epsilon.extend([fragment.start, end]);
-                self.states[fragment.end]
-                    .epsilon
-                    .extend([fragment.start, end]);
-                Ok(Fragment { start, end })
-            }
-            DtdParticle::OneOrMore(inner) => {
-                let fragment = self.compile(inner, depth + 1)?;
-                let start = self.state()?;
-                let end = self.state()?;
-                self.states[start].epsilon.push(fragment.start);
-                self.states[fragment.end]
-                    .epsilon
-                    .extend([fragment.start, end]);
-                Ok(Fragment { start, end })
-            }
-        }
-    }
-
-    fn compile_sequence(
-        &mut self,
-        items: &[DtdParticle],
-        depth: usize,
-    ) -> Result<Fragment, DtdCompileError> {
-        let start = self.state()?;
-        let mut tail = start;
-        for item in items {
-            let fragment = self.compile(item, depth)?;
-            self.states[tail].epsilon.push(fragment.start);
-            tail = fragment.end;
-        }
-        let end = self.state()?;
-        self.states[tail].epsilon.push(end);
-        Ok(Fragment { start, end })
-    }
-
-    fn compile_choice(
-        &mut self,
-        items: &[DtdParticle],
-        depth: usize,
-    ) -> Result<Fragment, DtdCompileError> {
-        if items.is_empty() {
-            return Err(DtdCompileError::EmptyChoice);
-        }
-        let start = self.state()?;
-        let end = self.state()?;
-        for item in items {
-            let fragment = self.compile(item, depth)?;
-            self.states[start].epsilon.push(fragment.start);
-            self.states[fragment.end].epsilon.push(end);
-        }
-        Ok(Fragment { start, end })
-    }
-}
-
-fn determinize(nfa: &Nfa, fragment: Fragment) -> Result<ContentAutomaton, DtdCompileError> {
-    let start = epsilon_closure(nfa, BTreeSet::from([fragment.start]));
-    let mut ids = BTreeMap::from([(start.clone(), 0_u32)]);
-    let mut pending = VecDeque::from([start]);
-    let mut accepting = BTreeSet::new();
-    let mut transitions = BTreeMap::new();
-    let mut transition_count = 0_usize;
-
-    while let Some(states) = pending.pop_front() {
-        let source = ids[&states];
-        if states.contains(&fragment.end) {
-            accepting.insert(source);
-        }
-        let mut targets = BTreeMap::<ExpandedName, BTreeSet<usize>>::new();
-        for state in &states {
-            for (name, target) in &nfa.states[*state].transitions {
-                targets.entry(name.clone()).or_default().insert(*target);
-            }
-        }
-        let mut deterministic = BTreeMap::new();
-        for (name, target) in targets {
-            transition_count = transition_count.saturating_add(1);
-            if transition_count > MAX_DFA_TRANSITIONS {
-                return Err(DtdCompileError::TooManyDfaTransitions {
-                    limit: MAX_DFA_TRANSITIONS,
-                });
-            }
-            let target = epsilon_closure(nfa, target);
-            let target_id = if let Some(id) = ids.get(&target) {
-                *id
-            } else {
-                if ids.len() >= MAX_DFA_STATES {
-                    return Err(DtdCompileError::TooManyDfaStates {
-                        limit: MAX_DFA_STATES,
-                    });
-                }
-                let id = StateId::try_from(ids.len())
-                    .map_err(|_| DtdCompileError::StateIdentifierOverflow)?;
-                ids.insert(target.clone(), id);
-                pending.push_back(target);
-                id
-            };
-            deterministic.insert(name, target_id);
-        }
-        if !deterministic.is_empty() {
-            transitions.insert(source, deterministic);
-        }
-    }
-
-    Ok(ContentAutomaton {
-        start_state: 0,
-        accepting_states: accepting,
-        transitions,
-    })
-}
-
-fn epsilon_closure(nfa: &Nfa, mut states: BTreeSet<usize>) -> BTreeSet<usize> {
-    let mut pending = states.iter().copied().collect::<Vec<_>>();
-    while let Some(state) = pending.pop() {
-        for target in &nfa.states[state].epsilon {
-            if states.insert(*target) {
-                pending.push(*target);
-            }
-        }
-    }
-    states
 }
 
 #[derive(Clone, Debug, Eq, Error, PartialEq)]
@@ -282,18 +122,6 @@ pub enum DtdCompileError {
     Schema(#[from] SchemaIndexError),
     #[error("DTD declares element {0:?} more than once")]
     DuplicateElement(ExpandedName),
-    #[error("DTD content particle exceeds the depth limit of {limit}")]
-    ParticleTooDeep { limit: usize },
-    #[error("DTD choice must contain at least one particle")]
-    EmptyChoice,
-    #[error("DTD content model exceeds the {limit}-state NFA limit")]
-    TooManyNfaStates { limit: usize },
-    #[error("DTD content model exceeds the {limit}-state DFA limit")]
-    TooManyDfaStates { limit: usize },
-    #[error("DTD content model exceeds the {limit}-transition DFA limit")]
-    TooManyDfaTransitions { limit: usize },
-    #[error("DTD content model state identifier overflowed")]
-    StateIdentifierOverflow,
 }
 
 #[cfg(test)]

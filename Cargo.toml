@@ -9,6 +9,7 @@ members = [
     "crates/xml-schema",
     "crates/xml-syntax",
     "crates/xml-validation",
+    "crates/xml-xsd",
     "crates/xml-xpath",
     "app/src-tauri",
 ]

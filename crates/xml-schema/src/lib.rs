@@ -1,4 +1,4 @@
-use std::collections::{BTreeMap, BTreeSet};
+use std::collections::{BTreeMap, BTreeSet, VecDeque};
 
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
@@ -8,6 +8,8 @@ const MAX_ELEMENTS: usize = 100_000;
 const MAX_ATTRIBUTES_PER_ELEMENT: usize = 4_096;
 const MAX_STATES_PER_ELEMENT: usize = 100_000;
 const MAX_TRANSITIONS_PER_ELEMENT: usize = 500_000;
+const MAX_PARTICLE_DEPTH: usize = 128;
+const MAX_OCCURS: u32 = 4_096;
 
 /// An XML expanded name. Prefixes are deliberately absent because schemas and
 /// instance documents may bind different prefixes to the same namespace URI.
@@ -128,6 +130,244 @@ pub enum ContentModel {
     Empty,
     Any,
     Automaton(ContentAutomaton),
+}
+
+/// A schema-neutral regular content particle. Adapters resolve references and
+/// namespace rules before constructing this representation.
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+#[serde(tag = "kind", content = "value", rename_all = "snake_case")]
+pub enum ContentParticle {
+    Element(ExpandedName),
+    Sequence(Vec<ContentParticle>),
+    Choice(Vec<ContentParticle>),
+    Repeat {
+        particle: Box<ContentParticle>,
+        min_occurs: u32,
+        max_occurs: Option<u32>,
+    },
+}
+
+/// Compiles a regular particle into the deterministic automaton consumed by
+/// completion. This is intentionally not a schema parser: DTD/XSD/RNG adapters
+/// must first normalize their language-specific semantics.
+pub fn compile_content_particle(
+    particle: &ContentParticle,
+) -> Result<ContentAutomaton, SchemaIndexError> {
+    let mut nfa = Nfa::default();
+    let fragment = nfa.compile(particle, 0)?;
+    determinize(&nfa, fragment)
+}
+
+#[derive(Default)]
+struct Nfa {
+    states: Vec<NfaState>,
+}
+
+#[derive(Default)]
+struct NfaState {
+    epsilon: Vec<usize>,
+    transitions: Vec<(ExpandedName, usize)>,
+}
+
+#[derive(Clone, Copy)]
+struct Fragment {
+    start: usize,
+    end: usize,
+}
+
+impl Nfa {
+    fn state(&mut self) -> Result<usize, SchemaIndexError> {
+        if self.states.len() >= MAX_STATES_PER_ELEMENT {
+            return Err(SchemaIndexError::TooManyStates {
+                limit: MAX_STATES_PER_ELEMENT,
+            });
+        }
+        let id = self.states.len();
+        self.states.push(NfaState::default());
+        Ok(id)
+    }
+
+    fn compile(
+        &mut self,
+        particle: &ContentParticle,
+        depth: usize,
+    ) -> Result<Fragment, SchemaIndexError> {
+        if depth > MAX_PARTICLE_DEPTH {
+            return Err(SchemaIndexError::ParticleTooDeep {
+                limit: MAX_PARTICLE_DEPTH,
+            });
+        }
+        match particle {
+            ContentParticle::Element(name) => {
+                validate_expanded_name(name)?;
+                let start = self.state()?;
+                let end = self.state()?;
+                self.states[start].transitions.push((name.clone(), end));
+                Ok(Fragment { start, end })
+            }
+            ContentParticle::Sequence(items) => self.sequence(items, depth + 1),
+            ContentParticle::Choice(items) => self.choice(items, depth + 1),
+            ContentParticle::Repeat {
+                particle,
+                min_occurs,
+                max_occurs,
+            } => self.repeat(particle, *min_occurs, *max_occurs, depth + 1),
+        }
+    }
+
+    fn sequence(
+        &mut self,
+        items: &[ContentParticle],
+        depth: usize,
+    ) -> Result<Fragment, SchemaIndexError> {
+        let start = self.state()?;
+        let mut tail = start;
+        for item in items {
+            let fragment = self.compile(item, depth)?;
+            self.states[tail].epsilon.push(fragment.start);
+            tail = fragment.end;
+        }
+        let end = self.state()?;
+        self.states[tail].epsilon.push(end);
+        Ok(Fragment { start, end })
+    }
+
+    fn choice(
+        &mut self,
+        items: &[ContentParticle],
+        depth: usize,
+    ) -> Result<Fragment, SchemaIndexError> {
+        if items.is_empty() {
+            return Err(SchemaIndexError::EmptyChoice);
+        }
+        let start = self.state()?;
+        let end = self.state()?;
+        for item in items {
+            let fragment = self.compile(item, depth)?;
+            self.states[start].epsilon.push(fragment.start);
+            self.states[fragment.end].epsilon.push(end);
+        }
+        Ok(Fragment { start, end })
+    }
+
+    fn repeat(
+        &mut self,
+        particle: &ContentParticle,
+        min_occurs: u32,
+        max_occurs: Option<u32>,
+        depth: usize,
+    ) -> Result<Fragment, SchemaIndexError> {
+        if max_occurs.is_some_and(|max| max < min_occurs) {
+            return Err(SchemaIndexError::InvalidOccurrenceRange {
+                min: min_occurs,
+                max: max_occurs,
+            });
+        }
+        if min_occurs > MAX_OCCURS || max_occurs.is_some_and(|max| max > MAX_OCCURS) {
+            return Err(SchemaIndexError::OccurrenceLimitExceeded { limit: MAX_OCCURS });
+        }
+
+        let start = self.state()?;
+        let mut tail = start;
+        for _ in 0..min_occurs {
+            let required = self.compile(particle, depth)?;
+            self.states[tail].epsilon.push(required.start);
+            tail = required.end;
+        }
+
+        match max_occurs {
+            Some(max) => {
+                for _ in min_occurs..max {
+                    let optional = self.compile(particle, depth)?;
+                    let next = self.state()?;
+                    self.states[tail].epsilon.extend([optional.start, next]);
+                    self.states[optional.end].epsilon.push(next);
+                    tail = next;
+                }
+            }
+            None => {
+                let repeated = self.compile(particle, depth)?;
+                let next = self.state()?;
+                self.states[tail].epsilon.extend([repeated.start, next]);
+                self.states[repeated.end]
+                    .epsilon
+                    .extend([repeated.start, next]);
+                tail = next;
+            }
+        }
+
+        let end = self.state()?;
+        self.states[tail].epsilon.push(end);
+        Ok(Fragment { start, end })
+    }
+}
+
+fn determinize(nfa: &Nfa, fragment: Fragment) -> Result<ContentAutomaton, SchemaIndexError> {
+    let start = epsilon_closure(nfa, BTreeSet::from([fragment.start]));
+    let mut ids = BTreeMap::from([(start.clone(), 0_u32)]);
+    let mut pending = VecDeque::from([start]);
+    let mut accepting = BTreeSet::new();
+    let mut transitions = BTreeMap::new();
+    let mut transition_count = 0_usize;
+
+    while let Some(states) = pending.pop_front() {
+        let source = ids[&states];
+        if states.contains(&fragment.end) {
+            accepting.insert(source);
+        }
+        let mut targets = BTreeMap::<ExpandedName, BTreeSet<usize>>::new();
+        for state in &states {
+            for (name, target) in &nfa.states[*state].transitions {
+                targets.entry(name.clone()).or_default().insert(*target);
+            }
+        }
+        let mut deterministic = BTreeMap::new();
+        for (name, target) in targets {
+            transition_count = transition_count.saturating_add(1);
+            if transition_count > MAX_TRANSITIONS_PER_ELEMENT {
+                return Err(SchemaIndexError::TooManyTransitions {
+                    limit: MAX_TRANSITIONS_PER_ELEMENT,
+                });
+            }
+            let target = epsilon_closure(nfa, target);
+            let target_id = if let Some(id) = ids.get(&target) {
+                *id
+            } else {
+                if ids.len() >= MAX_STATES_PER_ELEMENT {
+                    return Err(SchemaIndexError::TooManyStates {
+                        limit: MAX_STATES_PER_ELEMENT,
+                    });
+                }
+                let id = StateId::try_from(ids.len())
+                    .map_err(|_| SchemaIndexError::StateIdentifierOverflow)?;
+                ids.insert(target.clone(), id);
+                pending.push_back(target);
+                id
+            };
+            deterministic.insert(name, target_id);
+        }
+        if !deterministic.is_empty() {
+            transitions.insert(source, deterministic);
+        }
+    }
+
+    Ok(ContentAutomaton {
+        start_state: 0,
+        accepting_states: accepting,
+        transitions,
+    })
+}
+
+fn epsilon_closure(nfa: &Nfa, mut states: BTreeSet<usize>) -> BTreeSet<usize> {
+    let mut pending = states.iter().copied().collect::<Vec<_>>();
+    while let Some(state) = pending.pop() {
+        for target in &nfa.states[state].epsilon {
+            if states.insert(*target) {
+                pending.push(*target);
+            }
+        }
+    }
+    states
 }
 
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
@@ -286,6 +526,16 @@ pub enum SchemaIndexError {
     TooManyStates { limit: usize },
     #[error("content model exceeds the {limit}-transition limit")]
     TooManyTransitions { limit: usize },
+    #[error("content particle exceeds the depth limit of {limit}")]
+    ParticleTooDeep { limit: usize },
+    #[error("content choice must contain at least one particle")]
+    EmptyChoice,
+    #[error("occurrence range {min}..={max:?} is invalid")]
+    InvalidOccurrenceRange { min: u32, max: Option<u32> },
+    #[error("occurrence value exceeds the supported limit of {limit}")]
+    OccurrenceLimitExceeded { limit: u32 },
+    #[error("content model state identifier overflowed")]
+    StateIdentifierOverflow,
     #[error("attribute declaration key and name differ or contain an invalid name")]
     InvalidAttributeDeclaration,
     #[error("schema index has no declaration for element {0:?}")]
