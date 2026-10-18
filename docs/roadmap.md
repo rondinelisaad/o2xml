@@ -149,8 +149,11 @@ Current progress:
 - [x] Add a bounded HTML preview with allowlist sanitization, stripped URL/event/
   style attributes, an origin-opaque permissionless iframe, and an inner
   deny-by-default CSP; source view remains available.
-- [ ] Evaluate the Saxon XQuery process contract separately; do not infer safety
-  from the XSLT adapter.
+- [x] Add a separately supervised Saxon HE XQuery 3.1 adapter using the official
+  `net.sf.saxon.Query` entry point, DTD-free input, private staging, deadlines,
+  bounded results, updates disabled, and conservative lexical denial of external
+  modules/resources/environment/extension functions.
+- [ ] Add the XQuery desktop panel and navigable result presentation.
 
 Gate: filesystem/network sandbox tests pass and outputs are reproducible.
 

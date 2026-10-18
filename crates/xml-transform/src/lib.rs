@@ -14,8 +14,10 @@ use tracing::info;
 use xml_domain::Revision;
 
 mod libxslt;
+mod xquery;
 
 pub use libxslt::{LibxsltProcessEngine, LibxsltRequest};
+pub use xquery::{SaxonXQueryEngine, XQueryError, XQueryReport, XQueryRequest};
 
 const XSLT_NAMESPACE: &[u8] = b"http://www.w3.org/1999/XSL/Transform";
 const MAX_SOURCE_BYTES: usize = 128 * 1024 * 1024;

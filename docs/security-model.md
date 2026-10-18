@@ -91,6 +91,13 @@ handlers, and every URL-bearing attribute. The sanitized fragment is rendered
 in an iframe without sandbox permissions or same-origin access, with no referrer
 and an inner `default-src 'none'` CSP. The original result remains available only
 as escaped `textContent`; transformed HTML is never inserted into the app DOM.
+The Saxon HE XQuery profile is a distinct process adapter, not an alias of XSLT.
+It stages DTD-free input and query text privately, disables updates, XInclude,
+schema-location loading, and external functions, and rejects imports, document/
+collection/text/JSON loading, dynamic function lookup, environment access,
+vendor/file namespaces, and updating syntax after removing nested comments and
+string literals. This conservative self-contained profile remains the only
+enabled XQuery mode until a brokered Saxon URI resolver exists.
 
 DTD completion extraction runs in the isolated libxml2 helper and uses the same
 deny-by-default resource callback as validation. Raw FFI pointers never cross

@@ -46,6 +46,9 @@ desktop MVP with a Rust core and a Tauri/CodeMirror interface.
   media types, and safe project-relative stylesheet/output paths. The desktop
   can run the selected scenario, atomically publish its output below the project
   root, and show a bounded text preview with engine provenance.
+  A separate supervised Saxon HE adapter now evaluates the DTD-free,
+  self-contained XQuery 3.1 profile; external modules/resources, environment
+  access, extensions, and updating expressions are denied.
 - Phase 5: planned; Schematron/JATS/SPS validation is not presented as complete
   while licensed upstream packs and conformance corpora are not installed.
 

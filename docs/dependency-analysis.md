@@ -35,8 +35,9 @@ claim that a version is current.
 11. **XPath:** libxml2 for 1.0; Saxon HE for non-schema-aware 3.1.
 12. **XSLT:** isolated, catalog-brokered libxslt for 1.0; supervised Saxon HE for
     self-contained 3.0. Each scenario names its engine and the UI reports it.
-13. **XQuery:** Saxon HE in a supervised JVM process; XQuery is Phase 4 and can
-    be disabled when Java is unavailable.
+13. **XQuery:** Saxon HE 13 through its separate `net.sf.saxon.Query` entry point
+    in a supervised JVM process. The initial HE profile is non-schema-aware,
+    self-contained, non-updating, and unavailable when Java is not configured.
 14. **Catalogs:** a native Catalog 1.1 resolver with exact, longest-prefix, base
     URI, preference, cycle, and `nextCatalog` semantics; adapters use its result.
 15. **Completion:** compile DTD/XSD/RNG into a common content-model index and
