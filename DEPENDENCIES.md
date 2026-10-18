@@ -42,6 +42,12 @@ entrypoint before returning a verified handle. SHA-256 is used only for file
 integrity, not credentials. The crate does not yet include or execute a WASI
 runtime.
 
+The supervised plugin adapter also reuses the existing `tokio`, `tempfile`, and
+`tracing` dependencies for bounded asynchronous pipes, private staging,
+deadlines, child termination, and content-free audit events. It requires a
+separately configured OS sandbox launcher and never executes an entrypoint
+directly.
+
 ## Phase 1 frontend
 
 | Dependency | Purpose | License | Rationale / constraint |

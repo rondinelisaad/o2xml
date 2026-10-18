@@ -136,10 +136,19 @@ filesystem root, network origin, or process execution. A plugin receives an
 authorized handle only after all requested capabilities and scopes are a subset
 of host policy. Entrypoints are canonicalized below the package root, capped at
 256 MiB, and streamed through RustCrypto SHA-256; mismatches are rejected. This
-is an integrity hash, not password storage. A future executor must bind the
-verified bytes to execution without a time-of-check/time-of-use gap. Runtime
-loading remains disabled until fuel/memory/deadline,
-protocol-size, signature/provenance, and process-containment gates are present.
+is an integrity hash, not password storage. WASI runtime loading remains
+disabled until fuel, memory, deadline, protocol-size, and provenance gates are
+present. Process execution additionally requires an external containment layer.
+
+The supervised-process profile is now available only through a trusted OS
+sandbox launcher explicitly supplied by the host; direct entrypoint execution
+is not implemented. It copies the verified bytes into a private staging
+directory, hashes the copy again, clears the environment, bounds JSON request,
+response, and stderr, enforces a five-second deadline, kills the child on drop,
+and verifies API/request correlation and an unambiguous result/error response.
+Audit events include only action, result, validated plugin id, request id,
+method, and runtime—not parameters, source XML, output, paths, or stderr. WASI
+execution remains disabled until the embedded runtime limits are implemented.
 
 DTD completion extraction runs in the isolated libxml2 helper and uses the same
 deny-by-default resource callback as validation. Raw FFI pointers never cross

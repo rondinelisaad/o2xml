@@ -191,6 +191,14 @@ run in WASM use supervised JSON-RPC processes with the same policy. Native
 dynamic Rust plugins are rejected as a public ABI because Rust has no stable ABI
 and in-process native code defeats isolation.
 
+The process adapter never launches a plugin entrypoint directly. A trusted,
+explicitly configured OS sandbox launcher receives a freshly staged entrypoint
+whose bytes were hashed again during copying. The child has a cleared
+environment, private working directory, bounded JSON stdin/stdout/stderr, a hard
+deadline, response correlation, and kill-on-drop. The launcher remains
+responsible for kernel-level filesystem, network, syscall, and child-process
+containment. No launcher is configured by default.
+
 ## Observability
 
 Libraries emit `tracing` spans; binaries choose subscribers. Audit events use

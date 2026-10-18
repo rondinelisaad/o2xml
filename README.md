@@ -63,6 +63,9 @@ desktop MVP with a Rust core and a Tauri/CodeMirror interface.
   explicit capabilities, project-relative filesystem scopes, HTTPS origins,
   contributions, deny-by-default host authorization, and streaming SHA-256
   verification of bounded entrypoints before they can become executable inputs.
+  Supervised process plugins can run only through an explicitly configured OS
+  sandbox launcher, with private verified staging, JSON envelopes, cleared
+  environment, deadlines, bounded I/O, and content-free audit events.
   Schematron/JATS/SPS validation is not presented as complete while licensed
   upstream packs and conformance corpora are not installed.
 

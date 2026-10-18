@@ -3,12 +3,19 @@ use std::{
     fs::File,
     io::Read,
     path::{Component, Path, PathBuf},
+    process::Stdio,
+    time::Duration,
 };
 
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use sha2::{Digest, Sha256};
 use thiserror::Error;
+use tokio::{
+    io::{AsyncReadExt, AsyncWriteExt},
+    process::Command,
+    time::timeout,
+};
 use url::Url;
 
 pub const API_VERSION: u32 = 1;
@@ -17,6 +24,10 @@ const MAX_CAPABILITIES: usize = 32;
 const MAX_SCOPES: usize = 128;
 const MAX_STRING_BYTES: usize = 4_096;
 const MAX_ENTRYPOINT_BYTES: u64 = 256 * 1024 * 1024;
+const MAX_REQUEST_BYTES: usize = 1024 * 1024;
+const MAX_RESPONSE_BYTES: usize = 4 * 1024 * 1024;
+const MAX_STDERR_BYTES: usize = 64 * 1024;
+const PROCESS_TIMEOUT: Duration = Duration::from_secs(5);
 
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields, rename_all = "camelCase")]
@@ -385,6 +396,223 @@ pub struct PluginResponseError {
     pub message: String,
 }
 
+/// Executes process plugins only through an explicitly configured sandbox
+/// launcher. The launcher must treat the final argument as the staged plugin
+/// entrypoint and provide OS-level filesystem/network/process containment.
+#[derive(Clone, Debug)]
+pub struct SandboxedProcessEngine {
+    launcher: PathBuf,
+    arguments: Vec<String>,
+    deadline: Duration,
+}
+
+impl SandboxedProcessEngine {
+    pub fn new(launcher: impl AsRef<Path>, arguments: Vec<String>) -> Result<Self, PluginError> {
+        let launcher = launcher
+            .as_ref()
+            .canonicalize()
+            .map_err(|error| PluginError::Launcher(error.to_string()))?;
+        if !launcher.is_file() || arguments.len() > 64 {
+            return Err(PluginError::InvalidLauncher);
+        }
+        if arguments
+            .iter()
+            .any(|argument| argument.len() > MAX_STRING_BYTES || argument.contains('\0'))
+        {
+            return Err(PluginError::InvalidLauncherArgument);
+        }
+        Ok(Self {
+            launcher,
+            arguments,
+            deadline: PROCESS_TIMEOUT,
+        })
+    }
+
+    pub async fn invoke(
+        &self,
+        plugin: &AuthorizedPlugin,
+        package_root: &Path,
+        request: &PluginRequest,
+    ) -> Result<PluginResponse, PluginError> {
+        let result = self.invoke_inner(plugin, package_root, request).await;
+        tracing::info!(
+            action = "plugin.invoke",
+            result = if result.is_ok() { "success" } else { "failure" },
+            plugin_id = %plugin.manifest.id,
+            request_id = request.request_id,
+            method = ?request.method,
+            runtime = "supervised-process",
+        );
+        result
+    }
+
+    async fn invoke_inner(
+        &self,
+        plugin: &AuthorizedPlugin,
+        package_root: &Path,
+        request: &PluginRequest,
+    ) -> Result<PluginResponse, PluginError> {
+        if plugin.manifest.runtime != PluginRuntime::SupervisedProcess {
+            return Err(PluginError::RuntimeDenied(plugin.manifest.runtime));
+        }
+        if request.api_version != API_VERSION {
+            return Err(PluginError::UnsupportedApiVersion {
+                requested: request.api_version,
+                supported: API_VERSION,
+            });
+        }
+        let request_bytes = serde_json::to_vec(request)
+            .map_err(|error| PluginError::Protocol(error.to_string()))?;
+        if request_bytes.len() > MAX_REQUEST_BYTES {
+            return Err(PluginError::RequestTooLarge {
+                limit: MAX_REQUEST_BYTES,
+            });
+        }
+        let verified = plugin.verify_entrypoint(package_root)?;
+        let staging =
+            tempfile::tempdir().map_err(|error| PluginError::Staging(error.to_string()))?;
+        let staged_path = staging.path().join("plugin-entrypoint");
+        copy_and_verify(&verified, &staged_path)?;
+
+        let mut command = Command::new(&self.launcher);
+        command
+            .args(&self.arguments)
+            .arg(&staged_path)
+            .current_dir(staging.path())
+            .env_clear()
+            .stdin(Stdio::piped())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped())
+            .kill_on_drop(true);
+        let mut child = command
+            .spawn()
+            .map_err(|error| PluginError::Launch(error.to_string()))?;
+        let mut stdin = child.stdin.take().ok_or(PluginError::MissingPipe)?;
+        let stdout = child.stdout.take().ok_or(PluginError::MissingPipe)?;
+        let stderr = child.stderr.take().ok_or(PluginError::MissingPipe)?;
+        let writer = tokio::spawn(async move {
+            stdin.write_all(&request_bytes).await?;
+            stdin.write_all(b"\n").await?;
+            stdin.shutdown().await
+        });
+        let output_reader = tokio::spawn(read_bounded(stdout, MAX_RESPONSE_BYTES));
+        let error_reader = tokio::spawn(read_bounded(stderr, MAX_STDERR_BYTES));
+
+        let status = match timeout(self.deadline, child.wait()).await {
+            Ok(status) => status.map_err(|error| PluginError::Launch(error.to_string()))?,
+            Err(_) => {
+                let _ = child.kill().await;
+                let _ = child.wait().await;
+                return Err(PluginError::Timeout);
+            }
+        };
+        writer
+            .await
+            .map_err(|error| PluginError::Task(error.to_string()))?
+            .map_err(|error| PluginError::Protocol(error.to_string()))?;
+        let output = output_reader
+            .await
+            .map_err(|error| PluginError::Task(error.to_string()))??;
+        let stderr = error_reader
+            .await
+            .map_err(|error| PluginError::Task(error.to_string()))??;
+        if !status.success() {
+            return Err(PluginError::ProcessFailure {
+                code: status.code(),
+                stderr: String::from_utf8_lossy(&stderr).into_owned(),
+            });
+        }
+        let response: PluginResponse = serde_json::from_slice(&output)
+            .map_err(|error| PluginError::Protocol(error.to_string()))?;
+        validate_response(request, &response)?;
+        Ok(response)
+    }
+}
+
+async fn read_bounded<R>(reader: R, limit: usize) -> Result<Vec<u8>, PluginError>
+where
+    R: tokio::io::AsyncRead + Unpin,
+{
+    let take_limit = u64::try_from(limit.saturating_add(1)).unwrap_or(u64::MAX);
+    let mut output = Vec::new();
+    reader
+        .take(take_limit)
+        .read_to_end(&mut output)
+        .await
+        .map_err(|error| PluginError::Protocol(error.to_string()))?;
+    if output.len() > limit {
+        return Err(PluginError::OutputTooLarge { limit });
+    }
+    Ok(output)
+}
+
+fn copy_and_verify(
+    verified: &VerifiedEntrypoint,
+    destination_path: &Path,
+) -> Result<(), PluginError> {
+    let mut source =
+        File::open(&verified.path).map_err(|error| PluginError::EntrypointIo(error.to_string()))?;
+    let mut destination =
+        File::create(destination_path).map_err(|error| PluginError::Staging(error.to_string()))?;
+    let mut hasher = Sha256::new();
+    let mut copied = 0_u64;
+    let mut buffer = [0_u8; 64 * 1024];
+    loop {
+        let read = source
+            .read(&mut buffer)
+            .map_err(|error| PluginError::EntrypointIo(error.to_string()))?;
+        if read == 0 {
+            break;
+        }
+        copied = copied.saturating_add(u64::try_from(read).unwrap_or(u64::MAX));
+        if copied > MAX_ENTRYPOINT_BYTES {
+            return Err(PluginError::EntrypointTooLarge {
+                limit: MAX_ENTRYPOINT_BYTES,
+            });
+        }
+        std::io::Write::write_all(&mut destination, &buffer[..read])
+            .map_err(|error| PluginError::Staging(error.to_string()))?;
+        hasher.update(&buffer[..read]);
+    }
+    let digest = encode_hex(&hasher.finalize());
+    if copied != verified.bytes || digest != verified.sha256 {
+        return Err(PluginError::ChecksumMismatch);
+    }
+    set_staged_permissions(destination_path)?;
+    Ok(())
+}
+
+#[cfg(unix)]
+fn set_staged_permissions(destination: &Path) -> Result<(), PluginError> {
+    use std::os::unix::fs::PermissionsExt;
+
+    std::fs::set_permissions(destination, std::fs::Permissions::from_mode(0o500))
+        .map_err(|error| PluginError::Staging(error.to_string()))
+}
+
+#[cfg(not(unix))]
+fn set_staged_permissions(_destination: &Path) -> Result<(), PluginError> {
+    Ok(())
+}
+
+fn validate_response(
+    request: &PluginRequest,
+    response: &PluginResponse,
+) -> Result<(), PluginError> {
+    let exactly_one_outcome = response.result.is_some() != response.error.is_some();
+    if response.api_version != API_VERSION
+        || response.request_id != request.request_id
+        || !exactly_one_outcome
+    {
+        return Err(PluginError::InvalidResponse);
+    }
+    if let Some(error) = &response.error {
+        validate_text(&error.code)?;
+        validate_text(&error.message)?;
+    }
+    Ok(())
+}
+
 #[derive(Debug, Error, Eq, PartialEq)]
 pub enum PluginError {
     #[error("plugin identifier is invalid")]
@@ -407,6 +635,32 @@ pub enum PluginError {
     ChecksumMismatch,
     #[error("plugin entrypoint cannot be inspected: {0}")]
     EntrypointIo(String),
+    #[error("plugin sandbox launcher is invalid")]
+    InvalidLauncher,
+    #[error("plugin sandbox launcher argument is invalid")]
+    InvalidLauncherArgument,
+    #[error("plugin sandbox launcher cannot be resolved: {0}")]
+    Launcher(String),
+    #[error("plugin staging failed: {0}")]
+    Staging(String),
+    #[error("plugin process cannot be launched: {0}")]
+    Launch(String),
+    #[error("plugin process pipes are unavailable")]
+    MissingPipe,
+    #[error("plugin request exceeds the {limit}-byte limit")]
+    RequestTooLarge { limit: usize },
+    #[error("plugin output exceeds the {limit}-byte limit")]
+    OutputTooLarge { limit: usize },
+    #[error("plugin process exceeded its deadline")]
+    Timeout,
+    #[error("plugin process failed with code {code:?}: {stderr}")]
+    ProcessFailure { code: Option<i32>, stderr: String },
+    #[error("plugin protocol failed: {0}")]
+    Protocol(String),
+    #[error("plugin runtime task failed: {0}")]
+    Task(String),
+    #[error("plugin returned a mismatched or ambiguous response")]
+    InvalidResponse,
     #[error("plugin relative path is invalid: {0}")]
     InvalidRelativePath(String),
     #[error("plugin network origin must be an HTTPS origin without credentials or a path: {0}")]
@@ -541,6 +795,51 @@ mod tests {
             plugin.verify_entrypoint(package.path()),
             Err(PluginError::ChecksumMismatch)
         ));
+        Ok(())
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn supervises_json_rpc_through_an_explicit_launcher() -> Result<(), Box<dyn std::error::Error>>
+    {
+        let package = tempfile::tempdir()?;
+        let bin = package.path().join("bin");
+        std::fs::create_dir(&bin)?;
+        let entrypoint = bin.join("plugin");
+        std::fs::write(&entrypoint, b"opaque plugin bytes")?;
+        let mut plugin_manifest = manifest();
+        plugin_manifest.runtime = PluginRuntime::SupervisedProcess;
+        plugin_manifest.entrypoint = "bin/plugin".to_owned();
+        plugin_manifest.sha256 = encode_hex(&Sha256::digest(b"opaque plugin bytes"));
+        let policy = HostPolicy {
+            capabilities: plugin_manifest.capabilities.clone(),
+            allow_supervised_processes: true,
+            read_roots: vec![PathBuf::from("schemas")],
+            ..HostPolicy::default()
+        };
+        let mut registry = PluginRegistry::default();
+        let plugin = registry.authorize_and_insert(plugin_manifest, &policy)?;
+        let response = r#"{"apiVersion":1,"requestId":7,"result":{"ok":true},"error":null}"#;
+        let engine = SandboxedProcessEngine::new(
+            "/bin/sh",
+            vec![
+                "-c".to_owned(),
+                format!("read request; printf '%s' '{response}'"),
+                "--".to_owned(),
+            ],
+        )?;
+        let request = PluginRequest {
+            api_version: API_VERSION,
+            request_id: 7,
+            method: PluginMethod::Validate,
+            params: serde_json::json!({"revision": 3}),
+        };
+        let runtime = tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .build()?;
+        let response = runtime.block_on(engine.invoke(plugin, package.path(), &request))?;
+        assert_eq!(response.request_id, request.request_id);
+        assert!(response.result.is_some());
         Ok(())
     }
 }

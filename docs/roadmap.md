@@ -187,8 +187,11 @@ Current progress:
   capability registry for WASI components and supervised processes.
 - [x] Resolve plugin entrypoints below a canonical package root and verify their
   bounded content against the manifest SHA-256 before runtime handoff.
-- [ ] Add the resource-limited WASI runtime and supervised JSON-RPC process
-  executor; loading a manifest alone must never execute plugin code.
+- [x] Add a supervised JSON process executor behind an explicit OS sandbox
+  launcher, with verified private staging, cleared environment, deadlines,
+  bounded protocol streams, response correlation, and minimal audit events.
+- [ ] Add an embedded resource-limited WASI Component runtime; loading a
+  manifest alone must never execute plugin code.
 - [ ] Add opt-in remote resources, WebDAV, and database adapters.
 - [ ] Add schema-preserving Author Mode after the structural editing primitives
   and conformance gates exist.
