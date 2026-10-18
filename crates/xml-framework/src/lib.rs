@@ -13,9 +13,19 @@ pub struct FrameworkManifest {
     pub id: String,
     pub display_name: String,
     pub publication_standard: PublicationStandard,
+    #[serde(default)]
+    pub stability: FrameworkStability,
     pub grammar: ValidationStage,
     pub rules: Vec<ValidationStage>,
     pub assets: Vec<FrameworkAsset>,
+}
+
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum FrameworkStability {
+    #[default]
+    Stable,
+    Candidate,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
@@ -76,8 +86,24 @@ pub struct FrameworkRegistry {
 impl FrameworkRegistry {
     pub fn with_builtin_scientific_frameworks() -> Result<Self, FrameworkError> {
         let mut registry = Self::default();
-        registry.insert(sps_manifest("SPS-1.9", "1.9", "1.1"))?;
-        registry.insert(sps_manifest("SPS-1.10", "1.10", "1.3"))?;
+        registry.insert(sps_manifest(
+            "SPS-1.9",
+            "1.9",
+            "1.1",
+            FrameworkStability::Stable,
+        ))?;
+        registry.insert(sps_manifest(
+            "SPS-1.10",
+            "1.10",
+            "1.3",
+            FrameworkStability::Stable,
+        ))?;
+        registry.insert(sps_manifest(
+            "SPS-1.11-candidate",
+            "1.11",
+            "1.4",
+            FrameworkStability::Candidate,
+        ))?;
         Ok(registry)
     }
 
@@ -111,7 +137,12 @@ impl FrameworkRegistry {
     }
 }
 
-fn sps_manifest(id: &str, sps_version: &str, jats_version: &str) -> FrameworkManifest {
+fn sps_manifest(
+    id: &str,
+    sps_version: &str,
+    jats_version: &str,
+    stability: FrameworkStability,
+) -> FrameworkManifest {
     let grammar_uri = format!("urn:o2xml:framework:sps:{sps_version}:jats");
     let rules_uri = format!("urn:o2xml:framework:sps:{sps_version}:schematron");
     FrameworkManifest {
@@ -121,6 +152,7 @@ fn sps_manifest(id: &str, sps_version: &str, jats_version: &str) -> FrameworkMan
             family: "JATS".to_owned(),
             version: jats_version.to_owned(),
         },
+        stability,
         grammar: ValidationStage {
             id: "jats-grammar".to_owned(),
             source_label: format!("JATS {jats_version}"),
@@ -277,6 +309,23 @@ mod tests {
                 .map(|manifest| manifest.display_name.as_str()),
             Some("SciELO Publishing Schema 1.10")
         );
+        Ok(())
+    }
+
+    #[test]
+    fn exposes_sps_1_11_only_as_an_explicit_candidate() -> Result<(), FrameworkError> {
+        let registry = FrameworkRegistry::with_builtin_scientific_frameworks()?;
+        let candidate = registry
+            .get("SPS-1.11-candidate")
+            .ok_or_else(|| FrameworkError::UnknownFramework("SPS-1.11-candidate".to_owned()))?;
+
+        assert_eq!(candidate.stability, FrameworkStability::Candidate);
+        assert_eq!(candidate.publication_standard.version, "1.4");
+        assert!(candidate
+            .assets
+            .iter()
+            .all(|asset| asset.redistribution == Redistribution::ExternalRequired));
+        assert!(registry.get("SPS-1.11").is_none());
         Ok(())
     }
 }

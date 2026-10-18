@@ -118,7 +118,8 @@ Current progress:
 - [x] Wire project framework selection and catalog-installed assets into the
   desktop validation service, preserving separate JATS grammar and SPS rule
   stages with passed/failed/unavailable state and labeled diagnostics.
-- [ ] Add synthetic golden fixtures and investigate SPS 1.11/JATS 1.4.
+- [x] Add synthetic golden fixtures and record SPS 1.11/JATS 1.4 as an explicit
+  candidate manifest without changing the stable SPS 1.9/1.10 baselines.
 
 Gate: JATS grammar and SPS rules are reported separately; licensed resources are
 installed lawfully; golden diagnostics pass on synthetic articles.
