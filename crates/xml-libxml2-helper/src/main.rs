@@ -15,6 +15,7 @@ use xml_xsd::{XsdContent, XsdElementDeclaration};
 
 const XML_PARSE_NONET: c_int = 1 << 11;
 const XML_CHAR_ENCODING_NONE: c_int = 0;
+#[cfg(not(target_os = "windows"))]
 const XML_SCHEMATRON_OUT_ERROR: c_int = 1 << 3;
 const XSLT_SECPREF_READ_FILE: c_int = 1;
 const XSLT_SECPREF_WRITE_FILE: c_int = 2;
@@ -34,8 +35,11 @@ type XmlRelaxNgValidCtxt = c_void;
 type XmlSchema = c_void;
 type XmlSchemaParserCtxt = c_void;
 type XmlSchemaValidCtxt = c_void;
+#[cfg(not(target_os = "windows"))]
 type XmlSchematron = c_void;
+#[cfg(not(target_os = "windows"))]
 type XmlSchematronParserCtxt = c_void;
+#[cfg(not(target_os = "windows"))]
 type XmlSchematronValidCtxt = c_void;
 type XmlValidCtxt = c_void;
 type XmlXPathContext = c_void;
@@ -53,9 +57,11 @@ type ExternalEntityLoader = Option<
     ) -> *mut XmlParserInput,
 >;
 
+#[cfg(not(target_os = "windows"))]
 type StructuredErrorHandler =
     Option<unsafe extern "C" fn(context: *mut c_void, error: *mut XmlErrorLayout)>;
 
+#[cfg(not(target_os = "windows"))]
 #[repr(C)]
 struct XmlErrorLayout {
     domain: c_int,
@@ -296,6 +302,10 @@ extern "C" {
     fn xmlRelaxNGNewValidCtxt(schema: *mut XmlRelaxNg) -> *mut XmlRelaxNgValidCtxt;
     fn xmlRelaxNGFreeValidCtxt(context: *mut XmlRelaxNgValidCtxt);
     fn xmlRelaxNGValidateDoc(context: *mut XmlRelaxNgValidCtxt, document: *mut XmlDoc) -> c_int;
+}
+
+#[cfg(not(target_os = "windows"))]
+extern "C" {
     fn xmlSchematronNewParserCtxt(url: *const c_char) -> *mut XmlSchematronParserCtxt;
     fn xmlSchematronFreeParserCtxt(context: *mut XmlSchematronParserCtxt);
     fn xmlSchematronParse(context: *mut XmlSchematronParserCtxt) -> *mut XmlSchematron;
@@ -314,6 +324,9 @@ extern "C" {
         context: *mut XmlSchematronValidCtxt,
         document: *mut XmlDoc,
     ) -> c_int;
+}
+
+extern "C" {
     fn xmlXPathNewContext(document: *mut XmlDoc) -> *mut XmlXPathContext;
     fn xmlXPathFreeContext(context: *mut XmlXPathContext);
     fn xmlXPathRegisterNs(
@@ -1695,6 +1708,18 @@ unsafe fn validate_relax_ng(document: *mut XmlDoc, grammar_uri: &CString) -> Res
     Ok(result == 0)
 }
 
+#[cfg(target_os = "windows")]
+unsafe fn validate_schematron(
+    _document: *mut XmlDoc,
+    _grammar_uri: &CString,
+) -> Result<bool, String> {
+    Err(
+        "the vcpkg libxml2 build does not provide Schematron; configure the SchXslt/Saxon adapter"
+            .into(),
+    )
+}
+
+#[cfg(not(target_os = "windows"))]
 unsafe fn validate_schematron(
     document: *mut XmlDoc,
     grammar_uri: &CString,
@@ -1728,6 +1753,7 @@ unsafe fn validate_schematron(
     Ok(result == 0)
 }
 
+#[cfg(not(target_os = "windows"))]
 unsafe extern "C" fn schematron_structured_error(
     _context: *mut c_void,
     error: *mut XmlErrorLayout,

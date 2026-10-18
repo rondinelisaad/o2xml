@@ -105,6 +105,12 @@ transitive dependencies, supported versions, and platform packaging are reviewed
 before inclusion. Saxon PE/EE is commercial and is never silently bundled or
 treated as open source.
 
+The official vcpkg libxml2 port currently builds Schematron support out and
+does not expose it as a feature. Windows bundles therefore use libxml2 for
+DTD/XSD/RELAX NG/XPath and libxslt for XSLT 1.0, while Schematron requires the
+separately configured SchXslt/Saxon adapter. O2XML reports this capability gap
+explicitly instead of silently skipping the rules stage.
+
 Schemas and framework resources are dependencies too. Their asset licenses and
 checksums live in framework manifests; the project source license does not
 override them.

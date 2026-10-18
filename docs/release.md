@@ -18,7 +18,10 @@ The isolated `xml-libxml2-helper` is compiled for the same target as the desktop
 application and embedded as a Tauri sidecar. Linux and macOS CI builds request
 static libxml2/libxslt linkage so that Homebrew or runner-specific library paths
 do not leak into the distributed helper. Windows uses the `static-md` vcpkg
-triplet.
+triplet. The official vcpkg libxml2 port does not enable its legacy Schematron
+module; Windows therefore requires the supported SchXslt/Saxon adapter for
+Schematron, while DTD, XSD, RELAX NG, XPath, and XSLT 1.0 remain available in
+the native helper.
 
 ## Start a draft release
 
