@@ -4578,7 +4578,12 @@ name = "xml-dtd"
 version = "0.1.0"
 dependencies = [
  "serde",
+ "serde_json",
  "thiserror 2.0.21",
+ "tokio",
+ "tracing",
+ "url",
+ "xml-resource",
  "xml-schema",
 ]
 

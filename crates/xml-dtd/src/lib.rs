@@ -7,6 +7,13 @@ use xml_schema::{
     SchemaIndex, SchemaIndexError, SchemaLanguage, StateId,
 };
 
+mod engine;
+
+pub use engine::{
+    DtdIndexEngine, DtdIndexError, DtdIndexFuture, DtdIndexReport, DtdIndexRequest,
+    Libxml2DtdIndexEngine,
+};
+
 const MAX_PARTICLE_DEPTH: usize = 128;
 const MAX_NFA_STATES: usize = 100_000;
 const MAX_DFA_STATES: usize = 100_000;

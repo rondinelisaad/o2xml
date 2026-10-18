@@ -60,9 +60,10 @@ crate per acronym:
 
 Standards receive a dedicated crate when they contain reusable behavior rather
 than only forwarding to an engine. `xml-dtd`, for example, determinizes the
-normalized content trees extracted by libxml2; validation remains behind
-`xml-validation`. XSD, RNG, and Schematron stay adapters there until their
-dependency and release lifecycles justify extraction.
+normalized content trees extracted by libxml2 and brokers every grammar resource
+through `xml-resource`; validation remains behind `xml-validation`. XSD, RNG,
+and Schematron stay adapters there until their dependency and release lifecycles
+justify extraction.
 
 ## Editable document model
 

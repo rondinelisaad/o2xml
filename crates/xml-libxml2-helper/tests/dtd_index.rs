@@ -8,7 +8,11 @@ use std::{
 
 use serde::Deserialize;
 use serde_json::json;
-use xml_dtd::{compile_dtd, DtdElementDeclaration};
+use xml_dtd::{
+    compile_dtd, DtdElementDeclaration, DtdIndexEngine, DtdIndexError, DtdIndexRequest,
+    Libxml2DtdIndexEngine,
+};
+use xml_resource::{CatalogError, CatalogResolver, ResourcePolicy};
 use xml_schema::{AttributeUse, ExpandedName};
 
 #[derive(Deserialize)]
@@ -28,11 +32,61 @@ fn fixture() -> PathBuf {
     PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/completion.dtd")
 }
 
+fn runtime() -> Result<tokio::runtime::Runtime, std::io::Error> {
+    tokio::runtime::Builder::new_current_thread()
+        .enable_io()
+        .enable_time()
+        .build()
+}
+
 fn name(local_name: &str) -> ExpandedName {
     ExpandedName {
         namespace_uri: None,
         local_name: local_name.to_owned(),
     }
+}
+
+#[test]
+fn brokers_dtd_index_resources_through_the_offline_catalog() -> Result<(), Box<dyn Error>> {
+    let root = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures");
+    let policy = ResourcePolicy::offline([root.clone()])?;
+    let catalog = CatalogResolver::load(root.join("catalog.xml"), policy)?;
+    let engine = Libxml2DtdIndexEngine::new(env!("CARGO_BIN_EXE_xml-libxml2-helper"))?;
+    let report = runtime()?.block_on(engine.compile(DtdIndexRequest {
+        catalog: &catalog,
+        system_id: "https://example.org/completion.dtd",
+        public_id: None,
+    }))?;
+
+    assert_eq!(report.approved_grammar_resources, 1);
+    let completion = report
+        .index
+        .complete_children(&name("article"), &[name("front"), name("body")])?;
+    assert_eq!(
+        completion.children,
+        vec![name("back"), name("body"), name("floats-group")]
+    );
+    assert!(completion.can_close);
+    Ok(())
+}
+
+#[test]
+fn denies_a_dtd_outside_the_catalog_allowed_root() -> Result<(), Box<dyn Error>> {
+    let root = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures");
+    let policy = ResourcePolicy::offline([root.clone()])?;
+    let catalog = CatalogResolver::load(root.join("catalog.xml"), policy)?;
+    let engine = Libxml2DtdIndexEngine::new(env!("CARGO_BIN_EXE_xml-libxml2-helper"))?;
+    let result = runtime()?.block_on(engine.compile(DtdIndexRequest {
+        catalog: &catalog,
+        system_id: "https://example.org/escape.dtd",
+        public_id: None,
+    }));
+
+    assert!(matches!(
+        result,
+        Err(DtdIndexError::Catalog(CatalogError::PathDenied(_)))
+    ));
+    Ok(())
 }
 
 #[test]

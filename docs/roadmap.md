@@ -54,8 +54,10 @@ Current progress:
   models, including sequence, choice, cardinality, mixed content, and attributes.
 - [x] Extract normalized DTD declarations and attribute metadata through the
   isolated libxml2 helper without introducing a second DTD parser.
-- [ ] Broker DTD extraction through the catalog policy and expose
-  context-sensitive completion through the application service.
+- [x] Broker DTD extraction through the offline catalog policy with process,
+  resource-count, byte, output, and deadline limits plus sanitized audit events.
+- [ ] Expose context-sensitive DTD completion through the application service
+  and CodeMirror completion source.
 
 Gate: relevant standards/conformance fixtures pass, offline catalog scenarios are
 demonstrated, and all resource-policy denial tests pass.

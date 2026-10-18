@@ -52,7 +52,10 @@ DTD completion extraction runs in the isolated libxml2 helper and uses the same
 deny-by-default resource callback as validation. Raw FFI pointers never cross
 the process boundary. Element, particle, attribute, and enumeration counts or
 depths are bounded before serialization; the safe Rust compiler then applies
-independent NFA/DFA state and transition limits.
+independent NFA/DFA state and transition limits. The parent process additionally
+caps individual and aggregate grammar bytes, resource count, helper output, and
+execution time. Audit events record only result, duration, engine, resource
+count, element count, and a bounded error class—not paths or grammar identifiers.
 
 ## Processor profiles
 
