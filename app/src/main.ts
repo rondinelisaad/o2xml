@@ -30,6 +30,7 @@ import type {
   DocumentPayload,
   DtdCompletionPayload,
   ExpandedNamePayload,
+  JatsInspection,
   OutlineEntry,
   ProjectPayload,
   XPathReport,
@@ -69,6 +70,10 @@ app.innerHTML = `
           <h2>Outline</h2>
           <div id="outline" class="tree"></div>
         </section>
+        <section class="outline-section">
+          <h2>JATS Inspector</h2>
+          <div id="jats-inspector" class="tree"><div class="empty">Not a JATS article</div></div>
+        </section>
       </aside>
       <section class="editor-column">
         <div id="tabs" class="tabs"></div>
@@ -103,6 +108,7 @@ app.innerHTML = `
 const editorHost = requiredElement<HTMLDivElement>("#editor");
 const tabsHost = requiredElement<HTMLDivElement>("#tabs");
 const outlineHost = requiredElement<HTMLDivElement>("#outline");
+const jatsInspectorHost = requiredElement<HTMLDivElement>("#jats-inspector");
 const problemsHost = requiredElement<HTMLDivElement>("#problems");
 const statusHost = requiredElement<HTMLSpanElement>("#status");
 const problemCount = requiredElement<HTMLSpanElement>("#problem-count");
@@ -507,6 +513,7 @@ async function analyze(document: OpenDocument): Promise<void> {
     if (document.id !== activeId || result.revision !== document.revision) return;
     renderProblems(result.diagnostics);
     renderOutline(result.outline);
+    renderJatsInspection(result.jatsInspection);
     setStatus(result.diagnostics.length === 0 ? "Well-formed" : "Validation failed", result.diagnostics.length > 0);
   } catch (error) {
     setStatus(String(error), true);
@@ -542,6 +549,26 @@ function renderOutline(entries: OutlineEntry[]): void {
     return button;
   });
   outlineHost.replaceChildren(...rows);
+}
+
+function renderJatsInspection(inspection: JatsInspection | null): void {
+  if (!inspection) {
+    const empty = window.document.createElement("div");
+    empty.className = "empty";
+    empty.textContent = "Not a JATS article";
+    jatsInspectorHost.replaceChildren(empty);
+    return;
+  }
+  const rows = inspection.entries.map((entry) => {
+    const button = window.document.createElement("button");
+    button.className = "tree-row";
+    button.style.paddingInlineStart = `${12 + entry.depth * 16}px`;
+    button.textContent = entry.label;
+    button.title = entry.elementName;
+    button.addEventListener("click", () => goToByte(entry.span.start.byte));
+    return button;
+  });
+  jatsInspectorHost.replaceChildren(...rows);
 }
 
 function byteToUtf16(text: string, targetByte: number): number {

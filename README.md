@@ -25,7 +25,9 @@ desktop MVP with a Rust core and a Tauri/CodeMirror interface.
   content, and cross-document groups are supported.
 - Phase 3: in progress; the bounded framework registry models SPS 1.9/JATS 1.1
   and SPS 1.10/JATS 1.3 as separate grammar and rules stages. External JATS/SPS
-  assets remain user-supplied and are not redistributed by O2XML.
+  assets remain user-supplied and are not redistributed by O2XML. A bounded
+  JATS Inspector recognizes the editorial structure and provides navigable
+  source positions in the desktop UI.
 - Phases 4–5: planned; Schematron/JATS/SPS validation is not presented as
   complete yet.
 

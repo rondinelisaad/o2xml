@@ -1930,6 +1930,7 @@ dependencies = [
  "xml-document",
  "xml-domain",
  "xml-dtd",
+ "xml-jats",
  "xml-project",
  "xml-resource",
  "xml-schema",
@@ -4597,6 +4598,17 @@ version = "0.1.0"
 dependencies = [
  "serde",
  "thiserror 2.0.21",
+]
+
+[[package]]
+name = "xml-jats"
+version = "0.1.0"
+dependencies = [
+ "quick-xml 0.40.1",
+ "serde",
+ "thiserror 2.0.21",
+ "xml-document",
+ "xml-domain",
 ]
 
 [[package]]

@@ -16,6 +16,7 @@ use tracing_subscriber::EnvFilter;
 use xml_document::XmlDocument;
 use xml_domain::{Diagnostic, OutlineEntry, Revision};
 use xml_dtd::{DtdIndexEngine, DtdIndexRequest, Libxml2DtdIndexEngine};
+use xml_jats::JatsInspection;
 use xml_project::ProjectManifest;
 use xml_resource::{CatalogResolver, ResourcePolicy};
 use xml_schema::{AttributeUse, ExpandedName, SchemaIndex, ValueConstraint};
@@ -54,6 +55,7 @@ struct AnalysisPayload {
     revision: Revision,
     diagnostics: Vec<Diagnostic>,
     outline: Vec<OutlineEntry>,
+    jats_inspection: Option<JatsInspection>,
 }
 
 #[derive(Debug, Serialize)]
@@ -240,10 +242,18 @@ async fn analyze_document(id: u64, state: State<'_, AppState>) -> Result<Analysi
         } else {
             Vec::new()
         };
+        let jats_inspection = if diagnostics.is_empty() {
+            xml_jats::inspect(&text)
+                .ok()
+                .filter(|inspection| inspection.is_jats)
+        } else {
+            None
+        };
         AnalysisPayload {
             revision,
             diagnostics,
             outline,
+            jats_inspection,
         }
     })
     .await

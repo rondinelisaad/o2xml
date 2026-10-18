@@ -54,6 +54,7 @@ crate per acronym:
 | `xml-xsd` | normalized XSD 1.0 declarations and mapping into the common particle model |
 | `xml-libxml2-helper` | isolated unsafe FFI for DTD validation/index extraction, XSD 1.0, and XPath 1.0 |
 | `xml-framework` | versioned JATS/SPS/TEI/DocBook manifests and rule composition |
+| `xml-jats` | bounded JATS recognition and navigable editorial structure |
 | `xml-transform` | XSLT/XQuery process and FFI adapters, scenarios |
 | `xml-plugin-api` | stable capability-based host contracts; added after core traits settle |
 | `xml-cli` | future CLI over application services |

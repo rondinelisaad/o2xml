@@ -100,7 +100,8 @@ Current progress:
   Schematron rule stages for SPS 1.9/JATS 1.1 and SPS 1.10/JATS 1.3.
 - [x] Mark JATS/SPS assets as externally required so licensed or third-party
   resources are never silently redistributed.
-- [ ] Add the JATS structural inspector.
+- [x] Add a bounded JATS structural inspector with editorial labels, source
+  positions, and synchronized desktop navigation.
 - [ ] Add supervised Relax NG/RNC validation.
 - [ ] Add ISO Schematron validation with normalized SVRL diagnostics.
 - [ ] Wire framework selection, installed assets, and separate grammar/rule

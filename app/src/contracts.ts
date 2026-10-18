@@ -39,6 +39,20 @@ export interface AnalysisPayload {
   revision: number;
   diagnostics: Diagnostic[];
   outline: OutlineEntry[];
+  jatsInspection: JatsInspection | null;
+}
+
+export interface JatsEntry {
+  role: string;
+  elementName: string;
+  label: string;
+  depth: number;
+  span: SourceSpan;
+}
+
+export interface JatsInspection {
+  isJats: boolean;
+  entries: JatsEntry[];
 }
 
 export interface ProjectManifest {
