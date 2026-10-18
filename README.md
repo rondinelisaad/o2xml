@@ -61,7 +61,8 @@ desktop MVP with a Rust core and a Tauri/CodeMirror interface.
   to the source editor without changing the XML source of truth.
   The versioned plugin contract now validates checksummed WASI/process packages,
   explicit capabilities, project-relative filesystem scopes, HTTPS origins,
-  contributions, and deny-by-default host authorization.
+  contributions, deny-by-default host authorization, and streaming SHA-256
+  verification of bounded entrypoints before they can become executable inputs.
   Schematron/JATS/SPS validation is not presented as complete while licensed
   upstream packs and conformance corpora are not installed.
 

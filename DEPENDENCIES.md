@@ -12,6 +12,7 @@ phase gate. CI will add `cargo audit`, `cargo deny`, npm audit, and license chec
 | `quick-xml` | Streaming XML events | MIT | Mature, fast Phase 1 well-formedness/outline/format foundation |
 | `ropey` | Large editable UTF-8 text | MIT | Logarithmic edits/queries and cheap thread-safe snapshots |
 | `serde`, `serde_json` | IPC/project data | MIT OR Apache-2.0 | Ubiquitous typed serialization; input limits still required |
+| `sha2` 0.11.1 | SHA-256 plugin entrypoint integrity | MIT OR Apache-2.0 | Maintained RustCrypto implementation; integrity only, never password hashing |
 | `toml` | Project manifest | MIT OR Apache-2.0 | Human-editable `project.toml` |
 | `thiserror` | Library errors | MIT OR Apache-2.0 | Typed errors without exposing application context |
 | `anyhow` | Binary composition errors | MIT OR Apache-2.0 | Context at executable boundary only |
@@ -35,8 +36,11 @@ domain crates for a bounded read-only projection. It adds no third-party
 dependency or native engine.
 
 `xml-plugin-api` reuses `serde`, `serde_json`, `thiserror`, and `url` for its
-versioned inert protocol, manifest validation, and HTTPS-origin checks. It does
-not yet include or execute a WASI runtime.
+versioned inert protocol, manifest validation, and HTTPS-origin checks. It uses
+RustCrypto `sha2` 0.11.1 to stream and verify the declared SHA-256 of a bounded
+entrypoint before returning a verified handle. SHA-256 is used only for file
+integrity, not credentials. The crate does not yet include or execute a WASI
+runtime.
 
 ## Phase 1 frontend
 

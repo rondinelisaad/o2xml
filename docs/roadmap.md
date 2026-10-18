@@ -185,6 +185,8 @@ Current progress:
   reparse and validation before applying an undoable editor change.
 - [x] Add the versioned plugin manifest/protocol contract and deny-by-default
   capability registry for WASI components and supervised processes.
+- [x] Resolve plugin entrypoints below a canonical package root and verify their
+  bounded content against the manifest SHA-256 before runtime handoff.
 - [ ] Add the resource-limited WASI runtime and supervised JSON-RPC process
   executor; loading a manifest alone must never execute plugin code.
 - [ ] Add opt-in remote resources, WebDAV, and database adapters.

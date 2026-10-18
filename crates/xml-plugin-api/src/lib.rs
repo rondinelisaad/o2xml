@@ -1,10 +1,13 @@
 use std::{
     collections::{BTreeMap, BTreeSet},
+    fs::File,
+    io::Read,
     path::{Component, Path, PathBuf},
 };
 
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
+use sha2::{Digest, Sha256};
 use thiserror::Error;
 use url::Url;
 
@@ -13,6 +16,7 @@ const MAX_PLUGINS: usize = 256;
 const MAX_CAPABILITIES: usize = 32;
 const MAX_SCOPES: usize = 128;
 const MAX_STRING_BYTES: usize = 4_096;
+const MAX_ENTRYPOINT_BYTES: u64 = 256 * 1024 * 1024;
 
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields, rename_all = "camelCase")]
@@ -91,6 +95,65 @@ impl AuthorizedPlugin {
     pub fn manifest(&self) -> &PluginManifest {
         &self.manifest
     }
+
+    /// Resolve and hash the entrypoint below a canonical package root.
+    ///
+    /// This verifies package integrity but deliberately does not execute code.
+    pub fn verify_entrypoint(
+        &self,
+        package_root: &Path,
+    ) -> Result<VerifiedEntrypoint, PluginError> {
+        let package_root = package_root
+            .canonicalize()
+            .map_err(|error| PluginError::EntrypointIo(error.to_string()))?;
+        if !package_root.is_dir() {
+            return Err(PluginError::InvalidPackageRoot);
+        }
+        let entrypoint = package_root
+            .join(&self.manifest.entrypoint)
+            .canonicalize()
+            .map_err(|error| PluginError::EntrypointIo(error.to_string()))?;
+        if !entrypoint.starts_with(&package_root) || !entrypoint.is_file() {
+            return Err(PluginError::EntrypointOutsidePackage);
+        }
+        let metadata = entrypoint
+            .metadata()
+            .map_err(|error| PluginError::EntrypointIo(error.to_string()))?;
+        if metadata.len() > MAX_ENTRYPOINT_BYTES {
+            return Err(PluginError::EntrypointTooLarge {
+                limit: MAX_ENTRYPOINT_BYTES,
+            });
+        }
+        let mut file = File::open(&entrypoint)
+            .map_err(|error| PluginError::EntrypointIo(error.to_string()))?;
+        let mut hasher = Sha256::new();
+        let mut buffer = [0_u8; 64 * 1024];
+        loop {
+            let read = file
+                .read(&mut buffer)
+                .map_err(|error| PluginError::EntrypointIo(error.to_string()))?;
+            if read == 0 {
+                break;
+            }
+            hasher.update(&buffer[..read]);
+        }
+        let digest = encode_hex(&hasher.finalize());
+        if !digest.eq_ignore_ascii_case(&self.manifest.sha256) {
+            return Err(PluginError::ChecksumMismatch);
+        }
+        Ok(VerifiedEntrypoint {
+            path: entrypoint,
+            sha256: digest,
+            bytes: metadata.len(),
+        })
+    }
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct VerifiedEntrypoint {
+    pub path: PathBuf,
+    pub sha256: String,
+    pub bytes: u64,
 }
 
 #[derive(Clone, Debug, Default)]
@@ -278,6 +341,16 @@ fn authorize_path(
     }
 }
 
+fn encode_hex(bytes: &[u8]) -> String {
+    const HEX: &[u8; 16] = b"0123456789abcdef";
+    let mut encoded = String::with_capacity(bytes.len().saturating_mul(2));
+    for byte in bytes {
+        encoded.push(char::from(HEX[usize::from(byte >> 4)]));
+        encoded.push(char::from(HEX[usize::from(byte & 0x0f)]));
+    }
+    encoded
+}
+
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields, rename_all = "camelCase")]
 pub struct PluginRequest {
@@ -324,6 +397,16 @@ pub enum PluginError {
     InvalidEntrypoint,
     #[error("plugin package checksum must be a 64-character hexadecimal SHA-256")]
     InvalidChecksum,
+    #[error("plugin package root must be an existing directory")]
+    InvalidPackageRoot,
+    #[error("plugin entrypoint resolves outside its package root")]
+    EntrypointOutsidePackage,
+    #[error("plugin entrypoint exceeds the {limit}-byte limit")]
+    EntrypointTooLarge { limit: u64 },
+    #[error("plugin entrypoint checksum does not match its manifest")]
+    ChecksumMismatch,
+    #[error("plugin entrypoint cannot be inspected: {0}")]
+    EntrypointIo(String),
     #[error("plugin relative path is invalid: {0}")]
     InvalidRelativePath(String),
     #[error("plugin network origin must be an HTTPS origin without credentials or a path: {0}")]
@@ -432,5 +515,32 @@ mod tests {
             validate_manifest(&invalid),
             Err(PluginError::InvalidEntrypoint)
         ));
+    }
+
+    #[test]
+    fn verifies_sha256_before_returning_an_entrypoint() -> Result<(), Box<dyn std::error::Error>> {
+        let package = tempfile::tempdir()?;
+        let bin = package.path().join("bin");
+        std::fs::create_dir(&bin)?;
+        let entrypoint = bin.join("validator.wasm");
+        std::fs::write(&entrypoint, b"plugin")?;
+        let mut plugin_manifest = manifest();
+        plugin_manifest.sha256 = encode_hex(&Sha256::digest(b"plugin"));
+        let policy = HostPolicy {
+            capabilities: plugin_manifest.capabilities.clone(),
+            read_roots: vec![PathBuf::from("schemas")],
+            ..HostPolicy::default()
+        };
+        let mut registry = PluginRegistry::default();
+        let plugin = registry.authorize_and_insert(plugin_manifest, &policy)?;
+        let verified = plugin.verify_entrypoint(package.path())?;
+        assert_eq!(verified.bytes, 6);
+
+        std::fs::write(entrypoint, b"tampered")?;
+        assert!(matches!(
+            plugin.verify_entrypoint(package.path()),
+            Err(PluginError::ChecksumMismatch)
+        ));
+        Ok(())
     }
 }

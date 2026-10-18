@@ -134,7 +134,11 @@ paths, package digests are mandatory SHA-256 strings, and network scopes are
 credential-free HTTPS origins. The default host policy grants no capability,
 filesystem root, network origin, or process execution. A plugin receives an
 authorized handle only after all requested capabilities and scopes are a subset
-of host policy. Runtime loading remains disabled until fuel/memory/deadline,
+of host policy. Entrypoints are canonicalized below the package root, capped at
+256 MiB, and streamed through RustCrypto SHA-256; mismatches are rejected. This
+is an integrity hash, not password storage. A future executor must bind the
+verified bytes to execution without a time-of-check/time-of-use gap. Runtime
+loading remains disabled until fuel/memory/deadline,
 protocol-size, signature/provenance, and process-containment gates are present.
 
 DTD completion extraction runs in the isolated libxml2 helper and uses the same
