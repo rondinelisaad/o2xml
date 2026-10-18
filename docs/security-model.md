@@ -123,6 +123,16 @@ are discarded. Cells are inserted with `textContent`, rows only navigate to a
 recorded source span, and the audit event excludes row names, cell values, and
 source XML. The first grid profile is intentionally read-only.
 
+Plugin manifests are inert data. API version 1 permits only WASI components or
+explicitly enabled supervised processes; native dynamic libraries are not a
+runtime type. Package entrypoints and file scopes must be portable relative
+paths, package digests are mandatory SHA-256 strings, and network scopes are
+credential-free HTTPS origins. The default host policy grants no capability,
+filesystem root, network origin, or process execution. A plugin receives an
+authorized handle only after all requested capabilities and scopes are a subset
+of host policy. Runtime loading remains disabled until fuel/memory/deadline,
+protocol-size, signature/provenance, and process-containment gates are present.
+
 DTD completion extraction runs in the isolated libxml2 helper and uses the same
 deny-by-default resource callback as validation. Raw FFI pointers never cross
 the process boundary. Element, particle, attribute, and enumeration counts or

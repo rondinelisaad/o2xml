@@ -183,7 +183,10 @@ Current progress:
   automatic/manual row selection, nested scalar columns, and source navigation.
 - [ ] Add schema-aware, transactional XML Grid cell editing with full-document
   reparse and validation before applying an undoable editor change.
-- [ ] Add the capability-scoped plugin host.
+- [x] Add the versioned plugin manifest/protocol contract and deny-by-default
+  capability registry for WASI components and supervised processes.
+- [ ] Add the resource-limited WASI runtime and supervised JSON-RPC process
+  executor; loading a manifest alone must never execute plugin code.
 - [ ] Add opt-in remote resources, WebDAV, and database adapters.
 - [ ] Add schema-preserving Author Mode after the structural editing primitives
   and conformance gates exist.

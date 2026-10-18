@@ -181,12 +181,15 @@ changes. Resource licenses and checksums are part of installation metadata.
 
 ## Plugin model
 
-Phase 1 exposes internal Rust traits, not a stable binary plugin ABI. The long
-term default is WASI Component Model plugins with declared capabilities, bounded
-memory/fuel, versioned WIT interfaces, and no ambient network/filesystem. Engines
-that cannot run in WASM use supervised JSON-RPC processes with the same policy.
-Native dynamic Rust plugins are rejected as a public ABI because Rust has no
-stable ABI and in-process native code defeats isolation.
+`xml-plugin-api` defines API version 1 manifests, request/response envelopes,
+contribution types, checksums, and explicit document/project/file/network
+capabilities. Registration validates every manifest and applies a deny-by-default
+host policy before producing an authorized plugin handle. Loading a manifest does
+not execute its entrypoint. The runtime default is WASI Component Model plugins
+with bounded memory/fuel and no ambient network/filesystem. Engines that cannot
+run in WASM use supervised JSON-RPC processes with the same policy. Native
+dynamic Rust plugins are rejected as a public ABI because Rust has no stable ABI
+and in-process native code defeats isolation.
 
 ## Observability
 

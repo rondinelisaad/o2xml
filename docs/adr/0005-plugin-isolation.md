@@ -1,6 +1,6 @@
 # ADR 0005: WASI or process plugins, not native Rust ABI
 
-- Status: proposed for Phase 5
+- Status: accepted; API v1 contract implemented in Phase 5
 - Date: 2026-10-17
 
 ## Decision

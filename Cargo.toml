@@ -8,6 +8,7 @@ members = [
     "crates/xml-grid",
     "crates/xml-jats",
     "crates/xml-libxml2-helper",
+    "crates/xml-plugin-api",
     "crates/xml-project",
     "crates/xml-resource",
     "crates/xml-schema",

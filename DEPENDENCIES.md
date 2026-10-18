@@ -33,6 +33,10 @@ domain crates. It adds no third-party dependency or native engine.
 domain crates for a bounded read-only projection. It adds no third-party
 dependency or native engine.
 
+`xml-plugin-api` reuses `serde`, `serde_json`, `thiserror`, and `url` for its
+versioned inert protocol, manifest validation, and HTTPS-origin checks. It does
+not yet include or execute a WASI runtime.
+
 ## Phase 1 frontend
 
 | Dependency | Purpose | License | Rationale / constraint |

@@ -58,6 +58,9 @@ desktop MVP with a Rust core and a Tauri/CodeMirror interface.
   A read-only XML Grid now detects repeated sibling structures, flattens bounded
   attributes and scalar descendants into columns, and navigates each row back
   to the source editor without changing the XML source of truth.
+  The versioned plugin contract now validates checksummed WASI/process packages,
+  explicit capabilities, project-relative filesystem scopes, HTTPS origins,
+  contributions, and deny-by-default host authorization.
   Schematron/JATS/SPS validation is not presented as complete while licensed
   upstream packs and conformance corpora are not installed.
 
