@@ -109,7 +109,10 @@ Current progress:
   diagnostics, and external resource directives denied by default.
 - [ ] Add a brokered Jing resolver before permitting RNC `include`/`external`,
   and run the upstream conformance corpus with the real user-installed JAR.
-- [ ] Add ISO Schematron validation with normalized SVRL diagnostics.
+- [x] Add bounded SVRL parsing for failed assertions and successful reports,
+  severity metadata, rule identity, and navigable diagnostic normalization.
+- [ ] Add the policy-controlled SchXslt/Saxon execution pipeline that produces
+  SVRL from ISO Schematron.
 - [ ] Wire framework selection, installed assets, and separate grammar/rule
   diagnostics into project and desktop services.
 - [ ] Add synthetic golden fixtures and investigate SPS 1.11/JATS 1.4.

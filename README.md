@@ -30,7 +30,9 @@ desktop MVP with a Rust core and a Tauri/CodeMirror interface.
   source positions in the desktop UI. RELAX NG XML validation runs through the
   isolated libxml2 helper and the same offline catalog broker used by DTD/XSD;
   self-contained compact syntax has an optional supervised Jing adapter, while
-  RNC resource directives remain denied pending a fully brokered resolver.
+  RNC resource directives remain denied pending a fully brokered resolver. The
+  Schematron core now normalizes bounded SVRL reports into navigable diagnostics;
+  SchXslt/Saxon execution is the next pipeline increment.
 - Phases 4–5: planned; Schematron/JATS/SPS validation is not presented as
   complete yet.
 

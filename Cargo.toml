@@ -9,6 +9,7 @@ members = [
     "crates/xml-project",
     "crates/xml-resource",
     "crates/xml-schema",
+    "crates/xml-schematron",
     "crates/xml-syntax",
     "crates/xml-validation",
     "crates/xml-xsd",

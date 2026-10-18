@@ -4688,6 +4688,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "xml-schematron"
+version = "0.1.0"
+dependencies = [
+ "quick-xml 0.40.1",
+ "serde",
+ "thiserror 2.0.21",
+ "xml-document",
+ "xml-domain",
+]
+
+[[package]]
 name = "xml-syntax"
 version = "0.1.0"
 dependencies = [
