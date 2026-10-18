@@ -6,5 +6,6 @@
   <uri name="https://example.org/article.xsd" uri="article.xsd"/>
   <uri name="https://example.org/composite.xsd" uri="schemas/composite.xsd"/>
   <uri name="https://example.org/common.xsd" uri="schemas/common.xsd"/>
+  <uri name="https://example.org/all-group.xsd" uri="schemas/all-group.xsd"/>
   <uri name="https://example.org/escape.xsd" uri="schemas/escape.xsd"/>
 </catalog>

@@ -140,6 +140,7 @@ pub enum ContentParticle {
     Element(ExpandedName),
     Sequence(Vec<ContentParticle>),
     Choice(Vec<ContentParticle>),
+    All(Vec<ContentParticle>),
     Repeat {
         particle: Box<ContentParticle>,
         min_occurs: u32,
@@ -207,6 +208,7 @@ impl Nfa {
             }
             ContentParticle::Sequence(items) => self.sequence(items, depth + 1),
             ContentParticle::Choice(items) => self.choice(items, depth + 1),
+            ContentParticle::All(items) => self.all(items),
             ContentParticle::Repeat {
                 particle,
                 min_occurs,
@@ -248,6 +250,73 @@ impl Nfa {
             self.states[fragment.end].epsilon.push(end);
         }
         Ok(Fragment { start, end })
+    }
+
+    fn all(&mut self, items: &[ContentParticle]) -> Result<Fragment, SchemaIndexError> {
+        let mut members = Vec::with_capacity(items.len());
+        let mut names = BTreeSet::new();
+        for item in items {
+            let (name, required) = match item {
+                ContentParticle::Element(name) => (name, true),
+                ContentParticle::Repeat {
+                    particle,
+                    min_occurs,
+                    max_occurs: Some(1),
+                } if *min_occurs <= 1 => match particle.as_ref() {
+                    ContentParticle::Element(name) => (name, *min_occurs == 1),
+                    _ => return Err(SchemaIndexError::InvalidAllMember),
+                },
+                _ => return Err(SchemaIndexError::InvalidAllMember),
+            };
+            validate_expanded_name(name)?;
+            if !names.insert(name.clone()) {
+                return Err(SchemaIndexError::DuplicateAllMember(name.clone()));
+            }
+            members.push((name.clone(), required));
+        }
+        if members.len() >= usize::BITS as usize {
+            return Err(SchemaIndexError::TooManyStates {
+                limit: MAX_STATES_PER_ELEMENT,
+            });
+        }
+        let subset_count = 1_usize << members.len();
+        if self
+            .states
+            .len()
+            .saturating_add(subset_count)
+            .saturating_add(1)
+            > MAX_STATES_PER_ELEMENT
+        {
+            return Err(SchemaIndexError::TooManyStates {
+                limit: MAX_STATES_PER_ELEMENT,
+            });
+        }
+        let states = (0..subset_count)
+            .map(|_| self.state())
+            .collect::<Result<Vec<_>, _>>()?;
+        let end = self.state()?;
+        let required_mask = members
+            .iter()
+            .enumerate()
+            .filter(|(_, (_, required))| *required)
+            .fold(0_usize, |mask, (index, _)| mask | (1_usize << index));
+        for subset in 0..subset_count {
+            if subset & required_mask == required_mask {
+                self.states[states[subset]].epsilon.push(end);
+            }
+            for (index, (name, _)) in members.iter().enumerate() {
+                let bit = 1_usize << index;
+                if subset & bit == 0 {
+                    self.states[states[subset]]
+                        .transitions
+                        .push((name.clone(), states[subset | bit]));
+                }
+            }
+        }
+        Ok(Fragment {
+            start: states[0],
+            end,
+        })
     }
 
     fn repeat(
@@ -530,6 +599,10 @@ pub enum SchemaIndexError {
     ParticleTooDeep { limit: usize },
     #[error("content choice must contain at least one particle")]
     EmptyChoice,
+    #[error("xs:all contains a particle other than an element with occurrence 0..1 or 1..1")]
+    InvalidAllMember,
+    #[error("xs:all contains duplicate element {0:?}")]
+    DuplicateAllMember(ExpandedName),
     #[error("occurrence range {min}..={max:?} is invalid")]
     InvalidOccurrenceRange { min: u32, max: Option<u32> },
     #[error("occurrence value exceeds the supported limit of {limit}")]
@@ -679,6 +752,62 @@ mod tests {
                 allowed_values: vec!["research-article".to_owned()],
                 value_constraint: None,
             }])
+        );
+    }
+
+    #[test]
+    fn compiles_all_as_unordered_single_occurrence_members() -> Result<(), SchemaIndexError> {
+        let front = name("front");
+        let body = name("body");
+        let back = name("back");
+        let automaton = compile_content_particle(&ContentParticle::All(vec![
+            ContentParticle::Element(front.clone()),
+            ContentParticle::Element(body.clone()),
+            ContentParticle::Repeat {
+                particle: Box::new(ContentParticle::Element(back.clone())),
+                min_occurs: 0,
+                max_occurs: Some(1),
+            },
+        ]))?;
+        let declaration = ElementDeclaration {
+            name: name("article"),
+            content: ContentModel::Automaton(automaton),
+            attributes: BTreeMap::new(),
+        };
+        let mut index = SchemaIndex::new(SchemaLanguage::Xsd10);
+        index.insert(declaration)?;
+
+        let article = name("article");
+        let start = index.complete_children(&article, &[])?;
+        assert_eq!(
+            start.children,
+            vec![back.clone(), body.clone(), front.clone()]
+        );
+        assert!(!start.can_close);
+        let after_body = index.complete_children(&article, &[body, front])?;
+        assert_eq!(after_body.children, vec![back]);
+        assert!(after_body.can_close);
+        Ok(())
+    }
+
+    #[test]
+    fn rejects_repeated_or_duplicate_all_members() {
+        let repeated = ContentParticle::All(vec![ContentParticle::Repeat {
+            particle: Box::new(ContentParticle::Element(name("sec"))),
+            min_occurs: 0,
+            max_occurs: None,
+        }]);
+        assert_eq!(
+            compile_content_particle(&repeated),
+            Err(SchemaIndexError::InvalidAllMember)
+        );
+        let duplicate = ContentParticle::All(vec![
+            ContentParticle::Element(name("front")),
+            ContentParticle::Element(name("front")),
+        ]);
+        assert_eq!(
+            compile_content_particle(&duplicate),
+            Err(SchemaIndexError::DuplicateAllMember(name("front")))
         );
     }
 }

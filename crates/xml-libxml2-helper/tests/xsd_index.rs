@@ -68,3 +68,30 @@ fn denies_an_xsd_outside_the_catalog_allowed_root() -> Result<(), Box<dyn Error>
     ));
     Ok(())
 }
+
+#[test]
+fn expands_same_document_groups_and_preserves_all_ordering() -> Result<(), Box<dyn Error>> {
+    let root = fixtures();
+    let policy = ResourcePolicy::offline([root.clone()])?;
+    let catalog = CatalogResolver::load(root.join("catalog.xml"), policy)?;
+    let engine = Libxml2XsdIndexEngine::new(env!("CARGO_BIN_EXE_xml-libxml2-helper"))?;
+    let report = runtime()?.block_on(engine.compile(XsdIndexRequest {
+        catalog: &catalog,
+        uri: "https://example.org/all-group.xsd",
+    }))?;
+
+    let article = ExpandedName::new(Some("urn:article"), "article")?;
+    let front = ExpandedName::new(Some("urn:article"), "front")?;
+    let body = ExpandedName::new(Some("urn:article"), "body")?;
+    let back = ExpandedName::new(Some("urn:article"), "back")?;
+    let start = report.index.complete_children(&article, &[])?;
+    assert_eq!(
+        start.children,
+        vec![back.clone(), body.clone(), front.clone()]
+    );
+    assert!(!start.can_close);
+    let after_front = report.index.complete_children(&article, &[front, body])?;
+    assert_eq!(after_front.children, vec![back]);
+    assert!(after_front.can_close);
+    Ok(())
+}

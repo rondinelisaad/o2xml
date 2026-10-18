@@ -1,0 +1,16 @@
+<xs:schema xmlns:xs="http://www.w3.org/2001/XMLSchema"
+           xmlns:a="urn:article"
+           targetNamespace="urn:article"
+           elementFormDefault="qualified">
+  <xs:group name="ArticleSections">
+    <xs:all>
+      <xs:element name="front"/>
+      <xs:element name="body"/>
+      <xs:element name="back" minOccurs="0"/>
+    </xs:all>
+  </xs:group>
+  <xs:complexType name="ArticleType">
+    <xs:group ref="a:ArticleSections"/>
+  </xs:complexType>
+  <xs:element name="article" type="a:ArticleType"/>
+</xs:schema>

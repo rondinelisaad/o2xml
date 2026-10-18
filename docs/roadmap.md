@@ -73,9 +73,11 @@ Current progress:
 - [x] Expose project-bound XSD element, attribute, and enumeration completion
   through document schema associations, the offline catalog, a bounded cache,
   and an audited asynchronous desktop service.
-- [ ] Add model groups, exact `all` semantics, namespace-constrained wildcards,
-  cross-document groups, and inherited base-type content without treating
-  completion as authoritative validation.
+- [x] Expand same-document model groups and preserve exact `xs:all` unordered,
+  single-occurrence semantics with bounded state construction.
+- [ ] Add namespace-constrained wildcards, cross-document model groups, and
+  inherited base-type content without treating completion as authoritative
+  validation.
 
 Gate: relevant standards/conformance fixtures pass, offline catalog scenarios are
 demonstrated, and all resource-policy denial tests pass.

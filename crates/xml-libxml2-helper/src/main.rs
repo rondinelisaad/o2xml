@@ -649,7 +649,7 @@ unsafe extern "C" fn scan_xsd_element(payload: *mut c_void, data: *mut c_void, _
     } else {
         unsafe { (*element.subtype.cast::<XmlSchemaTypeLayout>()).node }
     };
-    let content = match unsafe { xsd_type_particle(type_node, 0) } {
+    let content = match unsafe { xsd_type_particle(type_node, &mut HashSet::new(), 0) } {
         Ok(Some(particle)) => XsdContent::Particle(particle),
         Ok(None) if matches!(element.content_type, 1 | 4 | 6) => XsdContent::Empty,
         Ok(None) => XsdContent::Any,
@@ -674,6 +674,7 @@ unsafe extern "C" fn scan_xsd_element(payload: *mut c_void, data: *mut c_void, _
 
 unsafe fn xsd_type_particle(
     type_node: *mut XmlNode,
+    visited_groups: &mut HashSet<usize>,
     depth: usize,
 ) -> Result<Option<ContentParticle>, String> {
     if type_node.is_null() {
@@ -684,8 +685,8 @@ unsafe fn xsd_type_particle(
     }
     for child in unsafe { xsd_children(type_node) }? {
         match unsafe { node_local_name(child) }.as_deref() {
-            Some("sequence" | "choice") if unsafe { is_xsd_node(child) } => {
-                return unsafe { xsd_particle(child, depth + 1) };
+            Some("sequence" | "choice" | "all" | "group") if unsafe { is_xsd_node(child) } => {
+                return unsafe { xsd_particle(child, visited_groups, depth + 1) };
             }
             Some("complexContent" | "simpleContent") if unsafe { is_xsd_node(child) } => {
                 for derivation in unsafe { xsd_children(child) }? {
@@ -694,7 +695,8 @@ unsafe fn xsd_type_particle(
                         Some("extension" | "restriction")
                     ) && unsafe { is_xsd_node(derivation) }
                     {
-                        if let Some(particle) = unsafe { xsd_type_particle(derivation, depth + 1) }?
+                        if let Some(particle) =
+                            unsafe { xsd_type_particle(derivation, visited_groups, depth + 1) }?
                         {
                             return Ok(Some(particle));
                         }
@@ -709,6 +711,7 @@ unsafe fn xsd_type_particle(
 
 unsafe fn xsd_particle(
     node: *mut XmlNode,
+    visited_groups: &mut HashSet<usize>,
     depth: usize,
 ) -> Result<Option<ContentParticle>, String> {
     if depth > 128 {
@@ -718,7 +721,7 @@ unsafe fn xsd_particle(
         .ok_or_else(|| "XSD content particle has no name".to_owned())?;
     let particle = match local.as_str() {
         "element" => ContentParticle::Element(unsafe { xsd_element_name(node) }?),
-        "sequence" | "choice" => {
+        "sequence" | "choice" | "all" => {
             let mut particles = Vec::new();
             for child in unsafe { xsd_children(node) }? {
                 if !unsafe { is_xsd_node(child) } {
@@ -727,23 +730,50 @@ unsafe fn xsd_particle(
                 let child_name = unsafe { node_local_name(child) };
                 if matches!(
                     child_name.as_deref(),
-                    Some("element" | "sequence" | "choice")
+                    Some("element" | "sequence" | "choice" | "all" | "group")
                 ) {
-                    if let Some(particle) = unsafe { xsd_particle(child, depth + 1) }? {
-                        particles.push(particle);
-                    }
-                } else if matches!(child_name.as_deref(), Some("any" | "all" | "group")) {
+                    let Some(particle) =
+                        (unsafe { xsd_particle(child, visited_groups, depth + 1) })?
+                    else {
+                        return Ok(None);
+                    };
+                    particles.push(particle);
+                } else if child_name.as_deref() == Some("any") {
                     return Ok(None);
                 }
             }
             if local == "sequence" {
                 ContentParticle::Sequence(particles)
+            } else if local == "all" {
+                ContentParticle::All(particles)
             } else {
                 if particles.is_empty() {
                     return Ok(None);
                 }
                 ContentParticle::Choice(particles)
             }
+        }
+        "group" => {
+            let reference = unsafe { node_property(node, "ref") }?
+                .ok_or_else(|| "local XSD model group has no ref".to_owned())?;
+            let Some(group) = (unsafe { find_global_declaration(node, "group", &reference) })?
+            else {
+                return Ok(None);
+            };
+            if !visited_groups.insert(group as usize) {
+                return Ok(None);
+            }
+            let compositor = unsafe { first_xsd_child(group, &["sequence", "choice", "all"])? };
+            let parsed = if let Some(compositor) = compositor {
+                unsafe { xsd_particle(compositor, visited_groups, depth + 1) }?
+            } else {
+                None
+            };
+            visited_groups.remove(&(group as usize));
+            let Some(particle) = parsed else {
+                return Ok(None);
+            };
+            particle
         }
         _ => return Ok(None),
     };
