@@ -43,7 +43,9 @@ desktop MVP with a Rust core and a Tauri/CodeMirror interface.
   adapter execute self-contained XSLT with private staging, deadlines, bounded
   accepted output, and denied external/dynamic resource access. Project
   manifests now define typed transformation scenarios with explicit engines,
-  media types, and safe project-relative stylesheet/output paths.
+  media types, and safe project-relative stylesheet/output paths. The desktop
+  can run the selected scenario, atomically publish its output below the project
+  root, and show a bounded text preview with engine provenance.
 - Phase 5: planned; Schematron/JATS/SPS validation is not presented as complete
   while licensed upstream packs and conformance corpora are not installed.
 

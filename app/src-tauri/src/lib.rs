@@ -3,6 +3,7 @@ mod audit;
 use std::{
     collections::{BTreeMap, HashMap},
     env, fs,
+    io::Write,
     path::{Path, PathBuf},
     sync::{
         atomic::{AtomicU64, Ordering},
@@ -18,10 +19,11 @@ use xml_domain::{Diagnostic, OutlineEntry, Revision, Severity};
 use xml_dtd::{DtdIndexEngine, DtdIndexRequest, Libxml2DtdIndexEngine};
 use xml_framework::{FrameworkRegistry, ValidationLanguage};
 use xml_jats::JatsInspection;
-use xml_project::ProjectManifest;
+use xml_project::{ProjectManifest, TransformEngine, TransformMediaType};
 use xml_resource::{CatalogResolver, ResourcePolicy};
 use xml_schema::{AttributeUse, ExpandedName, SchemaIndex, ValueConstraint};
 use xml_schematron::{SchXsltProcessEngine, SchXsltRequest};
+use xml_transform::{SaxonProcessEngine, TransformRequest};
 use xml_validation::{GrammarReference, Libxml2ProcessEngine, ValidationEngine, ValidationRequest};
 use xml_xpath::{Libxml2XPathEngine, XPathEngine, XPathReport, XPathRequest};
 use xml_xsd::{Libxml2XsdIndexEngine, XsdIndexEngine, XsdIndexRequest};
@@ -86,6 +88,19 @@ struct ProjectPayload {
     path: String,
     manifest: ProjectManifest,
     files: Vec<String>,
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct TransformPayload {
+    revision: Revision,
+    scenario: String,
+    engine: &'static str,
+    media_type: TransformMediaType,
+    output_path: String,
+    bytes_written: usize,
+    preview: String,
+    preview_truncated: bool,
 }
 
 #[derive(Debug, Serialize)]
@@ -505,6 +520,153 @@ fn schxslt_engine_from_environment() -> Result<Option<SchXsltProcessEngine>, Str
     SchXsltProcessEngine::new(java, saxon, schxslt)
         .map(Some)
         .map_err(|error| format!("invalid ISO Schematron engine configuration: {error}"))
+}
+
+#[tauri::command]
+async fn run_transformation(
+    id: u64,
+    scenario: String,
+    state: State<'_, AppState>,
+) -> Result<TransformPayload, String> {
+    let result = run_transformation_inner(id, &scenario, &state).await;
+    let (revision, engine) = result
+        .as_ref()
+        .map(|payload| (Some(payload.revision), Some(payload.engine)))
+        .unwrap_or((None, None));
+    audit::event(
+        "transform.run",
+        if result.is_ok() { "success" } else { "failure" },
+        "document",
+        id,
+        revision,
+        engine,
+    );
+    result
+}
+
+async fn run_transformation_inner(
+    id: u64,
+    scenario_name: &str,
+    state: &State<'_, AppState>,
+) -> Result<TransformPayload, String> {
+    let snapshot = {
+        let documents = state
+            .documents
+            .lock()
+            .map_err(|_| "document store is unavailable".to_owned())?;
+        documents
+            .get(&id)
+            .ok_or_else(|| "document is not open".to_owned())?
+            .snapshot()
+    };
+    let project = state
+        .project
+        .lock()
+        .map_err(|_| "project store is unavailable".to_owned())?
+        .clone()
+        .ok_or_else(|| "open a project before running a transformation".to_owned())?;
+    let scenario = project
+        .manifest
+        .transform
+        .scenarios
+        .iter()
+        .find(|candidate| candidate.name == scenario_name)
+        .cloned()
+        .ok_or_else(|| "transformation scenario is not defined by the project".to_owned())?;
+    let stylesheet_path = normalized_path(&project.root.join(&scenario.stylesheet))?;
+    if !stylesheet_path.starts_with(&project.root) || !stylesheet_path.is_file() {
+        return Err("transformation stylesheet is outside the project root".to_owned());
+    }
+    const MAX_STYLESHEET_BYTES: u64 = 16 * 1024 * 1024;
+    let metadata = fs::metadata(&stylesheet_path)
+        .map_err(|error| format!("cannot inspect transformation stylesheet: {error}"))?;
+    if metadata.len() > MAX_STYLESHEET_BYTES {
+        return Err("transformation stylesheet exceeds the 16 MiB safety limit".to_owned());
+    }
+    let stylesheet = fs::read_to_string(&stylesheet_path)
+        .map_err(|error| format!("cannot read transformation stylesheet as UTF-8: {error}"))?;
+    let engine_name = match scenario.engine {
+        TransformEngine::SaxonHe => "saxon-he",
+        TransformEngine::Libxslt => {
+            return Err("the isolated libxslt adapter is not available yet".to_owned())
+        }
+    };
+    let engine = saxon_transform_engine_from_environment()?;
+    let source = snapshot.text();
+    let report = engine
+        .transform(TransformRequest {
+            source: &source,
+            stylesheet: &stylesheet,
+            revision: snapshot.revision(),
+        })
+        .await
+        .map_err(|error| error.to_string())?;
+
+    {
+        let documents = state
+            .documents
+            .lock()
+            .map_err(|_| "document store is unavailable".to_owned())?;
+        let current = documents
+            .get(&id)
+            .ok_or_else(|| "document is not open".to_owned())?;
+        if current.revision() != report.revision {
+            return Err("document changed while the transformation was running".to_owned());
+        }
+    }
+
+    let requested_output = project.root.join(&scenario.output);
+    let output_parent = requested_output
+        .parent()
+        .ok_or_else(|| "transformation output has no parent directory".to_owned())?;
+    let canonical_parent = normalized_path(output_parent)?;
+    if !canonical_parent.starts_with(&project.root) {
+        return Err("transformation output is outside the project root".to_owned());
+    }
+    let file_name = requested_output
+        .file_name()
+        .ok_or_else(|| "transformation output has no file name".to_owned())?;
+    let target = canonical_parent.join(file_name);
+    if fs::symlink_metadata(&target).is_ok_and(|metadata| metadata.file_type().is_symlink()) {
+        return Err("transformation output cannot replace a symbolic link".to_owned());
+    }
+    let mut temporary = tempfile::NamedTempFile::new_in(&canonical_parent)
+        .map_err(|error| format!("cannot create temporary transformation output: {error}"))?;
+    temporary
+        .write_all(&report.output)
+        .map_err(|error| format!("cannot write transformation output: {error}"))?;
+    temporary
+        .as_file_mut()
+        .sync_all()
+        .map_err(|error| format!("cannot flush transformation output: {error}"))?;
+    temporary
+        .persist(&target)
+        .map_err(|error| format!("cannot publish transformation output: {}", error.error))?;
+
+    const MAX_PREVIEW_BYTES: usize = 1024 * 1024;
+    let preview_length = report.output.len().min(MAX_PREVIEW_BYTES);
+    let preview = String::from_utf8_lossy(&report.output[..preview_length]).into_owned();
+    Ok(TransformPayload {
+        revision: report.revision,
+        scenario: scenario.name,
+        engine: engine_name,
+        media_type: scenario.media_type,
+        output_path: scenario.output,
+        bytes_written: report.output.len(),
+        preview,
+        preview_truncated: report.output.len() > preview_length,
+    })
+}
+
+fn saxon_transform_engine_from_environment() -> Result<SaxonProcessEngine, String> {
+    const JAVA: &str = "O2XML_JAVA";
+    const SAXON: &str = "O2XML_SAXON_JAR";
+    let java =
+        env::var_os(JAVA).ok_or_else(|| format!("set {JAVA} to enable Saxon transformations"))?;
+    let saxon =
+        env::var_os(SAXON).ok_or_else(|| format!("set {SAXON} to enable Saxon transformations"))?;
+    SaxonProcessEngine::new(java, saxon)
+        .map_err(|error| format!("invalid Saxon transformation configuration: {error}"))
 }
 
 fn framework_stage_error(
@@ -1066,6 +1228,7 @@ pub fn run() {
             open_document,
             update_document,
             analyze_document,
+            run_transformation,
             evaluate_xpath,
             complete_dtd,
             complete_xsd,

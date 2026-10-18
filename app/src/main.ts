@@ -34,6 +34,7 @@ import type {
   JatsInspection,
   OutlineEntry,
   ProjectPayload,
+  TransformPayload,
   XPathReport,
   XsdCompletionPayload,
 } from "./contracts";
@@ -56,6 +57,10 @@ app.innerHTML = `
       <button data-action="project">Project…</button>
       <button data-action="format">Pretty Print</button>
       <button data-action="validate">Validate</button>
+      <select id="transform-scenario" class="transform-select" aria-label="Transformation scenario" disabled>
+        <option>No scenarios</option>
+      </select>
+      <button data-action="transform" disabled>Transform</button>
       <button data-action="xpath">XPath</button>
       <span class="spacer"></span>
       <button data-action="theme" aria-label="Toggle color theme">Theme</button>
@@ -93,7 +98,7 @@ app.innerHTML = `
         <span id="status" class="status">Ready</span>
       </div>
       <div id="problems" class="panel-content active problems" data-panel-content="problems" aria-live="polite"></div>
-      <div class="panel-content" data-panel-content="output"><div class="empty">No output</div></div>
+      <div id="output-panel" class="panel-content" data-panel-content="output"><div class="empty">No output</div></div>
       <div id="xpath-panel" class="panel-content xpath-panel" data-panel-content="xpath">
         <div class="xpath-controls">
           <input id="xpath-expression" type="text" value="//*" aria-label="XPath expression" spellcheck="false" />
@@ -124,6 +129,9 @@ const xpathExpression = requiredElement<HTMLInputElement>("#xpath-expression");
 const xpathNamespaces = requiredElement<HTMLTextAreaElement>("#xpath-namespaces");
 const xpathResults = requiredElement<HTMLDivElement>("#xpath-results");
 const xpathRun = requiredElement<HTMLButtonElement>("#xpath-run");
+const transformScenario = requiredElement<HTMLSelectElement>("#transform-scenario");
+const transformButton = requiredElement<HTMLButtonElement>("[data-action='transform']");
+const outputPanel = requiredElement<HTMLDivElement>("#output-panel");
 
 const theme = new Compartment();
 let dark = window.matchMedia("(prefers-color-scheme: dark)").matches;
@@ -753,6 +761,7 @@ async function openProject(): Promise<void> {
     const project = await invoke<ProjectPayload>("open_project", { path: selected });
     projectTitle.textContent = project.manifest.project.name;
     projectTitle.title = project.path;
+    renderTransformScenarios(project);
     projectFiles.replaceChildren(...project.files.map((file) => {
       const row = window.document.createElement("div");
       row.className = "tree-row static";
@@ -761,6 +770,55 @@ async function openProject(): Promise<void> {
     }));
   } catch (error) {
     setStatus(String(error), true);
+  }
+}
+
+function renderTransformScenarios(project: ProjectPayload): void {
+  const scenarios = project.manifest.transform.scenarios;
+  if (scenarios.length === 0) {
+    transformScenario.replaceChildren(new Option("No scenarios", ""));
+    transformScenario.disabled = true;
+    transformButton.disabled = true;
+    return;
+  }
+  transformScenario.replaceChildren(...scenarios.map((scenario) => {
+    const option = new Option(`${scenario.name} · ${scenario.engine}`, scenario.name);
+    option.title = `${scenario.stylesheet} → ${scenario.output}`;
+    return option;
+  }));
+  transformScenario.value = project.manifest.transform.default ?? scenarios[0]?.name ?? "";
+  transformScenario.disabled = false;
+  transformButton.disabled = false;
+}
+
+async function runTransformation(): Promise<void> {
+  const document = activeDocument();
+  const scenario = transformScenario.value;
+  if (!document || !scenario) return;
+  if (document.dirty && !(await synchronize(document))) return;
+  selectBottomPanel("output");
+  transformButton.disabled = true;
+  setStatus("Transforming…");
+  try {
+    const result = await invoke<TransformPayload>("run_transformation", {
+      id: document.id,
+      scenario,
+    });
+    if (document.id !== activeId || result.revision !== document.revision) return;
+    const summary = messageElement(
+      `${result.scenario} · ${result.engine} · ${result.mediaType} · ${result.bytesWritten} bytes → ${result.outputPath}${result.previewTruncated ? " · preview limited" : ""}`,
+      "output-summary",
+    );
+    const preview = window.document.createElement("pre");
+    preview.className = "output-preview";
+    preview.textContent = result.preview;
+    outputPanel.replaceChildren(summary, preview);
+    setStatus("Transformation complete");
+  } catch (error) {
+    outputPanel.replaceChildren(messageElement(String(error), "empty error-text"));
+    setStatus(String(error), true);
+  } finally {
+    transformButton.disabled = transformScenario.disabled;
   }
 }
 
@@ -796,6 +854,7 @@ requiredElement<HTMLElement>(".menubar").addEventListener("click", (event) => {
     const document = activeDocument();
     if (document) void synchronizeAndAnalyze(document);
   }
+  if (action === "transform") void runTransformation();
   if (action === "xpath") selectBottomPanel("xpath");
   if (action === "theme") toggleTheme();
 });

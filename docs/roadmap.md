@@ -142,7 +142,8 @@ Current progress:
 - [ ] Add the isolated libxslt XSLT 1.0 adapter behind the catalog broker.
 - [x] Add typed project transformation scenarios with explicit engine/media
   type, unique names, validated defaults, and safe project-relative paths.
-- [ ] Add desktop scenario execution and output panels.
+- [x] Add desktop scenario selection/execution, atomic project-root output, audit
+  events, engine provenance, and a bounded text output panel.
 - [ ] Add a safe HTML preview that never grants transformed content application
   privileges or ambient network access.
 - [ ] Evaluate the Saxon XQuery process contract separately; do not infer safety

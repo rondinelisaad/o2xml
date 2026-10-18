@@ -68,7 +68,29 @@ export interface ProjectManifest {
   project: { name: string };
   xml: { catalog: string | null };
   validation: { framework: string | null };
-  transform: { default: string | null };
+  transform: {
+    default: string | null;
+    scenarios: TransformScenario[];
+  };
+}
+
+export interface TransformScenario {
+  name: string;
+  engine: "libxslt" | "saxon-he";
+  stylesheet: string;
+  output: string;
+  media_type: "xml" | "html" | "text";
+}
+
+export interface TransformPayload {
+  revision: number;
+  scenario: string;
+  engine: string;
+  mediaType: "xml" | "html" | "text";
+  outputPath: string;
+  bytesWritten: number;
+  preview: string;
+  previewTruncated: boolean;
 }
 
 export interface ProjectPayload {

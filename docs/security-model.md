@@ -71,6 +71,13 @@ described as a general URI sandbox; brokered resource support remains disabled.
 Scenario stylesheet and output paths are bounded project-relative paths;
 absolute paths, URLs, empty components, and `.`/`..` traversal are rejected when
 the manifest is parsed, before any filesystem operation.
+The desktop canonicalizes stylesheet and output-parent paths again at execution,
+rejects project-root escapes and symbolic-link output targets, writes through an
+owner-private temporary file in the target directory, and publishes only after
+the engine succeeds and the document revision is still current. The UI receives
+at most 1 MiB of output as inert text; it does not execute transformed markup.
+The audit event contains action, result, document ID, revision, and engine only—
+never XML, stylesheet/output content, environment values, or full paths.
 
 DTD completion extraction runs in the isolated libxml2 helper and uses the same
 deny-by-default resource callback as validation. Raw FFI pointers never cross
