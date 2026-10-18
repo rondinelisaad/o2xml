@@ -1,4 +1,7 @@
-use std::collections::{BTreeMap, HashMap};
+use std::{
+    collections::{BTreeMap, HashMap},
+    ops::Range,
+};
 
 use quick_xml::{
     escape::unescape,
@@ -10,7 +13,7 @@ use quick_xml::{
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
 use xml_document::LineIndex;
-use xml_domain::SourceSpan;
+use xml_domain::{Revision, SourceSpan};
 
 const MAX_SOURCE_BYTES: usize = 32 * 1024 * 1024;
 const MAX_ELEMENTS: usize = 100_000;
@@ -33,7 +36,14 @@ pub struct XmlGrid {
 #[serde(rename_all = "camelCase")]
 pub struct GridRow {
     pub span: SourceSpan,
-    pub cells: Vec<String>,
+    pub cells: Vec<GridCell>,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct GridCell {
+    pub value: String,
+    pub editable: bool,
 }
 
 #[derive(Clone, Debug)]
@@ -43,6 +53,8 @@ struct Element {
     children: Vec<usize>,
     attributes: Vec<(String, String)>,
     text: String,
+    text_edit: Option<Range<usize>>,
+    text_edit_ambiguous: bool,
     start: usize,
     end: usize,
 }
@@ -52,6 +64,59 @@ struct Element {
 /// `row_element` accepts either the expanded form (`{uri}local`) or a local
 /// name. When omitted, the repeated sibling group with the most rows is used.
 pub fn extract(source: &str, row_element: Option<&str>) -> Result<XmlGrid, GridError> {
+    Ok(project(source, row_element)?.grid)
+}
+
+/// Replace one unambiguous scalar text cell and reject the transaction unless
+/// the complete resulting document remains well-formed.
+pub fn edit(
+    source: &str,
+    row_element: Option<&str>,
+    row_index: usize,
+    column: &str,
+    value: &str,
+) -> Result<String, GridError> {
+    if value.len() > MAX_CELL_BYTES {
+        return Err(GridError::CellTooLarge {
+            limit: MAX_CELL_BYTES,
+        });
+    }
+    let projection = project(source, row_element)?;
+    let column_index = projection
+        .grid
+        .columns
+        .iter()
+        .position(|candidate| candidate == column)
+        .ok_or_else(|| GridError::UnknownColumn(column.to_owned()))?;
+    let target = projection
+        .targets
+        .get(row_index)
+        .and_then(|row| row.get(column_index))
+        .and_then(Clone::clone)
+        .ok_or(GridError::CellReadOnly)?;
+    let escaped = quick_xml::escape::escape(value);
+    let mut updated = String::with_capacity(
+        source
+            .len()
+            .saturating_sub(target.len())
+            .saturating_add(escaped.len()),
+    );
+    updated.push_str(&source[..target.start]);
+    updated.push_str(&escaped);
+    updated.push_str(&source[target.end..]);
+    let diagnostics = xml_syntax::validate_well_formed(&updated, Revision(0), None);
+    if let Some(diagnostic) = diagnostics.first() {
+        return Err(GridError::InvalidEdit(diagnostic.message.clone()));
+    }
+    Ok(updated)
+}
+
+struct GridProjection {
+    grid: XmlGrid,
+    targets: Vec<Vec<Option<Range<usize>>>>,
+}
+
+fn project(source: &str, row_element: Option<&str>) -> Result<GridProjection, GridError> {
     if source.len() > MAX_SOURCE_BYTES {
         return Err(GridError::SourceTooLarge {
             limit: MAX_SOURCE_BYTES,
@@ -66,7 +131,7 @@ pub fn extract(source: &str, row_element: Option<&str>) -> Result<XmlGrid, GridE
     let mut flattened = Vec::with_capacity(row_indexes.len());
     let mut column_frequency = HashMap::<String, usize>::new();
     for &index in row_indexes {
-        let mut cells = BTreeMap::<String, Vec<String>>::new();
+        let mut cells = BTreeMap::<String, Vec<CellValue>>::new();
         flatten_element(&elements, index, "", 0, &mut cells)?;
         for key in cells.keys() {
             *column_frequency.entry(key.clone()).or_default() += 1;
@@ -90,28 +155,50 @@ pub fn extract(source: &str, row_element: Option<&str>) -> Result<XmlGrid, GridE
     }
 
     let line_index = LineIndex::new(source);
+    let mut targets = Vec::with_capacity(row_indexes.len());
     let rows = row_indexes
         .iter()
         .zip(flattened)
-        .map(|(&index, values)| GridRow {
-            span: line_index.span(source, elements[index].start, elements[index].end),
-            cells: columns
+        .map(|(&index, values)| {
+            let mut row_targets = Vec::with_capacity(columns.len());
+            let cells = columns
                 .iter()
                 .map(|column| {
-                    values
-                        .get(column)
-                        .map(|parts| parts.join(" | "))
-                        .unwrap_or_default()
+                    let parts = values.get(column);
+                    let target = parts.and_then(|parts| {
+                        (parts.len() == 1).then(|| parts[0].edit.clone()).flatten()
+                    });
+                    row_targets.push(target.clone());
+                    GridCell {
+                        value: parts
+                            .map(|parts| {
+                                parts
+                                    .iter()
+                                    .map(|part| part.value.as_str())
+                                    .collect::<Vec<_>>()
+                                    .join(" | ")
+                            })
+                            .unwrap_or_default(),
+                        editable: target.is_some(),
+                    }
                 })
-                .collect(),
+                .collect();
+            targets.push(row_targets);
+            GridRow {
+                span: line_index.span(source, elements[index].start, elements[index].end),
+                cells,
+            }
         })
         .collect();
 
-    Ok(XmlGrid {
-        row_element: elements[row_indexes[0]].name.clone(),
-        columns,
-        rows,
-        truncated: rows_truncated || columns_truncated,
+    Ok(GridProjection {
+        grid: XmlGrid {
+            row_element: elements[row_indexes[0]].name.clone(),
+            columns,
+            rows,
+            truncated: rows_truncated || columns_truncated,
+        },
+        targets,
     })
 }
 
@@ -166,6 +253,9 @@ fn parse(source: &str) -> Result<Vec<Element>, GridError> {
                     let decoded = unescape(&decoded)
                         .map_err(|error| GridError::InvalidXml(error.to_string()))?;
                     elements[index].text.push_str(&decoded);
+                    if !decoded.trim().is_empty() || elements[index].text_edit.is_some() {
+                        extend_text_edit(&mut elements[index], start, end);
+                    }
                 }
             }
             Event::CData(text) => {
@@ -174,22 +264,48 @@ fn parse(source: &str) -> Result<Vec<Element>, GridError> {
                         .decode()
                         .map_err(|error| GridError::InvalidXml(error.to_string()))?;
                     elements[index].text.push_str(&decoded);
+                    if !decoded.trim().is_empty() {
+                        elements[index].text_edit = None;
+                        elements[index].text_edit_ambiguous = true;
+                    }
                 }
             }
             Event::GeneralRef(reference) => {
                 if let Some(&index) = stack.last() {
                     let value = format!("&{};", String::from_utf8_lossy(reference.as_ref()));
-                    elements[index].text.push_str(&value);
+                    let decoded = unescape(&value).unwrap_or_else(|_| value.clone().into());
+                    elements[index].text.push_str(&decoded);
+                    extend_text_edit(&mut elements[index], start, end);
                 }
             }
             Event::Eof => break,
-            Event::Decl(_) | Event::PI(_) | Event::DocType(_) | Event::Comment(_) => {}
+            Event::Comment(_) | Event::PI(_) => {
+                if let Some(&index) = stack.last() {
+                    elements[index].text_edit = None;
+                    elements[index].text_edit_ambiguous = true;
+                }
+            }
+            Event::Decl(_) | Event::DocType(_) => {}
         }
     }
     if !stack.is_empty() {
         return Err(GridError::InvalidXml("unclosed element".to_owned()));
     }
     Ok(elements)
+}
+
+fn extend_text_edit(element: &mut Element, start: usize, end: usize) {
+    if element.text_edit_ambiguous {
+        return;
+    }
+    match &mut element.text_edit {
+        Some(range) if range.end == start => range.end = end,
+        Some(_) => {
+            element.text_edit = None;
+            element.text_edit_ambiguous = true;
+        }
+        None => element.text_edit = Some(start..end),
+    }
 }
 
 fn push_element(
@@ -212,6 +328,8 @@ fn push_element(
         children: Vec::new(),
         attributes,
         text: String::new(),
+        text_edit: None,
+        text_edit_ambiguous: false,
         start,
         end,
     });
@@ -334,7 +452,7 @@ fn flatten_element(
     index: usize,
     prefix: &str,
     depth: usize,
-    cells: &mut BTreeMap<String, Vec<String>>,
+    cells: &mut BTreeMap<String, Vec<CellValue>>,
 ) -> Result<(), GridError> {
     if depth > MAX_LEAF_DEPTH {
         return Ok(());
@@ -342,12 +460,17 @@ fn flatten_element(
     let element = &elements[index];
     for (name, value) in &element.attributes {
         let column = join_path(prefix, name);
-        push_value(cells, column, value.trim())?;
+        push_value(cells, column, value.trim(), None)?;
     }
     let text = element.text.trim();
     if !text.is_empty() {
         let column = if prefix.is_empty() { "#text" } else { prefix };
-        push_value(cells, column.to_owned(), text)?;
+        let edit = element
+            .children
+            .is_empty()
+            .then(|| element.text_edit.clone())
+            .flatten();
+        push_value(cells, column.to_owned(), text, edit)?;
     }
     for &child in &element.children {
         let child_name = local_name(&elements[child].name);
@@ -372,17 +495,27 @@ fn join_path(prefix: &str, name: &str) -> String {
 }
 
 fn push_value(
-    cells: &mut BTreeMap<String, Vec<String>>,
+    cells: &mut BTreeMap<String, Vec<CellValue>>,
     column: String,
     value: &str,
+    edit: Option<Range<usize>>,
 ) -> Result<(), GridError> {
     if value.len() > MAX_CELL_BYTES {
         return Err(GridError::CellTooLarge {
             limit: MAX_CELL_BYTES,
         });
     }
-    cells.entry(column).or_default().push(value.to_owned());
+    cells.entry(column).or_default().push(CellValue {
+        value: value.to_owned(),
+        edit,
+    });
     Ok(())
+}
+
+#[derive(Clone, Debug)]
+struct CellValue {
+    value: String,
+    edit: Option<Range<usize>>,
 }
 
 #[derive(Debug, Error, Eq, PartialEq)]
@@ -403,6 +536,12 @@ pub enum GridError {
     NoRepeatedRows,
     #[error("the repeated rows contain no scalar values")]
     NoScalarColumns,
+    #[error("grid column does not exist: {0}")]
+    UnknownColumn(String),
+    #[error("grid cell is read-only because it is absent, repeated, an attribute, or mixed XML")]
+    CellReadOnly,
+    #[error("grid edit would produce invalid XML: {0}")]
+    InvalidEdit(String),
 }
 
 #[cfg(test)]
@@ -425,9 +564,13 @@ mod tests {
             .position(|column| column == "name/surname")
             .ok_or(GridError::NoScalarColumns)?;
         assert_eq!(
-            grid.rows[0].cells.get(surname).map(String::as_str),
+            grid.rows[0]
+                .cells
+                .get(surname)
+                .map(|cell| cell.value.as_str()),
             Some("Silva")
         );
+        assert!(grid.rows[0].cells[surname].editable);
         assert_eq!(grid.rows[1].span.start.line, 3);
         Ok(())
     }
@@ -447,6 +590,40 @@ mod tests {
         let grid = extract(source, Some("item"))?;
         assert_eq!(grid.row_element, "{urn:a}item");
         assert_eq!(grid.columns, vec!["@{urn:a}id"]);
+        assert!(!grid.rows[0].cells[0].editable);
+        Ok(())
+    }
+
+    #[test]
+    fn edits_a_unique_text_cell_and_escapes_xml_markup() -> Result<(), GridError> {
+        let source = "<root><item><name>A</name></item><item><name>B</name></item></root>";
+        let updated = edit(source, Some("item"), 1, "name", "C & <D>")?;
+        assert_eq!(
+            updated,
+            "<root><item><name>A</name></item><item><name>C &amp; &lt;D&gt;</name></item></root>"
+        );
+        let rebuilt = extract(&updated, Some("item"))?;
+        assert_eq!(rebuilt.rows[1].cells[0].value, "C & <D>");
+        assert!(rebuilt.rows[1].cells[0].editable);
+        Ok(())
+    }
+
+    #[test]
+    fn rejects_attribute_repeated_and_unknown_cells() -> Result<(), GridError> {
+        let source =
+            "<root><item id=\"1\"><v>A</v><v>B</v></item><item id=\"2\"><v>C</v></item></root>";
+        assert_eq!(
+            edit(source, Some("item"), 0, "@id", "3"),
+            Err(GridError::CellReadOnly)
+        );
+        assert_eq!(
+            edit(source, Some("item"), 0, "v", "D"),
+            Err(GridError::CellReadOnly)
+        );
+        assert!(matches!(
+            edit(source, Some("item"), 0, "missing", "D"),
+            Err(GridError::UnknownColumn(_))
+        ));
         Ok(())
     }
 }

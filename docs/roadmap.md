@@ -181,8 +181,9 @@ Current progress:
   revision rejection, full-result well-formedness parsing, and editor undo.
 - [x] Add a bounded read-only XML Grid for repeated sibling structures with
   automatic/manual row selection, nested scalar columns, and source navigation.
-- [ ] Add schema-aware, transactional XML Grid cell editing with full-document
-  reparse and validation before applying an undoable editor change.
+- [x] Add schema-aware, transactional XML Grid scalar-text editing with escaping,
+  stale revision rejection, full-document reparse/framework validation, and an
+  undoable editor change; ambiguous/mixed/attribute cells remain read-only.
 - [x] Add the versioned plugin manifest/protocol contract and deny-by-default
   capability registry for WASI components and supervised processes.
 - [x] Resolve plugin entrypoints below a canonical package root and verify their

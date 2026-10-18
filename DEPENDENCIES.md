@@ -33,9 +33,9 @@ Its Saxon adapter requires an explicit user-installed HE JAR.
 domain, and syntax crates. It adds no third-party dependency or native engine;
 the syntax crate performs the full post-merge well-formedness gate.
 
-`xml-grid` reuses `quick-xml`, `serde`, `thiserror`, and the existing document/
-domain crates for a bounded read-only projection. It adds no third-party
-dependency or native engine.
+`xml-grid` reuses `quick-xml`, `serde`, `thiserror`, and the existing document,
+domain, and syntax crates for a bounded projection and full-document
+well-formedness gate. It adds no third-party dependency or native engine.
 
 `xml-plugin-api` reuses `serde`, `serde_json`, `thiserror`, and `url` for its
 versioned inert protocol, manifest validation, and HTTPS-origin checks. It uses

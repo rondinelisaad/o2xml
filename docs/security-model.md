@@ -123,9 +123,18 @@ XML Grid parses only the active in-memory revision and does not resolve external
 resources or expand general entities. Input is capped at 32 MiB, 100,000
 elements, 1,024 levels, 2,000 displayed rows, 64 columns, six scalar-descendant
 levels, and 16 KiB per cell. Extraction runs off the UI thread and stale results
-are discarded. Cells are inserted with `textContent`, rows only navigate to a
-recorded source span, and the audit event excludes row names, cell values, and
-source XML. The first grid profile is intentionally read-only.
+are discarded. Displayed cells use `textContent` or an input value, never HTML.
+
+Only one unambiguous scalar text event, including adjacent predefined entity
+references, receives an edit target. Attributes, absent/repeated values, CDATA,
+comments, processing instructions, child markup, and mixed XML remain read-only.
+The backend resolves row and column identifiers again against its current
+snapshot rather than trusting a client byte range, escapes replacement markup,
+reparses the complete result, and runs every configured project framework stage.
+A failed or unavailable stage rejects the edit. Revision is checked again after
+validation; the frontend then applies one whole-document editor transaction so
+Undo remains available. Audit events exclude row names, columns, values, source
+XML, and validation content.
 
 Plugin manifests are inert data. API version 1 permits only WASI components or
 explicitly enabled supervised processes; native dynamic libraries are not a

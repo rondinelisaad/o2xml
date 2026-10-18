@@ -32,6 +32,7 @@ import type {
   DtdCompletionPayload,
   ExpandedNamePayload,
   FrameworkStage,
+  GridEditPayload,
   GridPayload,
   JatsInspection,
   MergePayload,
@@ -130,7 +131,7 @@ app.innerHTML = `
         <div class="grid-controls">
           <input id="grid-row-element" type="text" aria-label="Repeated row element" placeholder="Auto-detect, or enter contrib" spellcheck="false" />
           <button id="grid-run" type="button">Build Grid</button>
-          <span id="grid-summary" class="muted">Read-only; click a row to navigate</span>
+          <span id="grid-summary" class="muted">Editable scalar text; click a row to navigate</span>
         </div>
         <div id="grid-results" class="grid-results" aria-live="polite"><div class="empty">Build a grid from repeated sibling elements</div></div>
       </div>
@@ -711,7 +712,7 @@ async function runGrid(): Promise<void> {
     setStatus("XML Grid ready");
   } catch (error) {
     gridResults.replaceChildren(messageElement(String(error), "empty error-text"));
-    gridSummary.textContent = "Read-only; click a row to navigate";
+    gridSummary.textContent = "Editable scalar text; click a row to navigate";
     setStatus(String(error), true);
   } finally {
     gridRun.disabled = false;
@@ -735,7 +736,7 @@ function renderGrid(payload: GridPayload): void {
   }
   head.append(headerRow);
   const body = window.document.createElement("tbody");
-  for (const row of grid.rows) {
+  for (const [rowIndex, row] of grid.rows.entries()) {
     const tableRow = window.document.createElement("tr");
     tableRow.tabIndex = 0;
     tableRow.title = `Go to line ${row.span.start.line}`;
@@ -748,15 +749,92 @@ function renderGrid(payload: GridPayload): void {
     line.className = "grid-line";
     line.textContent = String(row.span.start.line);
     tableRow.append(line);
-    for (const value of row.cells) {
+    for (const [columnIndex, gridCell] of row.cells.entries()) {
+      const column = grid.columns[columnIndex];
+      if (column === undefined) continue;
       const cell = window.document.createElement("td");
-      cell.textContent = value;
+      if (gridCell.editable) {
+        const input = window.document.createElement("input");
+        input.className = "grid-cell-input";
+        input.value = gridCell.value;
+        input.setAttribute("aria-label", `${column} row ${rowIndex + 1}`);
+        input.addEventListener("click", (event) => event.stopPropagation());
+        input.addEventListener("keydown", (event) => {
+          event.stopPropagation();
+          if (event.key === "Enter") input.blur();
+          if (event.key === "Escape") {
+            input.value = gridCell.value;
+            input.blur();
+          }
+        });
+        input.addEventListener("blur", () => {
+          if (input.value !== gridCell.value) {
+            void editGridCell(payload, rowIndex, column, input);
+          }
+        });
+        cell.append(input);
+      } else {
+        cell.textContent = gridCell.value;
+        cell.title = "Read-only: attributes, repeated values, and mixed XML are not edited in Grid";
+      }
       tableRow.append(cell);
     }
     body.append(tableRow);
   }
   table.append(head, body);
   gridResults.replaceChildren(table);
+}
+
+async function editGridCell(
+  gridPayload: GridPayload,
+  rowIndex: number,
+  column: string,
+  input: HTMLInputElement,
+): Promise<void> {
+  const document = activeDocument();
+  if (
+    !document
+    || gridPayload.revision !== document.revision
+    || editor.state.doc.toString() !== document.text
+  ) {
+    setStatus("XML Grid is stale; build it again", true);
+    return;
+  }
+  input.disabled = true;
+  setStatus("Validating XML Grid edit…");
+  try {
+    const payload = await invoke<GridEditPayload>("edit_grid_cell", {
+      id: document.id,
+      rowElement: gridPayload.grid.rowElement,
+      rowIndex,
+      column,
+      value: input.value,
+    });
+    if (
+      document.id !== activeId
+      || payload.revision !== document.revision
+      || editor.state.doc.toString() !== document.text
+    ) {
+      input.disabled = false;
+      setStatus("Document changed while the Grid edit was being validated", true);
+      return;
+    }
+    editor.dispatch({
+      changes: { from: 0, to: editor.state.doc.length, insert: payload.text },
+    });
+    const synchronized = await synchronize(document);
+    if (synchronized) {
+      setStatus(
+        payload.schemaValidated
+          ? "Schema-validated Grid edit applied; Undo is available"
+          : "Well-formed Grid edit applied; Undo is available",
+      );
+      await runGrid();
+    }
+  } catch (error) {
+    input.disabled = false;
+    setStatus(String(error), true);
+  }
 }
 
 function parseNamespaces(source: string): Record<string, string> {

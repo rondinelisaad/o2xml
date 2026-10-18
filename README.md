@@ -56,9 +56,13 @@ desktop MVP with a Rust core and a Tauri/CodeMirror interface.
   The desktop presents navigable side-by-side hunks and an explicit whole-file
   “use right” merge that remains undoable in the editor. Individual hunks can
   also be applied after the core rebuilds and reparses the resulting XML.
-  A read-only XML Grid now detects repeated sibling structures, flattens bounded
-  attributes and scalar descendants into columns, and navigates each row back
-  to the source editor without changing the XML source of truth.
+  XML Grid detects repeated sibling structures, flattens bounded attributes and
+  scalar descendants into columns, and navigates each row back to the source.
+  Unambiguous scalar text cells can now be edited transactionally: markup is
+  escaped, the full document is reparsed, configured project framework stages
+  must pass, stale revisions are rejected, and the editor receives one undoable
+  source-of-truth change. Attributes, repeated values, and mixed XML stay
+  read-only.
   The versioned plugin contract now validates checksummed WASI/process packages,
   explicit capabilities, project-relative filesystem scopes, HTTPS origins,
   contributions, deny-by-default host authorization, and streaming SHA-256

@@ -130,6 +130,9 @@ h2 { margin: 0; padding: 10px 12px 7px; color: var(--muted); font-size: 11px; le
 .xml-grid-table tbody tr { cursor: pointer; }
 .xml-grid-table tbody tr:hover, .xml-grid-table tbody tr:focus { outline: none; background: color-mix(in srgb, var(--accent) 12%, var(--panel)); }
 .xml-grid-table .grid-line { position: sticky; left: 0; color: var(--muted); background: var(--panel-2); }
+.grid-cell-input { width: 100%; min-width: 100px; border: 1px solid transparent; border-radius: 3px; padding: 2px 4px; background: transparent; color: var(--text); font: inherit; }
+.grid-cell-input:focus { border-color: var(--accent); outline: none; background: var(--bg); }
+.grid-cell-input:disabled { opacity: .6; }
 .error-text { color: var(--danger); }
 .output-summary { padding: 7px 12px; color: var(--muted); border-bottom: 1px solid var(--border); }
 .output-preview { margin: 0; padding: 10px 12px; white-space: pre-wrap; overflow-wrap: anywhere; font-family: "SFMono-Regular", Consolas, monospace; font-size: 12px; }

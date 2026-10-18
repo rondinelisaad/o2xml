@@ -10,6 +10,7 @@ serde.workspace = true
 thiserror.workspace = true
 xml-document = { path = "../xml-document" }
 xml-domain = { path = "../xml-domain" }
+xml-syntax = { path = "../xml-syntax" }
 
 [lints]
 workspace = true

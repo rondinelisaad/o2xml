@@ -132,7 +132,12 @@ export interface DiffPayload {
 
 export interface XmlGridRow {
   span: SourceSpan;
-  cells: string[];
+  cells: XmlGridCell[];
+}
+
+export interface XmlGridCell {
+  value: string;
+  editable: boolean;
 }
 
 export interface XmlGrid {
@@ -145,6 +150,12 @@ export interface XmlGrid {
 export interface GridPayload {
   revision: number;
   grid: XmlGrid;
+}
+
+export interface GridEditPayload {
+  revision: number;
+  text: string;
+  schemaValidated: boolean;
 }
 
 export interface ProjectPayload {
