@@ -14,6 +14,7 @@ use std::{
 use serde::{Deserialize, Serialize};
 use tauri::State;
 use tracing_subscriber::EnvFilter;
+use xml_diff::{XmlDiffOptions, XmlDiffReport};
 use xml_document::{LineIndex, XmlDocument};
 use xml_domain::{Diagnostic, OutlineEntry, Revision, Severity};
 use xml_dtd::{DtdIndexEngine, DtdIndexRequest, Libxml2DtdIndexEngine};
@@ -114,6 +115,15 @@ struct XQueryPayload {
     bytes: usize,
     preview: String,
     truncated: bool,
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct DiffPayload {
+    revision: Revision,
+    other_name: String,
+    other_text: String,
+    report: XmlDiffReport,
 }
 
 #[derive(Debug, Serialize)]
@@ -783,6 +793,85 @@ async fn evaluate_xquery_inner(
     })
 }
 
+#[tauri::command]
+async fn compare_document(
+    id: u64,
+    other_path: String,
+    ignore_whitespace_only_text: bool,
+    state: State<'_, AppState>,
+) -> Result<DiffPayload, String> {
+    let result = compare_document_inner(id, &other_path, ignore_whitespace_only_text, &state).await;
+    let revision = result.as_ref().ok().map(|payload| payload.revision);
+    audit::event(
+        "diff.compare",
+        if result.is_ok() { "success" } else { "failure" },
+        "document",
+        id,
+        revision,
+        Some("xml-aware"),
+    );
+    result
+}
+
+async fn compare_document_inner(
+    id: u64,
+    other_path: &str,
+    ignore_whitespace_only_text: bool,
+    state: &State<'_, AppState>,
+) -> Result<DiffPayload, String> {
+    let snapshot = {
+        let documents = state
+            .documents
+            .lock()
+            .map_err(|_| "document store is unavailable".to_owned())?;
+        documents
+            .get(&id)
+            .ok_or_else(|| "document is not open".to_owned())?
+            .snapshot()
+    };
+    let other_path = normalized_path(Path::new(other_path))?;
+    let metadata = fs::metadata(&other_path)
+        .map_err(|error| format!("cannot inspect comparison file: {error}"))?;
+    const MAX_DESKTOP_DIFF_BYTES: u64 = 32 * 1024 * 1024;
+    if !metadata.is_file() || metadata.len() > MAX_DESKTOP_DIFF_BYTES {
+        return Err("comparison file must be a regular UTF-8 file of at most 32 MiB".to_owned());
+    }
+    let other_text = fs::read_to_string(&other_path)
+        .map_err(|error| format!("cannot read comparison file as UTF-8: {error}"))?;
+    let left = snapshot.text();
+    let right = other_text.clone();
+    let report = tauri::async_runtime::spawn_blocking(move || {
+        xml_diff::compare(
+            &left,
+            &right,
+            XmlDiffOptions {
+                ignore_whitespace_only_text,
+            },
+        )
+    })
+    .await
+    .map_err(|error| format!("diff worker failed: {error}"))?
+    .map_err(|error| error.to_string())?;
+    {
+        let documents = state
+            .documents
+            .lock()
+            .map_err(|_| "document store is unavailable".to_owned())?;
+        let current = documents
+            .get(&id)
+            .ok_or_else(|| "document is not open".to_owned())?;
+        if current.revision() != snapshot.revision() {
+            return Err("document changed while comparison was running".to_owned());
+        }
+    }
+    Ok(DiffPayload {
+        revision: snapshot.revision(),
+        other_name: display_name(Some(&other_path)),
+        other_text,
+        report,
+    })
+}
+
 fn framework_stage_error(
     source: &str,
     revision: Revision,
@@ -1345,6 +1434,7 @@ pub fn run() {
             run_transformation,
             evaluate_xpath,
             evaluate_xquery,
+            compare_document,
             complete_dtd,
             complete_xsd,
             format_document,

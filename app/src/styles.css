@@ -124,3 +124,20 @@ h2 { margin: 0; padding: 10px 12px 7px; color: var(--muted); font-size: 11px; le
 .output-view-controls button { border: 0; border-radius: 4px; padding: 4px 9px; background: transparent; color: var(--text); cursor: pointer; }
 .output-view-controls button.active { background: var(--accent); color: white; }
 .html-preview { width: 100%; height: calc(100% - 69px); border: 0; background: white; }
+.diff-dialog { position: fixed; inset: 0; z-index: 20; padding: 28px; background: rgb(0 0 0 / .45); }
+.diff-dialog[hidden] { display: none; }
+.diff-window { display: grid; grid-template-rows: auto auto minmax(0, 1fr); width: 100%; height: 100%; border: 1px solid var(--border); border-radius: 8px; overflow: hidden; background: var(--panel); box-shadow: 0 16px 48px rgb(0 0 0 / .3); }
+.diff-header { display: flex; align-items: center; gap: 10px; min-height: 44px; padding: 6px 10px; border-bottom: 1px solid var(--border); }
+.diff-header .muted { margin-right: auto; padding: 0; }
+.diff-header label { color: var(--muted); font-size: 12px; }
+.diff-header button, .diff-hunks button { border: 1px solid var(--border); border-radius: 4px; padding: 5px 9px; background: var(--panel-2); color: var(--text); cursor: pointer; }
+.diff-hunks { display: flex; gap: 5px; min-height: 36px; padding: 5px 8px; overflow-x: auto; border-bottom: 1px solid var(--border); }
+.diff-panes { display: grid; grid-template-columns: 1fr 1fr; min-height: 0; }
+.diff-panes section { display: grid; grid-template-rows: auto minmax(0, 1fr); min-width: 0; min-height: 0; }
+.diff-panes section + section { border-left: 1px solid var(--border); }
+.diff-code { min-height: 0; overflow: auto; font-family: "SFMono-Regular", Consolas, monospace; font-size: 12px; }
+.diff-code > pre { margin: 0; padding: 8px; white-space: pre; }
+.diff-line { display: grid; grid-template-columns: 52px minmax(max-content, 1fr); min-height: 19px; white-space: pre; }
+.diff-line > span { position: sticky; left: 0; padding: 1px 8px; color: var(--muted); text-align: right; background: var(--panel-2); user-select: none; }
+.diff-line > code { padding: 1px 8px; }
+.diff-line.changed > span, .diff-line.changed > code { background: color-mix(in srgb, var(--accent) 18%, var(--panel)); }

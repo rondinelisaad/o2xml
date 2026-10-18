@@ -175,7 +175,10 @@ Current progress:
 - [x] Add a bounded XML-aware diff core with expanded-name comparison,
   attribute-order independence, explicit whitespace policy, navigable spans,
   detailed LCS hunks for bounded inputs, and a coarse large-matrix fallback.
-- [ ] Add side-by-side desktop diff and explicit merge operations.
+- [x] Add desktop file selection, side-by-side line rendering, navigable semantic
+  hunks, formatting-whitespace toggle, and explicit undoable whole-file merge.
+- [ ] Add validated per-hunk merge operations; never splice token spans without
+  re-parsing the resulting XML.
 - [ ] Add XML Grid for bounded repeated structures.
 - [ ] Add the capability-scoped plugin host.
 - [ ] Add opt-in remote resources, WebDAV, and database adapters.

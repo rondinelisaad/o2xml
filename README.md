@@ -53,6 +53,8 @@ desktop MVP with a Rust core and a Tauri/CodeMirror interface.
 - Phase 5: in progress; the bounded XML-aware diff core compares expanded names
   and sorted attributes, preserves text significance by default, reports source
   spans, and falls back to a coarse bounded hunk for large comparison matrices.
+  The desktop presents navigable side-by-side hunks and an explicit whole-file
+  “use right” merge that remains undoable in the editor.
   Schematron/JATS/SPS validation is not presented as complete while licensed
   upstream packs and conformance corpora are not installed.
 

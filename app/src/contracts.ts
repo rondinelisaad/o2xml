@@ -101,6 +101,28 @@ export interface XQueryPayload {
   truncated: boolean;
 }
 
+export interface XmlDiffHunk {
+  kind: "added" | "removed" | "changed";
+  left: SourceSpan | null;
+  right: SourceSpan | null;
+  leftTokens: number;
+  rightTokens: number;
+}
+
+export interface XmlDiffReport {
+  semanticEqual: boolean;
+  exactEqual: boolean;
+  hunks: XmlDiffHunk[];
+  coarse: boolean;
+}
+
+export interface DiffPayload {
+  revision: number;
+  otherName: string;
+  otherText: string;
+  report: XmlDiffReport;
+}
+
 export interface ProjectPayload {
   path: string;
   manifest: ProjectManifest;

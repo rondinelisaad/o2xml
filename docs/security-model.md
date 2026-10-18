@@ -109,6 +109,11 @@ tokens; detailed LCS allocation is capped at four million cells, after which a
 single prefix/suffix-bounded coarse hunk is returned instead of risking memory
 exhaustion. Whitespace-only text is significant unless the caller explicitly
 selects the formatting-insensitive option.
+Desktop comparison is an explicit native-file selection capped at 32 MiB and is
+performed off the UI thread. File paths and contents are excluded from the audit
+event. Side-by-side rendering uses `textContent` only. The initial merge command
+replaces the current editor buffer as one undoable operation; it never writes to
+disk automatically and never performs unvalidated token-span splicing.
 
 DTD completion extraction runs in the isolated libxml2 helper and uses the same
 deny-by-default resource callback as validation. Raw FFI pointers never cross

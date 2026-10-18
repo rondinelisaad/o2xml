@@ -27,6 +27,7 @@ import { open, save } from "@tauri-apps/plugin-dialog";
 import type {
   AnalysisPayload,
   Diagnostic,
+  DiffPayload,
   DocumentPayload,
   DtdCompletionPayload,
   ExpandedNamePayload,
@@ -34,6 +35,7 @@ import type {
   JatsInspection,
   OutlineEntry,
   ProjectPayload,
+  SourceSpan,
   TransformPayload,
   XPathReport,
   XsdCompletionPayload,
@@ -62,6 +64,7 @@ app.innerHTML = `
         <option>No scenarios</option>
       </select>
       <button data-action="transform" disabled>Transform</button>
+      <button data-action="diff">Compare…</button>
       <button data-action="xpath">XPath</button>
       <span class="spacer"></span>
       <button data-action="theme" aria-label="Toggle color theme">Theme</button>
@@ -122,6 +125,22 @@ app.innerHTML = `
       </div>
     </section>
   </div>
+  <div id="diff-dialog" class="diff-dialog" hidden>
+    <div class="diff-window" role="dialog" aria-modal="true" aria-labelledby="diff-title">
+      <header class="diff-header">
+        <strong id="diff-title">XML-aware comparison</strong>
+        <span id="diff-summary" class="muted"></span>
+        <label><input id="diff-ignore-whitespace" type="checkbox" /> Ignore formatting whitespace</label>
+        <button id="diff-use-right" type="button">Use right as current</button>
+        <button id="diff-close" type="button">Close</button>
+      </header>
+      <div id="diff-hunks" class="diff-hunks"></div>
+      <div class="diff-panes">
+        <section><h2 id="diff-left-title">Current</h2><div id="diff-left" class="diff-code"></div></section>
+        <section><h2 id="diff-right-title">Selected</h2><div id="diff-right" class="diff-code"></div></section>
+      </div>
+    </div>
+  </div>
 `;
 
 const editorHost = requiredElement<HTMLDivElement>("#editor");
@@ -144,6 +163,15 @@ const xqueryRun = requiredElement<HTMLButtonElement>("#xquery-run");
 const transformScenario = requiredElement<HTMLSelectElement>("#transform-scenario");
 const transformButton = requiredElement<HTMLButtonElement>("[data-action='transform']");
 const outputPanel = requiredElement<HTMLDivElement>("#output-panel");
+const diffDialog = requiredElement<HTMLDivElement>("#diff-dialog");
+const diffSummary = requiredElement<HTMLSpanElement>("#diff-summary");
+const diffHunks = requiredElement<HTMLDivElement>("#diff-hunks");
+const diffLeft = requiredElement<HTMLDivElement>("#diff-left");
+const diffRight = requiredElement<HTMLDivElement>("#diff-right");
+const diffLeftTitle = requiredElement<HTMLHeadingElement>("#diff-left-title");
+const diffRightTitle = requiredElement<HTMLHeadingElement>("#diff-right-title");
+const diffIgnoreWhitespace = requiredElement<HTMLInputElement>("#diff-ignore-whitespace");
+const diffUseRight = requiredElement<HTMLButtonElement>("#diff-use-right");
 
 const theme = new Compartment();
 let dark = window.matchMedia("(prefers-color-scheme: dark)").matches;
@@ -151,6 +179,8 @@ let documents: OpenDocument[] = [];
 let activeId: number | null = null;
 let analysisTimer: number | undefined;
 let suppressChanges = false;
+let diffOtherPath: string | null = null;
+let activeDiff: DiffPayload | null = null;
 
 const editor = new EditorView({
   parent: editorHost,
@@ -767,6 +797,105 @@ async function runXQuery(): Promise<void> {
   }
 }
 
+async function openDiff(): Promise<void> {
+  const document = activeDocument();
+  if (!document) return;
+  const selected = await open({
+    multiple: false,
+    filters: [{ name: "XML", extensions: ["xml", "xsd", "xsl", "xslt", "rng", "sch"] }],
+  });
+  if (!selected) return;
+  diffOtherPath = selected;
+  await compareWithSelectedFile();
+}
+
+async function compareWithSelectedFile(): Promise<void> {
+  const document = activeDocument();
+  if (!document || !diffOtherPath) return;
+  if (document.dirty && !(await synchronize(document))) return;
+  setStatus("Comparing XML…");
+  try {
+    const result = await invoke<DiffPayload>("compare_document", {
+      id: document.id,
+      otherPath: diffOtherPath,
+      ignoreWhitespaceOnlyText: diffIgnoreWhitespace.checked,
+    });
+    if (document.id !== activeId || result.revision !== document.revision) return;
+    activeDiff = result;
+    renderDiff(document, result);
+    diffDialog.hidden = false;
+    setStatus(result.report.semanticEqual ? "XML is semantically equal" : `${result.report.hunks.length} XML difference(s)`);
+  } catch (error) {
+    setStatus(String(error), true);
+  }
+}
+
+function renderDiff(document: OpenDocument, result: DiffPayload): void {
+  diffLeftTitle.textContent = document.name;
+  diffRightTitle.textContent = result.otherName;
+  diffSummary.textContent = result.report.semanticEqual
+    ? result.report.exactEqual ? "Exact match" : "Semantic match"
+    : `${result.report.hunks.length} hunk${result.report.hunks.length === 1 ? "" : "s"}${result.report.coarse ? " · coarse" : ""}`;
+  renderDiffLines(diffLeft, document.text, result.report.hunks.flatMap((hunk) => hunk.left ? [hunk.left] : []), "left");
+  renderDiffLines(diffRight, result.otherText, result.report.hunks.flatMap((hunk) => hunk.right ? [hunk.right] : []), "right");
+  const buttons = result.report.hunks.map((hunk, index) => {
+    const button = window.document.createElement("button");
+    button.type = "button";
+    button.textContent = `${index + 1}. ${hunk.kind} · ${hunk.leftTokens}→${hunk.rightTokens}`;
+    button.addEventListener("click", () => {
+      scrollDiffLine(diffLeft, hunk.left?.start.line);
+      scrollDiffLine(diffRight, hunk.right?.start.line);
+    });
+    return button;
+  });
+  diffHunks.replaceChildren(...buttons);
+}
+
+function renderDiffLines(host: HTMLDivElement, source: string, spans: SourceSpan[], side: string): void {
+  const lines = source.split(/\r?\n/u);
+  if (lines.length > 50_000) {
+    const preview = window.document.createElement("pre");
+    preview.textContent = `${source.slice(0, 2 * 1024 * 1024)}\n… display limited …`;
+    host.replaceChildren(preview);
+    return;
+  }
+  const changed = new Set<number>();
+  for (const span of spans) {
+    for (let line = span.start.line; line <= span.end.line; line += 1) changed.add(line);
+  }
+  host.replaceChildren(...lines.map((line, index) => {
+    const number = index + 1;
+    const row = window.document.createElement("div");
+    row.id = `diff-${side}-${number}`;
+    row.className = changed.has(number) ? "diff-line changed" : "diff-line";
+    const gutter = window.document.createElement("span");
+    gutter.textContent = String(number);
+    const content = window.document.createElement("code");
+    content.textContent = line || " ";
+    row.append(gutter, content);
+    return row;
+  }));
+}
+
+function scrollDiffLine(host: HTMLDivElement, line: number | undefined): void {
+  if (!line) return;
+  const row = host.querySelector<HTMLElement>(`#${CSS.escape(`diff-${host === diffLeft ? "left" : "right"}-${line}`)}`);
+  if (row) host.scrollTop = Math.max(0, row.offsetTop - host.clientHeight / 3);
+}
+
+function useRightDiffVersion(): void {
+  const document = activeDocument();
+  if (!document || !activeDiff || activeDiff.revision !== document.revision) {
+    setStatus("Comparison is stale; run it again", true);
+    return;
+  }
+  editor.dispatch({
+    changes: { from: 0, to: editor.state.doc.length, insert: activeDiff.otherText },
+  });
+  diffDialog.hidden = true;
+  setStatus("Right version applied; Undo is available");
+}
+
 async function createNew(): Promise<void> {
   try {
     addDocument(await invoke<DocumentPayload>("new_document"));
@@ -974,6 +1103,7 @@ requiredElement<HTMLElement>(".menubar").addEventListener("click", (event) => {
     if (document) void synchronizeAndAnalyze(document);
   }
   if (action === "transform") void runTransformation();
+  if (action === "diff") void openDiff();
   if (action === "xpath") selectBottomPanel("xpath");
   if (action === "theme") toggleTheme();
 });
@@ -997,6 +1127,11 @@ xqueryExpression.addEventListener("keydown", (event) => {
     void runXQuery();
   }
 });
+requiredElement<HTMLButtonElement>("#diff-close").addEventListener("click", () => {
+  diffDialog.hidden = true;
+});
+diffUseRight.addEventListener("click", useRightDiffVersion);
+diffIgnoreWhitespace.addEventListener("change", () => void compareWithSelectedFile());
 
 window.addEventListener("keydown", (event) => {
   const modifier = event.metaKey || event.ctrlKey;
