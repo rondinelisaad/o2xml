@@ -129,6 +129,13 @@ struct DiffPayload {
 
 #[derive(Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
+struct MergePayload {
+    revision: Revision,
+    text: String,
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
 struct GridPayload {
     revision: Revision,
     grid: XmlGrid,
@@ -881,6 +888,92 @@ async fn compare_document_inner(
 }
 
 #[tauri::command]
+async fn merge_diff_hunk(
+    id: u64,
+    other_path: String,
+    ignore_whitespace_only_text: bool,
+    hunk_index: usize,
+    state: State<'_, AppState>,
+) -> Result<MergePayload, String> {
+    let result = merge_diff_hunk_inner(
+        id,
+        &other_path,
+        ignore_whitespace_only_text,
+        hunk_index,
+        &state,
+    )
+    .await;
+    let revision = result.as_ref().ok().map(|payload| payload.revision);
+    audit::event(
+        "diff.merge_hunk",
+        if result.is_ok() { "success" } else { "failure" },
+        "document",
+        id,
+        revision,
+        Some("xml-aware"),
+    );
+    result
+}
+
+async fn merge_diff_hunk_inner(
+    id: u64,
+    other_path: &str,
+    ignore_whitespace_only_text: bool,
+    hunk_index: usize,
+    state: &State<'_, AppState>,
+) -> Result<MergePayload, String> {
+    let snapshot = {
+        let documents = state
+            .documents
+            .lock()
+            .map_err(|_| "document store is unavailable".to_owned())?;
+        documents
+            .get(&id)
+            .ok_or_else(|| "document is not open".to_owned())?
+            .snapshot()
+    };
+    let other_path = normalized_path(Path::new(other_path))?;
+    let metadata = fs::metadata(&other_path)
+        .map_err(|error| format!("cannot inspect merge source: {error}"))?;
+    const MAX_DESKTOP_MERGE_BYTES: u64 = 32 * 1024 * 1024;
+    if !metadata.is_file() || metadata.len() > MAX_DESKTOP_MERGE_BYTES {
+        return Err("merge source must be a regular UTF-8 file of at most 32 MiB".to_owned());
+    }
+    let right = fs::read_to_string(other_path)
+        .map_err(|error| format!("cannot read merge source as UTF-8: {error}"))?;
+    let left = snapshot.text();
+    let text = tauri::async_runtime::spawn_blocking(move || {
+        xml_diff::merge_hunk(
+            &left,
+            &right,
+            XmlDiffOptions {
+                ignore_whitespace_only_text,
+            },
+            hunk_index,
+        )
+    })
+    .await
+    .map_err(|error| format!("merge worker failed: {error}"))?
+    .map_err(|error| error.to_string())?;
+    {
+        let documents = state
+            .documents
+            .lock()
+            .map_err(|_| "document store is unavailable".to_owned())?;
+        let current = documents
+            .get(&id)
+            .ok_or_else(|| "document is not open".to_owned())?;
+        if current.revision() != snapshot.revision() {
+            return Err("document changed while the merge was being validated".to_owned());
+        }
+    }
+    Ok(MergePayload {
+        revision: snapshot.revision(),
+        text,
+    })
+}
+
+#[tauri::command]
 async fn inspect_grid(
     id: u64,
     row_element: Option<String>,
@@ -1503,6 +1596,7 @@ pub fn run() {
             evaluate_xpath,
             evaluate_xquery,
             compare_document,
+            merge_diff_hunk,
             inspect_grid,
             complete_dtd,
             complete_xsd,

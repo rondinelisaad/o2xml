@@ -8,7 +8,7 @@ use quick_xml::{
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
 use xml_document::LineIndex;
-use xml_domain::SourceSpan;
+use xml_domain::{Revision, SourcePosition, SourceSpan};
 
 const MAX_INPUT_BYTES: usize = 128 * 1024 * 1024;
 const MAX_TOKENS: usize = 50_000;
@@ -34,6 +34,8 @@ pub struct XmlDiffHunk {
     pub kind: DiffKind,
     pub left: Option<SourceSpan>,
     pub right: Option<SourceSpan>,
+    pub left_anchor: SourcePosition,
+    pub right_anchor: SourcePosition,
     pub left_tokens: usize,
     pub right_tokens: usize,
 }
@@ -106,6 +108,8 @@ pub fn compare(
                     range.right_start,
                     range.right_end,
                 ),
+                left_anchor: token_anchor(left, &left_index, &left_tokens, range.left_start),
+                right_anchor: token_anchor(right, &right_index, &right_tokens, range.right_start),
                 left_tokens: left_count,
                 right_tokens: right_count,
             }
@@ -117,6 +121,59 @@ pub fn compare(
         hunks,
         coarse,
     })
+}
+
+/// Apply one semantic hunk from `right` to `left`, then reject the result unless
+/// it remains a well-formed XML document. The caller still owns schema-level
+/// validation and the editor transaction/undo boundary.
+pub fn merge_hunk(
+    left: &str,
+    right: &str,
+    options: XmlDiffOptions,
+    hunk_index: usize,
+) -> Result<String, XmlDiffError> {
+    let report = compare(left, right, options)?;
+    let hunk = report
+        .hunks
+        .get(hunk_index)
+        .ok_or(XmlDiffError::UnknownHunk { index: hunk_index })?;
+    let left_start = hunk
+        .left
+        .as_ref()
+        .map_or(hunk.left_anchor.byte, |span| span.start.byte);
+    let left_end = hunk
+        .left
+        .as_ref()
+        .map_or(hunk.left_anchor.byte, |span| span.end.byte);
+    let right_start = hunk
+        .right
+        .as_ref()
+        .map_or(hunk.right_anchor.byte, |span| span.start.byte);
+    let right_end = hunk
+        .right
+        .as_ref()
+        .map_or(hunk.right_anchor.byte, |span| span.end.byte);
+    let replacement = right
+        .get(right_start..right_end)
+        .ok_or(XmlDiffError::InvalidSpan)?;
+    if left.get(left_start..left_end).is_none() {
+        return Err(XmlDiffError::InvalidSpan);
+    }
+    let mut merged = String::with_capacity(
+        left.len()
+            .saturating_sub(left_end.saturating_sub(left_start))
+            .saturating_add(replacement.len()),
+    );
+    merged.push_str(left.get(..left_start).ok_or(XmlDiffError::InvalidSpan)?);
+    merged.push_str(replacement);
+    merged.push_str(left.get(left_end..).ok_or(XmlDiffError::InvalidSpan)?);
+    if let Some(diagnostic) = xml_syntax::validate_well_formed(&merged, Revision(0), None)
+        .into_iter()
+        .next()
+    {
+        return Err(XmlDiffError::InvalidMerge(diagnostic.message));
+    }
+    Ok(merged)
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -390,6 +447,15 @@ fn token_span(
     Some(index.span(source, first.start, last.end))
 }
 
+fn token_anchor(source: &str, index: &LineIndex, tokens: &[Token], at: usize) -> SourcePosition {
+    let byte = tokens
+        .get(at)
+        .map(|token| token.start)
+        .or_else(|| tokens.last().map(|token| token.end))
+        .unwrap_or_default();
+    index.position(source, byte.min(source.len()))
+}
+
 #[derive(Debug, Error)]
 pub enum XmlDiffError {
     #[error("XML diff input exceeds the {limit}-byte limit")]
@@ -400,6 +466,12 @@ pub enum XmlDiffError {
     InvalidXml(String),
     #[error("unknown namespace prefix: {0}")]
     UnknownPrefix(String),
+    #[error("XML diff hunk {index} does not exist")]
+    UnknownHunk { index: usize },
+    #[error("XML diff produced an invalid source span")]
+    InvalidSpan,
+    #[error("applying the XML diff hunk would create malformed XML: {0}")]
+    InvalidMerge(String),
 }
 
 #[cfg(test)]
@@ -448,5 +520,25 @@ mod tests {
             .semantic_equal
         );
         Ok(())
+    }
+
+    #[test]
+    fn applies_changed_and_added_hunks_only_when_result_is_well_formed() -> Result<(), XmlDiffError>
+    {
+        let left = "<article><title>Old</title></article>";
+        let right = "<article><title>New</title><body/></article>";
+        let changed = merge_hunk(left, right, XmlDiffOptions::default(), 0)?;
+        assert_eq!(changed, "<article><title>New</title></article>");
+        let added = merge_hunk(&changed, right, XmlDiffOptions::default(), 0)?;
+        assert_eq!(added, right);
+        Ok(())
+    }
+
+    #[test]
+    fn rejects_unknown_hunks() {
+        assert!(matches!(
+            merge_hunk("<a/>", "<b/>", XmlDiffOptions::default(), 5),
+            Err(XmlDiffError::UnknownHunk { index: 5 })
+        ));
     }
 }

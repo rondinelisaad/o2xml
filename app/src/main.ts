@@ -34,6 +34,7 @@ import type {
   FrameworkStage,
   GridPayload,
   JatsInspection,
+  MergePayload,
   OutlineEntry,
   ProjectPayload,
   SourceSpan,
@@ -920,16 +921,50 @@ function renderDiff(document: OpenDocument, result: DiffPayload): void {
   renderDiffLines(diffLeft, document.text, result.report.hunks.flatMap((hunk) => hunk.left ? [hunk.left] : []), "left");
   renderDiffLines(diffRight, result.otherText, result.report.hunks.flatMap((hunk) => hunk.right ? [hunk.right] : []), "right");
   const buttons = result.report.hunks.map((hunk, index) => {
+    const group = window.document.createElement("div");
+    group.className = "diff-hunk";
     const button = window.document.createElement("button");
     button.type = "button";
     button.textContent = `${index + 1}. ${hunk.kind} · ${hunk.leftTokens}→${hunk.rightTokens}`;
     button.addEventListener("click", () => {
-      scrollDiffLine(diffLeft, hunk.left?.start.line);
-      scrollDiffLine(diffRight, hunk.right?.start.line);
+      scrollDiffLine(diffLeft, hunk.left?.start.line ?? hunk.leftAnchor.line);
+      scrollDiffLine(diffRight, hunk.right?.start.line ?? hunk.rightAnchor.line);
     });
-    return button;
+    const apply = window.document.createElement("button");
+    apply.type = "button";
+    apply.className = "diff-apply";
+    apply.textContent = "Apply";
+    apply.title = "Apply this hunk from the right and re-parse the result";
+    apply.addEventListener("click", () => void applyDiffHunk(index));
+    group.append(button, apply);
+    return group;
   });
   diffHunks.replaceChildren(...buttons);
+}
+
+async function applyDiffHunk(index: number): Promise<void> {
+  const document = activeDocument();
+  if (!document || !activeDiff || !diffOtherPath || activeDiff.revision !== document.revision) {
+    setStatus("Comparison is stale; run it again", true);
+    return;
+  }
+  setStatus("Validating XML merge…");
+  try {
+    const payload = await invoke<MergePayload>("merge_diff_hunk", {
+      id: document.id,
+      otherPath: diffOtherPath,
+      ignoreWhitespaceOnlyText: diffIgnoreWhitespace.checked,
+      hunkIndex: index,
+    });
+    if (document.id !== activeId || payload.revision !== document.revision) return;
+    editor.dispatch({
+      changes: { from: 0, to: editor.state.doc.length, insert: payload.text },
+    });
+    diffDialog.hidden = true;
+    setStatus("Validated XML hunk applied; Undo is available");
+  } catch (error) {
+    setStatus(String(error), true);
+  }
 }
 
 function renderDiffLines(host: HTMLDivElement, source: string, spans: SourceSpan[], side: string): void {

@@ -113,7 +113,11 @@ Desktop comparison is an explicit native-file selection capped at 32 MiB and is
 performed off the UI thread. File paths and contents are excluded from the audit
 event. Side-by-side rendering uses `textContent` only. The initial merge command
 replaces the current editor buffer as one undoable operation; it never writes to
-disk automatically and never performs unvalidated token-span splicing.
+disk automatically. Per-hunk merge rereads the bounded selected file, recomputes
+the semantic diff against the current revision, uses explicit insertion anchors,
+and performs a full well-formedness parse of the reconstructed document before
+returning it. Stale or malformed results are rejected; successful changes are a
+single undoable editor transaction and are not saved automatically.
 
 XML Grid parses only the active in-memory revision and does not resolve external
 resources or expand general entities. Input is capped at 32 MiB, 100,000

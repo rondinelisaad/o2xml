@@ -54,7 +54,8 @@ desktop MVP with a Rust core and a Tauri/CodeMirror interface.
   and sorted attributes, preserves text significance by default, reports source
   spans, and falls back to a coarse bounded hunk for large comparison matrices.
   The desktop presents navigable side-by-side hunks and an explicit whole-file
-  “use right” merge that remains undoable in the editor.
+  “use right” merge that remains undoable in the editor. Individual hunks can
+  also be applied after the core rebuilds and reparses the resulting XML.
   A read-only XML Grid now detects repeated sibling structures, flattens bounded
   attributes and scalar descendants into columns, and navigates each row back
   to the source editor without changing the XML source of truth.

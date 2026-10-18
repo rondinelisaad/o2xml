@@ -105,8 +105,15 @@ export interface XmlDiffHunk {
   kind: "added" | "removed" | "changed";
   left: SourceSpan | null;
   right: SourceSpan | null;
+  leftAnchor: SourcePosition;
+  rightAnchor: SourcePosition;
   leftTokens: number;
   rightTokens: number;
+}
+
+export interface MergePayload {
+  revision: number;
+  text: string;
 }
 
 export interface XmlDiffReport {

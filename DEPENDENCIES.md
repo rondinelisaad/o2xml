@@ -26,8 +26,9 @@ phase gate. CI will add `cargo audit`, `cargo deny`, npm audit, and license chec
 `thiserror`, and `tracing` set; it introduces no additional third-party crate.
 Its Saxon adapter requires an explicit user-installed HE JAR.
 
-`xml-diff` reuses `quick-xml`, `serde`, `thiserror`, and the existing document/
-domain crates. It adds no third-party dependency or native engine.
+`xml-diff` reuses `quick-xml`, `serde`, `thiserror`, and the existing document,
+domain, and syntax crates. It adds no third-party dependency or native engine;
+the syntax crate performs the full post-merge well-formedness gate.
 
 `xml-grid` reuses `quick-xml`, `serde`, `thiserror`, and the existing document/
 domain crates for a bounded read-only projection. It adds no third-party

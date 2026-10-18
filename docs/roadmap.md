@@ -177,8 +177,8 @@ Current progress:
   detailed LCS hunks for bounded inputs, and a coarse large-matrix fallback.
 - [x] Add desktop file selection, side-by-side line rendering, navigable semantic
   hunks, formatting-whitespace toggle, and explicit undoable whole-file merge.
-- [ ] Add validated per-hunk merge operations; never splice token spans without
-  re-parsing the resulting XML.
+- [x] Add validated per-hunk merge operations with insertion anchors, stale
+  revision rejection, full-result well-formedness parsing, and editor undo.
 - [x] Add a bounded read-only XML Grid for repeated sibling structures with
   automatic/manual row selection, nested scalar columns, and source navigation.
 - [ ] Add schema-aware, transactional XML Grid cell editing with full-document
