@@ -29,8 +29,9 @@ claim that a version is current.
    RNC. RNC `include`/`external` stays denied until a brokered resolver replaces
    Jing's ambient resource access.
 10. **Schematron:** an isolated libxml2 baseline provides immediate XPath 1.0
-    assertions behind the catalog broker. Conforming ISO processing compiles to
-    XSLT/SVRL with SchXslt and Saxon; Quick Fix remains later.
+    assertions behind the catalog broker. The optional supervised SchXslt/Saxon
+    adapter compiles self-contained ISO rules to XSLT and then SVRL. Includes,
+    imports, external document functions, and Quick Fix remain disabled.
 11. **XPath:** libxml2 for 1.0; Saxon HE for non-schema-aware 3.1.
 12. **XSLT:** libxslt for 1.0; Saxon HE for 3.0. Each scenario names its engine.
 13. **XQuery:** Saxon HE in a supervised JVM process; XQuery is Phase 4 and can
@@ -96,6 +97,9 @@ claim that a version is current.
   therefore be adapter-based, tested, and never described as perfect by default.
 - Saxon HE covers non-schema-aware XPath/XSLT/XQuery; schema-aware XSD processing
   is not an HE entitlement and must not be implied.
+- SaxonJ 13.0 is the reviewed optional baseline as of this snapshot. Its CLI
+  security flag restricts extension functions but is not a URI sandbox, so the
+  current Schematron adapter accepts only preflighted self-contained rule sets.
 - `quick-xml` is a streaming parser, not a DTD/XSD engine or error-recovering
   incremental syntax tree. Lezer provides editor recovery; standards engines
   provide authoritative validation.
@@ -108,7 +112,9 @@ claim that a version is current.
 - Ropey documentation: <https://docs.rs/ropey/latest/ropey/struct.Rope.html>
 - libxml2 API: <https://gnome.pages.gitlab.gnome.org/libxml2/html/files.html>
 - Xerces-J XSD 1.1: <https://xerces.apache.org/xerces2-j/xml-schema.html>
-- Saxon documentation: <https://www.saxonica.com/html/documentation12/documentation.html>
+- Saxon documentation: <https://www.saxonica.com/documentation/index.html>
+- Saxon downloads and licensing: <https://www.saxonica.com/download/download_page.xml>
+- SchXslt: <https://github.com/schxslt/schxslt>
 - Jing/Trang: <https://github.com/relaxng/jing-trang>
 - OASIS XML Catalog: <https://www.oasis-open.org/committees/entity/specs/cs-entity-xml-catalogs-1.0.html>
 - JATS versions: <https://jats.nlm.nih.gov/publishing/versions.html>

@@ -12,6 +12,10 @@ use thiserror::Error;
 use xml_document::LineIndex;
 use xml_domain::{Diagnostic, Revision, Severity, SourceSpan};
 
+mod schxslt;
+
+pub use schxslt::{SchXsltError, SchXsltProcessEngine, SchXsltReport, SchXsltRequest};
+
 const SVRL_NAMESPACE: &[u8] = b"http://purl.oclc.org/dsdl/svrl";
 const MAX_SVRL_BYTES: usize = 16 * 1024 * 1024;
 const MAX_FINDINGS: usize = 10_000;

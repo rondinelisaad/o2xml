@@ -7,7 +7,10 @@ license.workspace = true
 [dependencies]
 quick-xml.workspace = true
 serde.workspace = true
+tempfile.workspace = true
 thiserror.workspace = true
+tokio.workspace = true
+tracing.workspace = true
 xml-document = { path = "../xml-document" }
 xml-domain = { path = "../xml-domain" }
 

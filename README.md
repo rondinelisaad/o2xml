@@ -32,8 +32,10 @@ desktop MVP with a Rust core and a Tauri/CodeMirror interface.
   self-contained compact syntax has an optional supervised Jing adapter, while
   RNC resource directives remain denied pending a fully brokered resolver. The
   Schematron core now normalizes bounded SVRL reports into navigable diagnostics;
-  an isolated libxml2 baseline executes XPath 1.0 assertions, while SchXslt/Saxon
-  remains the conforming ISO/SVRL pipeline increment. Project framework
+  an isolated libxml2 baseline executes XPath 1.0 assertions. A supervised
+  SchXslt/Saxon two-step adapter compiles self-contained ISO Schematron to XSLT
+  and normalizes the resulting SVRL, with private staging, deadlines, bounded
+  output, and external-resource expressions denied before execution. Project framework
   selection now runs JATS grammar and SPS rules as separate visible stages using
   only assets explicitly installed through the project catalog. SPS 1.11/JATS
   1.4 is exposed only as `SPS-1.11-candidate`, never as a silent default.
@@ -44,6 +46,8 @@ desktop MVP with a Rust core and a Tauri/CodeMirror interface.
 
 Prerequisites are the stable Rust toolchain, Node.js/npm, libxml2 2.9+ with
 `pkg-config`, and the [Tauri platform prerequisites](https://v2.tauri.app/start/prerequisites/).
+Java, Saxon HE, SchXslt, and Jing are optional user-installed engines; O2XML
+never downloads or silently bundles them.
 
 ```sh
 cargo build -p xml-libxml2-helper
