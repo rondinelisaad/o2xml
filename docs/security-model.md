@@ -85,6 +85,12 @@ the engine succeeds and the document revision is still current. The UI receives
 at most 1 MiB of output as inert text; it does not execute transformed markup.
 The audit event contains action, result, document ID, revision, and engine only—
 never XML, stylesheet/output content, environment values, or full paths.
+HTML preview first passes through an element/attribute allowlist that removes
+scripts, embedded content, forms, media, images, SVG/MathML, styles, event
+handlers, and every URL-bearing attribute. The sanitized fragment is rendered
+in an iframe without sandbox permissions or same-origin access, with no referrer
+and an inner `default-src 'none'` CSP. The original result remains available only
+as escaped `textContent`; transformed HTML is never inserted into the app DOM.
 
 DTD completion extraction runs in the isolated libxml2 helper and uses the same
 deny-by-default resource callback as validation. Raw FFI pointers never cross

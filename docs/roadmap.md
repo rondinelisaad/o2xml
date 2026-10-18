@@ -146,8 +146,9 @@ Current progress:
   type, unique names, validated defaults, and safe project-relative paths.
 - [x] Add desktop scenario selection/execution, atomic project-root output, audit
   events, engine provenance, and a bounded text output panel.
-- [ ] Add a safe HTML preview that never grants transformed content application
-  privileges or ambient network access.
+- [x] Add a bounded HTML preview with allowlist sanitization, stripped URL/event/
+  style attributes, an origin-opaque permissionless iframe, and an inner
+  deny-by-default CSP; source view remains available.
 - [ ] Evaluate the Saxon XQuery process contract separately; do not infer safety
   from the XSLT adapter.
 

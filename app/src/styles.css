@@ -114,3 +114,7 @@ h2 { margin: 0; padding: 10px 12px 7px; color: var(--muted); font-size: 11px; le
 .error-text { color: var(--danger); }
 .output-summary { padding: 7px 12px; color: var(--muted); border-bottom: 1px solid var(--border); }
 .output-preview { margin: 0; padding: 10px 12px; white-space: pre-wrap; overflow-wrap: anywhere; font-family: "SFMono-Regular", Consolas, monospace; font-size: 12px; }
+.output-view-controls { display: flex; gap: 4px; padding: 5px 8px; border-bottom: 1px solid var(--border); }
+.output-view-controls button { border: 0; border-radius: 4px; padding: 4px 9px; background: transparent; color: var(--text); cursor: pointer; }
+.output-view-controls button.active { background: var(--accent); color: white; }
+.html-preview { width: 100%; height: calc(100% - 69px); border: 0; background: white; }

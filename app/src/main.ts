@@ -809,10 +809,7 @@ async function runTransformation(): Promise<void> {
       `${result.scenario} · ${result.engine} · ${result.mediaType} · ${result.bytesWritten} bytes → ${result.outputPath}${result.previewTruncated ? " · preview limited" : ""}`,
       "output-summary",
     );
-    const preview = window.document.createElement("pre");
-    preview.className = "output-preview";
-    preview.textContent = result.preview;
-    outputPanel.replaceChildren(summary, preview);
+    renderTransformationOutput(summary, result);
     setStatus("Transformation complete");
   } catch (error) {
     outputPanel.replaceChildren(messageElement(String(error), "empty error-text"));
@@ -820,6 +817,81 @@ async function runTransformation(): Promise<void> {
   } finally {
     transformButton.disabled = transformScenario.disabled;
   }
+}
+
+function renderTransformationOutput(summary: HTMLDivElement, result: TransformPayload): void {
+  const text = window.document.createElement("pre");
+  text.className = "output-preview";
+  text.textContent = result.preview;
+  if (result.mediaType !== "html") {
+    outputPanel.replaceChildren(summary, text);
+    return;
+  }
+
+  const controls = window.document.createElement("div");
+  controls.className = "output-view-controls";
+  const textButton = window.document.createElement("button");
+  textButton.type = "button";
+  textButton.textContent = "Source";
+  const previewButton = window.document.createElement("button");
+  previewButton.type = "button";
+  previewButton.textContent = "Safe preview";
+  const frame = window.document.createElement("iframe");
+  frame.className = "html-preview";
+  frame.title = "Sandboxed transformation preview";
+  frame.setAttribute("sandbox", "");
+  frame.referrerPolicy = "no-referrer";
+  frame.srcdoc = sanitizePreviewHtml(result.preview);
+
+  const show = (preview: boolean): void => {
+    text.hidden = preview;
+    frame.hidden = !preview;
+    textButton.classList.toggle("active", !preview);
+    previewButton.classList.toggle("active", preview);
+  };
+  textButton.addEventListener("click", () => show(false));
+  previewButton.addEventListener("click", () => show(true));
+  controls.append(textButton, previewButton);
+  outputPanel.replaceChildren(summary, controls, text, frame);
+  show(true);
+}
+
+function sanitizePreviewHtml(source: string): string {
+  const parsed = new DOMParser().parseFromString(source, "text/html");
+  const allowedElements = new Set([
+    "html", "head", "title", "body", "article", "section", "main", "header", "footer",
+    "h1", "h2", "h3", "h4", "h5", "h6", "p", "div", "span", "strong", "em",
+    "b", "i", "u", "sup", "sub", "blockquote", "pre", "code", "br", "hr", "ul",
+    "ol", "li", "dl", "dt", "dd", "table", "caption", "thead", "tbody", "tfoot",
+    "tr", "th", "td", "a",
+  ]);
+  const droppedWithContent = new Set([
+    "script", "style", "link", "meta", "base", "iframe", "object", "embed", "applet",
+    "form", "input", "button", "select", "textarea", "option", "svg", "math", "audio",
+    "video", "source", "track", "img", "picture", "canvas",
+  ]);
+  const allowedAttributes = new Set([
+    "class", "id", "title", "lang", "dir", "colspan", "rowspan", "scope",
+  ]);
+  const elements = [...parsed.querySelectorAll("*")];
+  if (elements.length > 50_000) throw new Error("HTML preview exceeds the element limit");
+  for (const element of elements) {
+    if (!element.isConnected) continue;
+    const name = element.localName.toLowerCase();
+    if (!allowedElements.has(name)) {
+      if (droppedWithContent.has(name)) element.remove();
+      else element.replaceWith(...element.childNodes);
+      continue;
+    }
+    for (const attribute of [...element.attributes]) {
+      if (!allowedAttributes.has(attribute.name.toLowerCase())) {
+        element.removeAttribute(attribute.name);
+      }
+    }
+  }
+  const policy = "default-src 'none'; base-uri 'none'; form-action 'none'; navigate-to 'none'; style-src 'unsafe-inline'";
+  const style = "body{font:14px system-ui,sans-serif;margin:20px;color:#20242a}table{border-collapse:collapse}th,td{border:1px solid #bbb;padding:4px 6px}pre,code{font-family:ui-monospace,monospace;white-space:pre-wrap}";
+  return `<!doctype html><html><head><meta http-equiv="Content-Security-Policy" content="${policy}"><style>${style}</style></head><body>${parsed.body.innerHTML}</body></html>`;
 }
 
 async function formatActive(): Promise<void> {
