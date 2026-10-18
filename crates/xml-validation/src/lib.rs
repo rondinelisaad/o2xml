@@ -19,6 +19,10 @@ use xml_document::LineIndex;
 use xml_domain::{Diagnostic, Revision, Severity, SourceSpan};
 use xml_resource::{CatalogError, CatalogResolver, ResolvedResource};
 
+mod jing;
+
+pub use jing::JingProcessEngine;
+
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum GrammarReference<'a> {
     Dtd {
@@ -31,6 +35,9 @@ pub enum GrammarReference<'a> {
     RelaxNg {
         uri: &'a str,
     },
+    RelaxNgCompact {
+        uri: &'a str,
+    },
 }
 
 impl GrammarReference<'_> {
@@ -39,6 +46,7 @@ impl GrammarReference<'_> {
             Self::Dtd { .. } => "libxml2-dtd",
             Self::Xsd { .. } => "libxml2-xsd",
             Self::RelaxNg { .. } => "libxml2-relax-ng",
+            Self::RelaxNgCompact { .. } => "jing-rnc",
         }
     }
 }
@@ -113,6 +121,14 @@ pub enum ValidationError {
     Timeout(Duration),
     #[error("validation engine executable is not a file: {0}")]
     InvalidExecutable(PathBuf),
+    #[error("validation engine support file is not a file: {0}")]
+    InvalidEngineAsset(PathBuf),
+    #[error("validation engine does not support the requested grammar type")]
+    UnsupportedGrammar,
+    #[error("compact grammar resource directives are disabled by the offline policy")]
+    CompactGrammarResourcesUnsupported,
+    #[error("cannot stage validation input: {0}")]
+    Staging(#[source] std::io::Error),
 }
 
 #[derive(Clone, Debug)]
@@ -191,6 +207,9 @@ impl Libxml2ProcessEngine {
         request: ValidationRequest<'_>,
     ) -> Result<ValidationReport, ValidationError> {
         let engine = request.grammar.engine_name();
+        if matches!(request.grammar, GrammarReference::RelaxNgCompact { .. }) {
+            return Err(ValidationError::UnsupportedGrammar);
+        }
         if request.source.len() > self.max_document_bytes {
             return Err(ValidationError::DocumentTooLarge {
                 limit: self.max_document_bytes,
@@ -315,6 +334,7 @@ impl<'a> HelperRequest<'a> {
             } => ("dtd", system_id, public_id),
             GrammarReference::Xsd { uri } => ("xsd", uri, None),
             GrammarReference::RelaxNg { uri } => ("relax_ng", uri, None),
+            GrammarReference::RelaxNgCompact { .. } => ("unsupported", "", None),
         };
         Self {
             mode,
@@ -466,6 +486,7 @@ fn resolve_broker_resource(
         } => url == system_id || (public_id.is_some() && public_id == expected_public),
         GrammarReference::Xsd { uri } => url == uri,
         GrammarReference::RelaxNg { uri } => url == uri,
+        GrammarReference::RelaxNgCompact { uri } => url == uri,
     };
     if is_root {
         return Ok(root.clone());
@@ -561,6 +582,7 @@ fn resolve_grammar(
         } => catalog.resolve_external(Some(system_id), public_id)?,
         GrammarReference::Xsd { uri } => catalog.resolve_uri(uri)?,
         GrammarReference::RelaxNg { uri } => catalog.resolve_uri(uri)?,
+        GrammarReference::RelaxNgCompact { uri } => catalog.resolve_uri(uri)?,
     };
     resolved.ok_or(ValidationError::GrammarNotFound)
 }
@@ -665,6 +687,12 @@ fn error_class(error: &ValidationError) -> &'static str {
         ValidationError::Wait(_) => "wait",
         ValidationError::Timeout(_) => "timeout",
         ValidationError::InvalidExecutable(_) => "invalid_executable",
+        ValidationError::InvalidEngineAsset(_) => "invalid_engine_asset",
+        ValidationError::UnsupportedGrammar => "unsupported_grammar",
+        ValidationError::CompactGrammarResourcesUnsupported => {
+            "compact_grammar_resources_unsupported"
+        }
+        ValidationError::Staging(_) => "staging",
     }
 }
 

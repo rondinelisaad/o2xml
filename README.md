@@ -29,7 +29,8 @@ desktop MVP with a Rust core and a Tauri/CodeMirror interface.
   JATS Inspector recognizes the editorial structure and provides navigable
   source positions in the desktop UI. RELAX NG XML validation runs through the
   isolated libxml2 helper and the same offline catalog broker used by DTD/XSD;
-  compact syntax remains pending.
+  self-contained compact syntax has an optional supervised Jing adapter, while
+  RNC resource directives remain denied pending a fully brokered resolver.
 - Phases 4–5: planned; Schematron/JATS/SPS validation is not presented as
   complete yet.
 

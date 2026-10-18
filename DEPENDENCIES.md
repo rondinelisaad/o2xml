@@ -20,6 +20,7 @@ phase gate. CI will add `cargo audit`, `cargo deny`, npm audit, and license chec
 | `criterion` (dev) | Benchmarks | MIT OR Apache-2.0 | Repeatable performance tracking |
 | `url` 2.5.8 | URI parsing and relative-reference resolution | MIT OR Apache-2.0 | Active rust-url project; avoids ad hoc catalog URI normalization |
 | `pkg-config` 0.3 | Build-time discovery of system libxml2 | MIT OR Apache-2.0 | Small, established build helper; never shipped as application runtime code |
+| `tempfile` 3.27 | Private staging files for supervised JVM engines | MIT OR Apache-2.0 | Mature cross-platform implementation; named files default to owner-only permissions and are deleted on drop |
 
 ## Phase 1 frontend
 
@@ -32,11 +33,13 @@ phase gate. CI will add `cargo audit`, `cargo deny`, npm audit, and license chec
 
 ## Future external engines
 
-libxml2 2.9+ (MIT) is now required to build the isolated DTD/XSD validation
+libxml2 2.9+ (MIT) is now required to build the isolated DTD/XSD/RELAX NG validation
 helper. The Rust core does not link to libxml2: the helper is a separate process
-and all grammar bytes are brokered through the native catalog policy. libxslt
-(MIT), Saxon HE (MPL-2.0), Jing/Trang (BSD-like), and the Xerces2-J XSD 1.1
-distribution (Apache-2.0) remain optional adapters. Their binaries,
+and all grammar bytes are brokered through the native catalog policy. Jing
+(3-clause BSD) is an optional, user-installed adapter for self-contained RNC;
+the supported baseline is upstream V20241231 and its JAR is never downloaded
+silently. libxslt (MIT), Saxon HE (MPL-2.0), and the Xerces2-J XSD 1.1
+distribution (Apache-2.0) remain planned optional adapters. Their binaries,
 notices, transitive dependencies, supported versions, and platform packaging are
 reviewed before inclusion. Saxon PE/EE is commercial and is never silently
 bundled or treated as open source.
