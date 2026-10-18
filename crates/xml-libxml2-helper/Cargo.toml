@@ -19,6 +19,7 @@ pkg-config.workspace = true
 [dev-dependencies]
 tokio.workspace = true
 xml-domain = { path = "../xml-domain" }
+xml-framework = { path = "../xml-framework" }
 xml-resource = { path = "../xml-resource" }
 xml-validation = { path = "../xml-validation" }
 xml-xpath = { path = "../xml-xpath" }

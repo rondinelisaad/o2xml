@@ -40,6 +40,14 @@ export interface AnalysisPayload {
   diagnostics: Diagnostic[];
   outline: OutlineEntry[];
   jatsInspection: JatsInspection | null;
+  frameworkStages: FrameworkStage[];
+}
+
+export interface FrameworkStage {
+  id: string;
+  label: string;
+  status: "passed" | "failed" | "unavailable";
+  diagnostics: Diagnostic[];
 }
 
 export interface JatsEntry {

@@ -115,8 +115,9 @@ Current progress:
   immediate XPath 1.0 assertions with bounded structured diagnostics.
 - [ ] Add the policy-controlled SchXslt/Saxon execution pipeline that produces
   SVRL from ISO Schematron.
-- [ ] Wire framework selection, installed assets, and separate grammar/rule
-  diagnostics into project and desktop services.
+- [x] Wire project framework selection and catalog-installed assets into the
+  desktop validation service, preserving separate JATS grammar and SPS rule
+  stages with passed/failed/unavailable state and labeled diagnostics.
 - [ ] Add synthetic golden fixtures and investigate SPS 1.11/JATS 1.4.
 
 Gate: JATS grammar and SPS rules are reported separately; licensed resources are

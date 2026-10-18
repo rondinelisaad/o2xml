@@ -30,6 +30,7 @@ import type {
   DocumentPayload,
   DtdCompletionPayload,
   ExpandedNamePayload,
+  FrameworkStage,
   JatsInspection,
   OutlineEntry,
   ProjectPayload,
@@ -74,6 +75,10 @@ app.innerHTML = `
           <h2>JATS Inspector</h2>
           <div id="jats-inspector" class="tree"><div class="empty">Not a JATS article</div></div>
         </section>
+        <section class="outline-section">
+          <h2>Validation Framework</h2>
+          <div id="framework-stages" class="tree"><div class="empty">No framework active</div></div>
+        </section>
       </aside>
       <section class="editor-column">
         <div id="tabs" class="tabs"></div>
@@ -109,6 +114,7 @@ const editorHost = requiredElement<HTMLDivElement>("#editor");
 const tabsHost = requiredElement<HTMLDivElement>("#tabs");
 const outlineHost = requiredElement<HTMLDivElement>("#outline");
 const jatsInspectorHost = requiredElement<HTMLDivElement>("#jats-inspector");
+const frameworkStagesHost = requiredElement<HTMLDivElement>("#framework-stages");
 const problemsHost = requiredElement<HTMLDivElement>("#problems");
 const statusHost = requiredElement<HTMLSpanElement>("#status");
 const problemCount = requiredElement<HTMLSpanElement>("#problem-count");
@@ -514,6 +520,7 @@ async function analyze(document: OpenDocument): Promise<void> {
     renderProblems(result.diagnostics);
     renderOutline(result.outline);
     renderJatsInspection(result.jatsInspection);
+    renderFrameworkStages(result.frameworkStages);
     setStatus(result.diagnostics.length === 0 ? "Well-formed" : "Validation failed", result.diagnostics.length > 0);
   } catch (error) {
     setStatus(String(error), true);
@@ -532,7 +539,7 @@ function renderProblems(diagnostics: Diagnostic[]): void {
   const rows = diagnostics.map((diagnostic) => {
     const row = window.document.createElement("button");
     row.className = `problem ${diagnostic.severity}`;
-    row.textContent = `${diagnostic.severity.toUpperCase()}  ${diagnostic.message}  (${diagnostic.span.start.line}:${diagnostic.span.start.column})`;
+    row.textContent = `${diagnostic.severity.toUpperCase()}  [${diagnostic.source}] ${diagnostic.message}  (${diagnostic.span.start.line}:${diagnostic.span.start.column})`;
     row.addEventListener("click", () => goToByte(diagnostic.span.start.byte));
     return row;
   });
@@ -569,6 +576,24 @@ function renderJatsInspection(inspection: JatsInspection | null): void {
     return button;
   });
   jatsInspectorHost.replaceChildren(...rows);
+}
+
+function renderFrameworkStages(stages: FrameworkStage[]): void {
+  if (stages.length === 0) {
+    const empty = window.document.createElement("div");
+    empty.className = "empty";
+    empty.textContent = "No framework active";
+    frameworkStagesHost.replaceChildren(empty);
+    return;
+  }
+  const rows = stages.map((stage) => {
+    const row = window.document.createElement("div");
+    row.className = `tree-row static ${stage.status}`;
+    row.textContent = `${stage.label}: ${stage.status}`;
+    row.title = `${stage.diagnostics.length} diagnostic(s)`;
+    return row;
+  });
+  frameworkStagesHost.replaceChildren(...rows);
 }
 
 function byteToUtf16(text: string, targetByte: number): number {

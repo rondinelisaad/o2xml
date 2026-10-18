@@ -13,13 +13,15 @@ use std::{
 use serde::{Deserialize, Serialize};
 use tauri::State;
 use tracing_subscriber::EnvFilter;
-use xml_document::XmlDocument;
-use xml_domain::{Diagnostic, OutlineEntry, Revision};
+use xml_document::{LineIndex, XmlDocument};
+use xml_domain::{Diagnostic, OutlineEntry, Revision, Severity};
 use xml_dtd::{DtdIndexEngine, DtdIndexRequest, Libxml2DtdIndexEngine};
+use xml_framework::{FrameworkRegistry, ValidationLanguage};
 use xml_jats::JatsInspection;
 use xml_project::ProjectManifest;
 use xml_resource::{CatalogResolver, ResourcePolicy};
 use xml_schema::{AttributeUse, ExpandedName, SchemaIndex, ValueConstraint};
+use xml_validation::{GrammarReference, Libxml2ProcessEngine, ValidationEngine, ValidationRequest};
 use xml_xpath::{Libxml2XPathEngine, XPathEngine, XPathReport, XPathRequest};
 use xml_xsd::{Libxml2XsdIndexEngine, XsdIndexEngine, XsdIndexRequest};
 
@@ -56,6 +58,24 @@ struct AnalysisPayload {
     diagnostics: Vec<Diagnostic>,
     outline: Vec<OutlineEntry>,
     jats_inspection: Option<JatsInspection>,
+    framework_stages: Vec<FrameworkStagePayload>,
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct FrameworkStagePayload {
+    id: String,
+    label: String,
+    status: FrameworkStageStatus,
+    diagnostics: Vec<Diagnostic>,
+}
+
+#[derive(Clone, Copy, Debug, Serialize)]
+#[serde(rename_all = "snake_case")]
+enum FrameworkStageStatus {
+    Passed,
+    Failed,
+    Unavailable,
 }
 
 #[derive(Debug, Serialize)]
@@ -233,10 +253,16 @@ async fn analyze_document(id: u64, state: State<'_, AppState>) -> Result<Analysi
                 .map(|path| path.to_string_lossy().into_owned()),
         )
     };
+    let project = state
+        .project
+        .lock()
+        .map_err(|_| "project store is unavailable".to_owned())?
+        .clone();
     let revision = snapshot.revision();
-    let analysis = tauri::async_runtime::spawn_blocking(move || {
+    let worker_file = file.clone();
+    let mut analysis = tauri::async_runtime::spawn_blocking(move || {
         let text = snapshot.text();
-        let diagnostics = xml_syntax::validate_well_formed(&text, revision, file.as_deref());
+        let diagnostics = xml_syntax::validate_well_formed(&text, revision, worker_file.as_deref());
         let outline = if diagnostics.is_empty() {
             xml_syntax::outline(&text)
         } else {
@@ -254,10 +280,40 @@ async fn analyze_document(id: u64, state: State<'_, AppState>) -> Result<Analysi
             diagnostics,
             outline,
             jats_inspection,
+            framework_stages: Vec::new(),
         }
     })
     .await
     .map_err(|error| format!("validation worker failed: {error}"))?;
+    if analysis.diagnostics.is_empty() {
+        if let Some(project) = project.filter(|project| {
+            file.as_deref()
+                .map(Path::new)
+                .is_none_or(|path| path.starts_with(&project.root))
+        }) {
+            let text = {
+                let documents = state
+                    .documents
+                    .lock()
+                    .map_err(|_| "document store is unavailable".to_owned())?;
+                let document = documents
+                    .get(&id)
+                    .ok_or_else(|| "document is not open".to_owned())?;
+                if document.revision() != revision {
+                    return Ok(analysis);
+                }
+                document.snapshot().text()
+            };
+            analysis.framework_stages =
+                validate_project_framework(&project, &text, revision, file.as_deref()).await?;
+            analysis.diagnostics.extend(
+                analysis
+                    .framework_stages
+                    .iter()
+                    .flat_map(|stage| stage.diagnostics.iter().cloned()),
+            );
+        }
+    }
     let result = if analysis.diagnostics.is_empty() {
         "success"
     } else {
@@ -272,6 +328,115 @@ async fn analyze_document(id: u64, state: State<'_, AppState>) -> Result<Analysi
         Some("quick-xml"),
     );
     Ok(analysis)
+}
+
+async fn validate_project_framework(
+    project: &OpenedProject,
+    source: &str,
+    revision: Revision,
+    file: Option<&str>,
+) -> Result<Vec<FrameworkStagePayload>, String> {
+    let Some(framework_id) = project.manifest.validation.framework.as_deref() else {
+        return Ok(Vec::new());
+    };
+    let registry = FrameworkRegistry::with_builtin_scientific_frameworks()
+        .map_err(|error| error.to_string())?;
+    let plan = registry
+        .validation_plan(framework_id)
+        .map_err(|error| error.to_string())?;
+    let catalog_setting = project
+        .manifest
+        .xml
+        .catalog
+        .as_deref()
+        .ok_or_else(|| "framework validation requires an XML catalog".to_owned())?;
+    let catalog_path = normalized_path(&project.root.join(catalog_setting))?;
+    if !catalog_path.starts_with(&project.root) {
+        return Err("project catalog is outside the project root".to_owned());
+    }
+    let policy =
+        ResourcePolicy::offline([project.root.clone()]).map_err(|error| error.to_string())?;
+    let catalog = CatalogResolver::load(catalog_path, policy).map_err(|error| error.to_string())?;
+    let engine =
+        Libxml2ProcessEngine::new(libxml2_helper_path()?).map_err(|error| error.to_string())?;
+    let mut stages = Vec::with_capacity(plan.len());
+    for stage in plan {
+        let grammar = match stage.language {
+            ValidationLanguage::Dtd => GrammarReference::Dtd {
+                system_id: &stage.logical_uri,
+                public_id: None,
+            },
+            ValidationLanguage::Xsd10 => GrammarReference::Xsd {
+                uri: &stage.logical_uri,
+            },
+            ValidationLanguage::RelaxNg => GrammarReference::RelaxNg {
+                uri: &stage.logical_uri,
+            },
+            ValidationLanguage::Schematron => GrammarReference::Schematron {
+                uri: &stage.logical_uri,
+            },
+        };
+        let result = engine
+            .validate(ValidationRequest {
+                source,
+                revision,
+                file,
+                catalog: &catalog,
+                grammar,
+            })
+            .await;
+        let (status, diagnostics) = match result {
+            Ok(mut report) => {
+                for diagnostic in &mut report.diagnostics {
+                    diagnostic.source.clone_from(&stage.source_label);
+                }
+                let status = if report.diagnostics.is_empty() {
+                    FrameworkStageStatus::Passed
+                } else {
+                    FrameworkStageStatus::Failed
+                };
+                (status, report.diagnostics)
+            }
+            Err(error) => (
+                FrameworkStageStatus::Unavailable,
+                vec![framework_stage_error(
+                    source,
+                    revision,
+                    file,
+                    &stage.source_label,
+                    &error.to_string(),
+                )],
+            ),
+        };
+        stages.push(FrameworkStagePayload {
+            id: stage.id,
+            label: stage.source_label,
+            status,
+            diagnostics,
+        });
+    }
+    Ok(stages)
+}
+
+fn framework_stage_error(
+    source: &str,
+    revision: Revision,
+    file: Option<&str>,
+    stage: &str,
+    message: &str,
+) -> Diagnostic {
+    let index = LineIndex::new(source);
+    let mut span = index.span(source, 0, 0);
+    span.approximate = true;
+    Diagnostic {
+        severity: Severity::Error,
+        message: format!("validation stage is unavailable: {message}"),
+        source: stage.to_owned(),
+        rule: None,
+        file: file.map(ToOwned::to_owned),
+        span,
+        revision,
+    }
 }
 
 #[tauri::command]

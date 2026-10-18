@@ -33,7 +33,9 @@ desktop MVP with a Rust core and a Tauri/CodeMirror interface.
   RNC resource directives remain denied pending a fully brokered resolver. The
   Schematron core now normalizes bounded SVRL reports into navigable diagnostics;
   an isolated libxml2 baseline executes XPath 1.0 assertions, while SchXslt/Saxon
-  remains the conforming ISO/SVRL pipeline increment.
+  remains the conforming ISO/SVRL pipeline increment. Project framework
+  selection now runs JATS grammar and SPS rules as separate visible stages using
+  only assets explicitly installed through the project catalog.
 - Phases 4–5: planned; Schematron/JATS/SPS validation is not presented as
   complete yet.
 
