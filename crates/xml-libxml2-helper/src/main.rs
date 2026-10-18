@@ -732,7 +732,7 @@ unsafe fn xsd_particle(
                     if let Some(particle) = unsafe { xsd_particle(child, depth + 1) }? {
                         particles.push(particle);
                     }
-                } else if matches!(child_name.as_deref(), Some("any" | "group" | "all")) {
+                } else if matches!(child_name.as_deref(), Some("any" | "all" | "group")) {
                     return Ok(None);
                 }
             }
@@ -798,13 +798,14 @@ unsafe fn xsd_type_attributes(
     if type_node.is_null() {
         return Ok(attributes);
     }
-    unsafe { collect_xsd_attributes(type_node, &mut attributes, 0) }?;
+    unsafe { collect_xsd_attributes(type_node, &mut attributes, &mut HashSet::new(), 0) }?;
     Ok(attributes)
 }
 
 unsafe fn collect_xsd_attributes(
     container: *mut XmlNode,
     output: &mut Vec<AttributeDeclaration>,
+    visited_groups: &mut HashSet<usize>,
     depth: usize,
 ) -> Result<(), String> {
     if depth > 8 {
@@ -822,7 +823,21 @@ unsafe fn collect_xsd_attributes(
                 output.push(unsafe { xsd_attribute(child) }?);
             }
             Some("complexContent" | "simpleContent" | "extension" | "restriction") => {
-                unsafe { collect_xsd_attributes(child, output, depth + 1) }?;
+                unsafe { collect_xsd_attributes(child, output, visited_groups, depth + 1) }?;
+            }
+            Some("attributeGroup") => {
+                let reference = unsafe { node_property(child, "ref") }?
+                    .ok_or_else(|| "local XSD attributeGroup has no ref".to_owned())?;
+                let Some(group) =
+                    unsafe { find_global_declaration(child, "attributeGroup", &reference) }?
+                else {
+                    continue;
+                };
+                if !visited_groups.insert(group as usize) {
+                    return Err("XSD attributeGroup reference cycle detected".into());
+                }
+                unsafe { collect_xsd_attributes(group, output, visited_groups, depth + 1) }?;
+                visited_groups.remove(&(group as usize));
             }
             _ => {}
         }
@@ -861,9 +876,98 @@ unsafe fn xsd_attribute(node: *mut XmlNode) -> Result<AttributeDeclaration, Stri
     Ok(AttributeDeclaration {
         name,
         use_kind,
-        allowed_values: Vec::new(),
+        allowed_values: unsafe { xsd_attribute_values(node, 0) }?,
         value_constraint,
     })
+}
+
+unsafe fn xsd_attribute_values(node: *mut XmlNode, depth: usize) -> Result<Vec<String>, String> {
+    if depth > 16 {
+        return Err("XSD attribute type reference exceeds the depth limit".into());
+    }
+    if let Some(reference) = unsafe { node_property(node, "ref") }? {
+        if let Some(declaration) =
+            unsafe { find_global_declaration(node, "attribute", &reference) }?
+        {
+            return unsafe { xsd_attribute_values(declaration, depth + 1) };
+        }
+    }
+    if let Some(type_name) = unsafe { node_property(node, "type") }? {
+        if let Some(simple_type) =
+            unsafe { find_global_declaration(node, "simpleType", &type_name) }?
+        {
+            return unsafe { xsd_enumerations(simple_type) };
+        }
+    }
+    if let Some(simple_type) = unsafe { first_xsd_child(node, &["simpleType"]) }? {
+        return unsafe { xsd_enumerations(simple_type) };
+    }
+    Ok(Vec::new())
+}
+
+unsafe fn xsd_enumerations(simple_type: *mut XmlNode) -> Result<Vec<String>, String> {
+    let Some(restriction) = unsafe { first_xsd_child(simple_type, &["restriction"]) }? else {
+        return Ok(Vec::new());
+    };
+    let mut values = Vec::new();
+    for child in unsafe { xsd_children(restriction) }? {
+        if unsafe { is_xsd_node(child) }
+            && unsafe { node_local_name(child) }.as_deref() == Some("enumeration")
+        {
+            if values.len() >= 4_096 {
+                return Err("XSD enumeration exceeds the 4096-value limit".into());
+            }
+            let value = unsafe { node_property(child, "value") }?
+                .ok_or_else(|| "XSD enumeration has no value".to_owned())?;
+            values.push(value);
+        }
+    }
+    Ok(values)
+}
+
+unsafe fn find_global_declaration(
+    context: *mut XmlNode,
+    kind: &str,
+    lexical_name: &str,
+) -> Result<Option<*mut XmlNode>, String> {
+    let expected = unsafe { resolve_qname(context, lexical_name) }?;
+    let document = unsafe { (*context.cast::<XmlNodeLayout>()).document };
+    if document.is_null() {
+        return Err("XSD reference node has no document".into());
+    }
+    let root = unsafe { xmlDocGetRootElement(document) };
+    if root.is_null() {
+        return Err("XSD document has no root element".into());
+    }
+    let target_namespace = unsafe { node_property(root, "targetNamespace") }?;
+    if expected.namespace_uri != target_namespace {
+        return Ok(None);
+    }
+    for child in unsafe { xsd_children(root) }? {
+        if unsafe { is_xsd_node(child) }
+            && unsafe { node_local_name(child) }.as_deref() == Some(kind)
+            && unsafe { node_property(child, "name") }?.as_deref()
+                == Some(expected.local_name.as_str())
+        {
+            return Ok(Some(child));
+        }
+    }
+    Ok(None)
+}
+
+unsafe fn first_xsd_child(
+    node: *mut XmlNode,
+    names: &[&str],
+) -> Result<Option<*mut XmlNode>, String> {
+    for child in unsafe { xsd_children(node) }? {
+        if unsafe { is_xsd_node(child) }
+            && unsafe { node_local_name(child) }
+                .is_some_and(|local| names.contains(&local.as_str()))
+        {
+            return Ok(Some(child));
+        }
+    }
+    Ok(None)
 }
 
 unsafe fn resolve_qname(node: *mut XmlNode, lexical: &str) -> Result<ExpandedName, String> {

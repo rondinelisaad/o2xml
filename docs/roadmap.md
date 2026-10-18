@@ -67,8 +67,12 @@ Current progress:
 - [x] Enrich inline and resolved named XSD types with local sequences, choices,
   element references, bounded occurrences, attribute uses, and value constraints.
   Imported type nodes remain inside the already brokered libxml2 schema graph.
-- [ ] Add groups, `all`, wildcards, inherited attribute groups, and enumeration
-  facets without treating completion as authoritative validation.
+- [x] Expand same-document attribute groups and preserve enumeration facets,
+  with cycle/depth/count limits and conservative fallback when a reference
+  cannot be projected safely.
+- [ ] Add model groups, exact `all` semantics, namespace-constrained wildcards,
+  cross-document groups, and inherited base-type content without treating
+  completion as authoritative validation.
 
 Gate: relevant standards/conformance fixtures pass, offline catalog scenarios are
 demonstrated, and all resource-policy denial tests pass.

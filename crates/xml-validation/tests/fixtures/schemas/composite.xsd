@@ -4,11 +4,21 @@
            targetNamespace="urn:article"
            elementFormDefault="qualified">
   <xs:import namespace="urn:common" schemaLocation="https://example.org/common.xsd"/>
+  <xs:simpleType name="ArticleStatus">
+    <xs:restriction base="xs:string">
+      <xs:enumeration value="draft"/>
+      <xs:enumeration value="final"/>
+    </xs:restriction>
+  </xs:simpleType>
+  <xs:attributeGroup name="ArticleAttributes">
+    <xs:attribute name="article-type" use="optional" fixed="research-article"/>
+    <xs:attribute name="status" type="a:ArticleStatus"/>
+  </xs:attributeGroup>
   <xs:complexType name="ArticleType">
     <xs:sequence>
       <xs:element ref="c:common"/>
     </xs:sequence>
-    <xs:attribute name="article-type" use="optional" fixed="research-article"/>
+    <xs:attributeGroup ref="a:ArticleAttributes"/>
   </xs:complexType>
   <xs:element name="article" type="a:ArticleType"/>
 </xs:schema>

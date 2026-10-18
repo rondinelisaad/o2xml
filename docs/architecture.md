@@ -124,8 +124,9 @@ sound; full validation remains the correctness fallback.
 - **XSD 1.0:** libxml2 initially; conformance gaps are covered by a test corpus
   and the adapter can be swapped. The isolated helper exposes bounded global
   declarations and projects local sequence/choice particles and attribute uses
-  from libxml2-resolved types; unsupported groups, wildcards, and facets remain
-  conservative. Xerces-J is an optional alternate.
+  from libxml2-resolved types. Same-document attribute groups and enum facets
+  are expanded under bounds; model groups, `all`, wildcards, cross-document
+  groups, and inherited content remain conservative. Xerces-J is optional.
 - **XSD 1.1:** realistic through the separate Xerces2-J 2.12.2 XSD 1.1
   distribution or commercial Saxon-EE, not as a default native feature.
 - **RELAX NG:** Jing process adapter for XML and compact syntax; libxml2 can be a

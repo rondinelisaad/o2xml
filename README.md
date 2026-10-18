@@ -20,8 +20,10 @@ desktop MVP with a Rust core and a Tauri/CodeMirror interface.
   Normalized XSD 1.0 declarations now compile through the same bounded particle
   engine, and global declarations are extracted through the catalog-brokered
   libxml2 helper. Local sequence/choice particles, occurrences, references, and
-  attribute uses are projected from libxml2-resolved types; advanced groups,
-  wildcards, facets, and desktop XSD completion remain.
+  attribute uses are projected from libxml2-resolved types. Same-document
+  attribute groups and enumeration facets are supported; model groups, exact
+  `all`, constrained wildcards, inherited content, cross-document groups, and
+  desktop XSD completion remain.
 - Phases 3–5: planned; Schematron/JATS/SPS validation is not presented as
   implemented yet.
 

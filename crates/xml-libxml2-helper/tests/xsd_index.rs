@@ -40,12 +40,14 @@ fn extracts_global_xsd_declarations_through_the_offline_broker() -> Result<(), B
     let attributes = report
         .index
         .complete_attributes(&article, &Default::default())?;
-    assert_eq!(attributes.len(), 1);
+    assert_eq!(attributes.len(), 2);
     assert_eq!(attributes[0].name, ExpandedName::new(None, "article-type")?);
     assert_eq!(
         attributes[0].value_constraint,
         Some(ValueConstraint::Fixed("research-article".to_owned()))
     );
+    assert_eq!(attributes[1].name, ExpandedName::new(None, "status")?);
+    assert_eq!(attributes[1].allowed_values, ["draft", "final"]);
     Ok(())
 }
 
