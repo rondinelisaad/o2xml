@@ -117,6 +117,19 @@ h2 { margin: 0; padding: 10px 12px 7px; color: var(--muted); font-size: 11px; le
 .xquery-controls button { border: 1px solid var(--border); border-radius: 4px; padding: 5px 14px; background: var(--accent); color: white; cursor: pointer; }
 .xquery-controls button:disabled { opacity: .55; cursor: default; }
 .xquery-results { min-width: 0; overflow: auto; }
+.grid-panel.active { display: grid; grid-template-rows: 39px minmax(0, 1fr); overflow: hidden; }
+.grid-controls { display: flex; align-items: center; gap: 8px; padding: 5px 8px; border-bottom: 1px solid var(--border); }
+.grid-controls input { width: min(320px, 40%); border: 1px solid var(--border); border-radius: 4px; padding: 5px 8px; background: var(--bg); color: var(--text); font-family: "SFMono-Regular", Consolas, monospace; }
+.grid-controls button { border: 1px solid var(--border); border-radius: 4px; padding: 5px 12px; background: var(--accent); color: white; cursor: pointer; }
+.grid-controls button:disabled { opacity: .55; cursor: default; }
+.grid-controls .muted { margin-left: auto; padding: 0; }
+.grid-results { overflow: auto; }
+.xml-grid-table { min-width: 100%; border-collapse: separate; border-spacing: 0; font-size: 12px; }
+.xml-grid-table th, .xml-grid-table td { max-width: 360px; padding: 5px 9px; overflow: hidden; border-right: 1px solid var(--border); border-bottom: 1px solid var(--border); text-align: left; text-overflow: ellipsis; white-space: nowrap; }
+.xml-grid-table th { position: sticky; top: 0; z-index: 1; background: var(--panel-2); color: var(--muted); }
+.xml-grid-table tbody tr { cursor: pointer; }
+.xml-grid-table tbody tr:hover, .xml-grid-table tbody tr:focus { outline: none; background: color-mix(in srgb, var(--accent) 12%, var(--panel)); }
+.xml-grid-table .grid-line { position: sticky; left: 0; color: var(--muted); background: var(--panel-2); }
 .error-text { color: var(--danger); }
 .output-summary { padding: 7px 12px; color: var(--muted); border-bottom: 1px solid var(--border); }
 .output-preview { margin: 0; padding: 10px 12px; white-space: pre-wrap; overflow-wrap: anywhere; font-family: "SFMono-Regular", Consolas, monospace; font-size: 12px; }

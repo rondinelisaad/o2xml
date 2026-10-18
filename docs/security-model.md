@@ -115,6 +115,14 @@ event. Side-by-side rendering uses `textContent` only. The initial merge command
 replaces the current editor buffer as one undoable operation; it never writes to
 disk automatically and never performs unvalidated token-span splicing.
 
+XML Grid parses only the active in-memory revision and does not resolve external
+resources or expand general entities. Input is capped at 32 MiB, 100,000
+elements, 1,024 levels, 2,000 displayed rows, 64 columns, six scalar-descendant
+levels, and 16 KiB per cell. Extraction runs off the UI thread and stale results
+are discarded. Cells are inserted with `textContent`, rows only navigate to a
+recorded source span, and the audit event excludes row names, cell values, and
+source XML. The first grid profile is intentionally read-only.
+
 DTD completion extraction runs in the isolated libxml2 helper and uses the same
 deny-by-default resource callback as validation. Raw FFI pointers never cross
 the process boundary. Element, particle, attribute, and enumeration counts or

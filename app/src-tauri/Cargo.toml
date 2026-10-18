@@ -25,6 +25,7 @@ xml-diff = { path = "../../crates/xml-diff" }
 xml-dtd = { path = "../../crates/xml-dtd" }
 xml-domain = { path = "../../crates/xml-domain" }
 xml-framework = { path = "../../crates/xml-framework" }
+xml-grid = { path = "../../crates/xml-grid" }
 xml-jats = { path = "../../crates/xml-jats" }
 xml-project = { path = "../../crates/xml-project" }
 xml-resource = { path = "../../crates/xml-resource" }

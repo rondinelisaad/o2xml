@@ -19,6 +19,7 @@ use xml_document::{LineIndex, XmlDocument};
 use xml_domain::{Diagnostic, OutlineEntry, Revision, Severity};
 use xml_dtd::{DtdIndexEngine, DtdIndexRequest, Libxml2DtdIndexEngine};
 use xml_framework::{FrameworkRegistry, ValidationLanguage};
+use xml_grid::XmlGrid;
 use xml_jats::JatsInspection;
 use xml_project::{ProjectManifest, TransformEngine, TransformMediaType};
 use xml_resource::{CatalogResolver, ResourcePolicy};
@@ -124,6 +125,13 @@ struct DiffPayload {
     other_name: String,
     other_text: String,
     report: XmlDiffReport,
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct GridPayload {
+    revision: Revision,
+    grid: XmlGrid,
 }
 
 #[derive(Debug, Serialize)]
@@ -872,6 +880,66 @@ async fn compare_document_inner(
     })
 }
 
+#[tauri::command]
+async fn inspect_grid(
+    id: u64,
+    row_element: Option<String>,
+    state: State<'_, AppState>,
+) -> Result<GridPayload, String> {
+    let result = inspect_grid_inner(id, row_element, &state).await;
+    let revision = result.as_ref().ok().map(|payload| payload.revision);
+    audit::event(
+        "grid.inspect",
+        if result.is_ok() { "success" } else { "failure" },
+        "document",
+        id,
+        revision,
+        Some("native-bounded"),
+    );
+    result
+}
+
+async fn inspect_grid_inner(
+    id: u64,
+    row_element: Option<String>,
+    state: &State<'_, AppState>,
+) -> Result<GridPayload, String> {
+    let snapshot = {
+        let documents = state
+            .documents
+            .lock()
+            .map_err(|_| "document store is unavailable".to_owned())?;
+        documents
+            .get(&id)
+            .ok_or_else(|| "document is not open".to_owned())?
+            .snapshot()
+    };
+    let source = snapshot.text();
+    let requested = row_element.filter(|value| !value.trim().is_empty());
+    let grid = tauri::async_runtime::spawn_blocking(move || {
+        xml_grid::extract(&source, requested.as_deref())
+    })
+    .await
+    .map_err(|error| format!("grid worker failed: {error}"))?
+    .map_err(|error| error.to_string())?;
+    {
+        let documents = state
+            .documents
+            .lock()
+            .map_err(|_| "document store is unavailable".to_owned())?;
+        let current = documents
+            .get(&id)
+            .ok_or_else(|| "document is not open".to_owned())?;
+        if current.revision() != snapshot.revision() {
+            return Err("document changed while XML Grid was being built".to_owned());
+        }
+    }
+    Ok(GridPayload {
+        revision: snapshot.revision(),
+        grid,
+    })
+}
+
 fn framework_stage_error(
     source: &str,
     revision: Revision,
@@ -1435,6 +1503,7 @@ pub fn run() {
             evaluate_xpath,
             evaluate_xquery,
             compare_document,
+            inspect_grid,
             complete_dtd,
             complete_xsd,
             format_document,

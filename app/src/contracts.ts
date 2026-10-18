@@ -123,6 +123,23 @@ export interface DiffPayload {
   report: XmlDiffReport;
 }
 
+export interface XmlGridRow {
+  span: SourceSpan;
+  cells: string[];
+}
+
+export interface XmlGrid {
+  rowElement: string;
+  columns: string[];
+  rows: XmlGridRow[];
+  truncated: boolean;
+}
+
+export interface GridPayload {
+  revision: number;
+  grid: XmlGrid;
+}
+
 export interface ProjectPayload {
   path: string;
   manifest: ProjectManifest;

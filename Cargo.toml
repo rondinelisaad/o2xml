@@ -5,6 +5,7 @@ members = [
     "crates/xml-diff",
     "crates/xml-dtd",
     "crates/xml-framework",
+    "crates/xml-grid",
     "crates/xml-jats",
     "crates/xml-libxml2-helper",
     "crates/xml-project",

@@ -179,7 +179,10 @@ Current progress:
   hunks, formatting-whitespace toggle, and explicit undoable whole-file merge.
 - [ ] Add validated per-hunk merge operations; never splice token spans without
   re-parsing the resulting XML.
-- [ ] Add XML Grid for bounded repeated structures.
+- [x] Add a bounded read-only XML Grid for repeated sibling structures with
+  automatic/manual row selection, nested scalar columns, and source navigation.
+- [ ] Add schema-aware, transactional XML Grid cell editing with full-document
+  reparse and validation before applying an undoable editor change.
 - [ ] Add the capability-scoped plugin host.
 - [ ] Add opt-in remote resources, WebDAV, and database adapters.
 - [ ] Add schema-preserving Author Mode after the structural editing primitives

@@ -29,6 +29,10 @@ Its Saxon adapter requires an explicit user-installed HE JAR.
 `xml-diff` reuses `quick-xml`, `serde`, `thiserror`, and the existing document/
 domain crates. It adds no third-party dependency or native engine.
 
+`xml-grid` reuses `quick-xml`, `serde`, `thiserror`, and the existing document/
+domain crates for a bounded read-only projection. It adds no third-party
+dependency or native engine.
+
 ## Phase 1 frontend
 
 | Dependency | Purpose | License | Rationale / constraint |

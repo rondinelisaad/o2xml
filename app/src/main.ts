@@ -32,6 +32,7 @@ import type {
   DtdCompletionPayload,
   ExpandedNamePayload,
   FrameworkStage,
+  GridPayload,
   JatsInspection,
   OutlineEntry,
   ProjectPayload,
@@ -100,6 +101,7 @@ app.innerHTML = `
         <button data-panel="output">Output</button>
         <button data-panel="xpath">XPath</button>
         <button data-panel="xquery">XQuery</button>
+        <button data-panel="grid">XML Grid</button>
         <span id="status" class="status">Ready</span>
       </div>
       <div id="problems" class="panel-content active problems" data-panel-content="problems" aria-live="polite"></div>
@@ -122,6 +124,14 @@ app.innerHTML = `
           <button id="xquery-run" type="button">Run</button>
         </div>
         <div id="xquery-results" class="xquery-results" aria-live="polite"><div class="empty">Run a self-contained XQuery 3.1 expression</div></div>
+      </div>
+      <div id="grid-panel" class="panel-content grid-panel" data-panel-content="grid">
+        <div class="grid-controls">
+          <input id="grid-row-element" type="text" aria-label="Repeated row element" placeholder="Auto-detect, or enter contrib" spellcheck="false" />
+          <button id="grid-run" type="button">Build Grid</button>
+          <span id="grid-summary" class="muted">Read-only; click a row to navigate</span>
+        </div>
+        <div id="grid-results" class="grid-results" aria-live="polite"><div class="empty">Build a grid from repeated sibling elements</div></div>
       </div>
     </section>
   </div>
@@ -160,6 +170,10 @@ const xpathRun = requiredElement<HTMLButtonElement>("#xpath-run");
 const xqueryExpression = requiredElement<HTMLTextAreaElement>("#xquery-expression");
 const xqueryResults = requiredElement<HTMLDivElement>("#xquery-results");
 const xqueryRun = requiredElement<HTMLButtonElement>("#xquery-run");
+const gridRowElement = requiredElement<HTMLInputElement>("#grid-row-element");
+const gridResults = requiredElement<HTMLDivElement>("#grid-results");
+const gridRun = requiredElement<HTMLButtonElement>("#grid-run");
+const gridSummary = requiredElement<HTMLSpanElement>("#grid-summary");
 const transformScenario = requiredElement<HTMLSelectElement>("#transform-scenario");
 const transformButton = requiredElement<HTMLButtonElement>("[data-action='transform']");
 const outputPanel = requiredElement<HTMLDivElement>("#output-panel");
@@ -666,7 +680,7 @@ function goToByte(byte: number): void {
   editor.focus();
 }
 
-function selectBottomPanel(name: "problems" | "output" | "xpath" | "xquery"): void {
+function selectBottomPanel(name: "problems" | "output" | "xpath" | "xquery" | "grid"): void {
   document.querySelectorAll<HTMLButtonElement>("[data-panel]").forEach((button) => {
     button.classList.toggle("active", button.dataset.panel === name);
   });
@@ -675,6 +689,73 @@ function selectBottomPanel(name: "problems" | "output" | "xpath" | "xquery"): vo
   });
   if (name === "xpath") xpathExpression.focus();
   if (name === "xquery") xqueryExpression.focus();
+  if (name === "grid") gridRowElement.focus();
+}
+
+async function runGrid(): Promise<void> {
+  const document = activeDocument();
+  if (!document) return;
+  if (document.dirty && !(await synchronize(document))) return;
+  selectBottomPanel("grid");
+  setStatus("Building XML Grid…");
+  gridRun.disabled = true;
+  try {
+    const rowElement = gridRowElement.value.trim() || null;
+    const payload = await invoke<GridPayload>("inspect_grid", {
+      id: document.id,
+      rowElement,
+    });
+    if (document.id !== activeId || payload.revision !== document.revision) return;
+    renderGrid(payload);
+    setStatus("XML Grid ready");
+  } catch (error) {
+    gridResults.replaceChildren(messageElement(String(error), "empty error-text"));
+    gridSummary.textContent = "Read-only; click a row to navigate";
+    setStatus(String(error), true);
+  } finally {
+    gridRun.disabled = false;
+  }
+}
+
+function renderGrid(payload: GridPayload): void {
+  const { grid } = payload;
+  gridSummary.textContent = `${grid.rows.length} ${grid.rowElement} row${grid.rows.length === 1 ? "" : "s"}${grid.truncated ? " (limited)" : ""}`;
+  const table = window.document.createElement("table");
+  table.className = "xml-grid-table";
+  const head = window.document.createElement("thead");
+  const headerRow = window.document.createElement("tr");
+  const lineHeader = window.document.createElement("th");
+  lineHeader.textContent = "Line";
+  headerRow.append(lineHeader);
+  for (const column of grid.columns) {
+    const cell = window.document.createElement("th");
+    cell.textContent = column;
+    headerRow.append(cell);
+  }
+  head.append(headerRow);
+  const body = window.document.createElement("tbody");
+  for (const row of grid.rows) {
+    const tableRow = window.document.createElement("tr");
+    tableRow.tabIndex = 0;
+    tableRow.title = `Go to line ${row.span.start.line}`;
+    const navigate = (): void => goToByte(row.span.start.byte);
+    tableRow.addEventListener("click", navigate);
+    tableRow.addEventListener("keydown", (event) => {
+      if (event.key === "Enter" || event.key === " ") navigate();
+    });
+    const line = window.document.createElement("td");
+    line.className = "grid-line";
+    line.textContent = String(row.span.start.line);
+    tableRow.append(line);
+    for (const value of row.cells) {
+      const cell = window.document.createElement("td");
+      cell.textContent = value;
+      tableRow.append(cell);
+    }
+    body.append(tableRow);
+  }
+  table.append(head, body);
+  gridResults.replaceChildren(table);
 }
 
 function parseNamespaces(source: string): Record<string, string> {
@@ -1110,7 +1191,7 @@ requiredElement<HTMLElement>(".menubar").addEventListener("click", (event) => {
 
 requiredElement<HTMLElement>(".panel-tabs").addEventListener("click", (event) => {
   const panel = (event.target as HTMLElement).closest<HTMLButtonElement>("[data-panel]")?.dataset.panel;
-  if (panel === "problems" || panel === "output" || panel === "xpath" || panel === "xquery") selectBottomPanel(panel);
+  if (panel === "problems" || panel === "output" || panel === "xpath" || panel === "xquery" || panel === "grid") selectBottomPanel(panel);
 });
 
 xpathRun.addEventListener("click", () => void runXPath());
@@ -1121,6 +1202,10 @@ xpathExpression.addEventListener("keydown", (event) => {
   }
 });
 xqueryRun.addEventListener("click", () => void runXQuery());
+gridRun.addEventListener("click", () => void runGrid());
+gridRowElement.addEventListener("keydown", (event) => {
+  if (event.key === "Enter") void runGrid();
+});
 xqueryExpression.addEventListener("keydown", (event) => {
   if (event.key === "Enter" && (event.metaKey || event.ctrlKey)) {
     event.preventDefault();

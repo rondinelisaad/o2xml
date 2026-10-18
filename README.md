@@ -55,6 +55,9 @@ desktop MVP with a Rust core and a Tauri/CodeMirror interface.
   spans, and falls back to a coarse bounded hunk for large comparison matrices.
   The desktop presents navigable side-by-side hunks and an explicit whole-file
   “use right” merge that remains undoable in the editor.
+  A read-only XML Grid now detects repeated sibling structures, flattens bounded
+  attributes and scalar descendants into columns, and navigates each row back
+  to the source editor without changing the XML source of truth.
   Schematron/JATS/SPS validation is not presented as complete while licensed
   upstream packs and conformance corpora are not installed.
 
