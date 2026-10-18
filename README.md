@@ -50,8 +50,11 @@ desktop MVP with a Rust core and a Tauri/CodeMirror interface.
   self-contained XQuery 3.1 profile; external modules/resources, environment
   access, extensions, and updating expressions are denied. The desktop XQuery
   panel runs the current revision and presents a bounded inert-text result.
-- Phase 5: planned; Schematron/JATS/SPS validation is not presented as complete
-  while licensed upstream packs and conformance corpora are not installed.
+- Phase 5: in progress; the bounded XML-aware diff core compares expanded names
+  and sorted attributes, preserves text significance by default, reports source
+  spans, and falls back to a coarse bounded hunk for large comparison matrices.
+  Schematron/JATS/SPS validation is not presented as complete while licensed
+  upstream packs and conformance corpora are not installed.
 
 ## Build and run
 

@@ -103,6 +103,13 @@ result if the document revision changed during evaluation. Its audit event does
 not contain query text, source XML, result bytes, engine paths, or environment
 configuration.
 
+XML-aware diff parses both inputs without resolving external resources or
+expanding DTD entities. Each side is capped at 128 MiB and 50,000 semantic
+tokens; detailed LCS allocation is capped at four million cells, after which a
+single prefix/suffix-bounded coarse hunk is returned instead of risking memory
+exhaustion. Whitespace-only text is significant unless the caller explicitly
+selects the formatting-insensitive option.
+
 DTD completion extraction runs in the isolated libxml2 helper and uses the same
 deny-by-default resource callback as validation. Raw FFI pointers never cross
 the process boundary. Element, particle, attribute, and enumeration counts or

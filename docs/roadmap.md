@@ -170,6 +170,18 @@ WebDAV/database adapters, and a WASI/process plugin ecosystem.
 Author Mode is intentionally last: schema-preserving visual editing, selection
 mapping, mixed content, track changes, and undo semantics are each substantial.
 
+Current progress:
+
+- [x] Add a bounded XML-aware diff core with expanded-name comparison,
+  attribute-order independence, explicit whitespace policy, navigable spans,
+  detailed LCS hunks for bounded inputs, and a coarse large-matrix fallback.
+- [ ] Add side-by-side desktop diff and explicit merge operations.
+- [ ] Add XML Grid for bounded repeated structures.
+- [ ] Add the capability-scoped plugin host.
+- [ ] Add opt-in remote resources, WebDAV, and database adapters.
+- [ ] Add schema-preserving Author Mode after the structural editing primitives
+  and conformance gates exist.
+
 ## Cross-cutting performance track
 
 Criterion benchmarks use generated 1/10/50/100 MB fixtures first. A 500 MB gate
