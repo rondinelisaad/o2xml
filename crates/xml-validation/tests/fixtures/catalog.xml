@@ -8,5 +8,7 @@
   <uri name="https://example.org/common.xsd" uri="schemas/common.xsd"/>
   <uri name="https://example.org/all-group.xsd" uri="schemas/all-group.xsd"/>
   <uri name="https://example.org/inheritance.xsd" uri="schemas/inheritance.xsd"/>
+  <uri name="https://example.org/cross-document.xsd" uri="schemas/cross-document.xsd"/>
+  <uri name="https://example.org/imported-models.xsd" uri="schemas/imported-models.xsd"/>
   <uri name="https://example.org/escape.xsd" uri="schemas/escape.xsd"/>
 </catalog>

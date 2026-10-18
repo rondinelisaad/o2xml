@@ -77,8 +77,10 @@ Current progress:
   single-occurrence semantics with bounded state construction.
 - [x] Expand same-document complex type extensions across bounded inheritance
   chains, combining base/derived content and inherited attribute declarations.
-- [ ] Add namespace-constrained wildcards and cross-document model groups/types
-  without treating completion as authoritative validation.
+- [x] Resolve cross-document model groups and complex base types exclusively
+  from the bounded resource graph already approved by the offline broker.
+- [ ] Add namespace-constrained wildcards without treating completion as
+  authoritative validation.
 
 Gate: relevant standards/conformance fixtures pass, offline catalog scenarios are
 demonstrated, and all resource-policy denial tests pass.

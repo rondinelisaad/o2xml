@@ -1,0 +1,14 @@
+<xs:schema xmlns:xs="http://www.w3.org/2001/XMLSchema"
+           xmlns:c="urn:common"
+           targetNamespace="urn:common"
+           elementFormDefault="qualified">
+  <xs:group name="ArticleFront">
+    <xs:sequence>
+      <xs:element name="front"/>
+    </xs:sequence>
+  </xs:group>
+  <xs:complexType name="BaseArticleType">
+    <xs:group ref="c:ArticleFront"/>
+    <xs:attribute name="id" type="xs:ID" use="required"/>
+  </xs:complexType>
+</xs:schema>

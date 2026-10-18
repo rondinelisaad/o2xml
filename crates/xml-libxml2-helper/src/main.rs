@@ -356,6 +356,7 @@ struct Resource {
 struct Broker {
     reader: BufReader<io::Stdin>,
     writer: io::Stdout,
+    approved_resources: BTreeMap<String, Vec<u8>>,
 }
 
 impl Broker {
@@ -390,6 +391,7 @@ impl Broker {
         let uri = reply
             .uri
             .ok_or_else(|| "allowed resource has no URI".to_owned())?;
+        self.approved_resources.insert(uri.clone(), bytes.clone());
         Ok(Some(Resource {
             uri: CString::new(uri).map_err(|_| "resource URI contains NUL".to_owned())?,
             bytes,
@@ -398,6 +400,7 @@ impl Broker {
 }
 
 static BROKER: OnceLock<Mutex<Broker>> = OnceLock::new();
+static XSD_DOCUMENTS: OnceLock<Mutex<Vec<usize>>> = OnceLock::new();
 
 unsafe extern "C" fn resource_loader(
     url: *const c_char,
@@ -475,6 +478,7 @@ fn run() -> Result<bool, String> {
     let mut broker = Broker {
         reader: BufReader::new(io::stdin()),
         writer: io::stdout(),
+        approved_resources: BTreeMap::new(),
     };
     let mut header = String::new();
     broker
@@ -595,6 +599,18 @@ unsafe fn extract_xsd(grammar_uri: &CString) -> Result<Option<Vec<XsdElementDecl
     if schema.is_null() {
         return Ok(None);
     }
+    let documents = unsafe { load_approved_xsd_documents() };
+    let documents = match documents {
+        Ok(documents) => documents,
+        Err(error) => {
+            unsafe { xmlSchemaFree(schema) };
+            return Err(error);
+        }
+    };
+    *XSD_DOCUMENTS
+        .get_or_init(|| Mutex::new(Vec::new()))
+        .lock()
+        .map_err(|_| "XSD document registry is unavailable".to_owned())? = documents;
     let elements = unsafe { (*schema.cast::<XmlSchemaLayout>()).element_declarations };
     let mut extraction = XsdExtraction {
         declarations: Vec::new(),
@@ -610,6 +626,7 @@ unsafe fn extract_xsd(grammar_uri: &CString) -> Result<Option<Vec<XsdElementDecl
         };
     }
     unsafe { xmlSchemaFree(schema) };
+    unsafe { release_xsd_documents() }?;
     if let Some(error) = extraction.error {
         return Err(error);
     }
@@ -617,6 +634,53 @@ unsafe fn extract_xsd(grammar_uri: &CString) -> Result<Option<Vec<XsdElementDecl
         .declarations
         .sort_by(|left, right| left.name.cmp(&right.name));
     Ok(Some(extraction.declarations))
+}
+
+unsafe fn load_approved_xsd_documents() -> Result<Vec<usize>, String> {
+    let resources = BROKER
+        .get()
+        .ok_or_else(|| "resource broker is unavailable".to_owned())?
+        .lock()
+        .map_err(|_| "resource broker is unavailable".to_owned())?
+        .approved_resources
+        .clone();
+    unsafe { xmlSetExternalEntityLoader(Some(deny_resource_loader)) };
+    let mut documents = Vec::with_capacity(resources.len());
+    for (uri, bytes) in resources {
+        let uri = CString::new(uri).map_err(|_| "approved XSD URI contains NUL".to_owned())?;
+        let size = c_int::try_from(bytes.len())
+            .map_err(|_| "approved XSD is too large for libxml2".to_owned())?;
+        let document = unsafe {
+            xmlReadMemory(
+                bytes.as_ptr().cast(),
+                size,
+                uri.as_ptr(),
+                ptr::null(),
+                XML_PARSE_NONET,
+            )
+        };
+        if document.is_null() {
+            for loaded in documents.drain(..) {
+                unsafe { xmlFreeDoc(loaded as *mut XmlDoc) };
+            }
+            return Err("cannot inspect an approved XSD resource".into());
+        }
+        documents.push(document as usize);
+    }
+    Ok(documents)
+}
+
+unsafe fn release_xsd_documents() -> Result<(), String> {
+    let Some(documents) = XSD_DOCUMENTS.get() else {
+        return Ok(());
+    };
+    let mut documents = documents
+        .lock()
+        .map_err(|_| "XSD document registry is unavailable".to_owned())?;
+    for document in documents.drain(..) {
+        unsafe { xmlFreeDoc(document as *mut XmlDoc) };
+    }
+    Ok(())
 }
 
 unsafe extern "C" fn scan_xsd_element(payload: *mut c_void, data: *mut c_void, _name: *const u8) {
@@ -1037,6 +1101,32 @@ unsafe fn find_global_declaration(
     if document.is_null() {
         return Err("XSD reference node has no document".into());
     }
+    if let Some(declaration) = unsafe { declaration_in_document(document, kind, &expected) }? {
+        return Ok(Some(declaration));
+    }
+    let Some(documents) = XSD_DOCUMENTS.get() else {
+        return Ok(None);
+    };
+    let documents = documents
+        .lock()
+        .map_err(|_| "XSD document registry is unavailable".to_owned())?;
+    for candidate in documents.iter().copied() {
+        let candidate = candidate as *mut XmlDoc;
+        if candidate == document {
+            continue;
+        }
+        if let Some(declaration) = unsafe { declaration_in_document(candidate, kind, &expected) }? {
+            return Ok(Some(declaration));
+        }
+    }
+    Ok(None)
+}
+
+unsafe fn declaration_in_document(
+    document: *mut XmlDoc,
+    kind: &str,
+    expected: &ExpandedName,
+) -> Result<Option<*mut XmlNode>, String> {
     let root = unsafe { xmlDocGetRootElement(document) };
     if root.is_null() {
         return Err("XSD document has no root element".into());

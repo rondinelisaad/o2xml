@@ -1,0 +1,19 @@
+<xs:schema xmlns:xs="http://www.w3.org/2001/XMLSchema"
+           xmlns:a="urn:article"
+           xmlns:c="urn:common"
+           targetNamespace="urn:article"
+           elementFormDefault="qualified">
+  <xs:import namespace="urn:common"
+             schemaLocation="https://example.org/imported-models.xsd"/>
+  <xs:complexType name="ArticleType">
+    <xs:complexContent>
+      <xs:extension base="c:BaseArticleType">
+        <xs:sequence>
+          <xs:element name="body"/>
+        </xs:sequence>
+        <xs:attribute name="status" default="draft"/>
+      </xs:extension>
+    </xs:complexContent>
+  </xs:complexType>
+  <xs:element name="article" type="a:ArticleType"/>
+</xs:schema>
