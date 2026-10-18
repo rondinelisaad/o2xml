@@ -1,0 +1,30 @@
+<xs:schema xmlns:xs="http://www.w3.org/2001/XMLSchema"
+           xmlns:a="urn:article"
+           targetNamespace="urn:article"
+           elementFormDefault="qualified">
+  <xs:complexType name="BaseArticleType">
+    <xs:sequence>
+      <xs:element name="front"/>
+    </xs:sequence>
+    <xs:attribute name="id" type="xs:ID" use="required"/>
+  </xs:complexType>
+  <xs:complexType name="MetadataArticleType">
+    <xs:complexContent>
+      <xs:extension base="a:BaseArticleType">
+        <xs:attribute name="article-type" use="required"/>
+      </xs:extension>
+    </xs:complexContent>
+  </xs:complexType>
+  <xs:complexType name="CompleteArticleType">
+    <xs:complexContent>
+      <xs:extension base="a:MetadataArticleType">
+        <xs:sequence>
+          <xs:element name="body"/>
+          <xs:element name="back" minOccurs="0"/>
+        </xs:sequence>
+        <xs:attribute name="status" default="draft"/>
+      </xs:extension>
+    </xs:complexContent>
+  </xs:complexType>
+  <xs:element name="article" type="a:CompleteArticleType"/>
+</xs:schema>

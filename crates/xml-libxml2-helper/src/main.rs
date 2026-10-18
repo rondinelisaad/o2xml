@@ -649,7 +649,9 @@ unsafe extern "C" fn scan_xsd_element(payload: *mut c_void, data: *mut c_void, _
     } else {
         unsafe { (*element.subtype.cast::<XmlSchemaTypeLayout>()).node }
     };
-    let content = match unsafe { xsd_type_particle(type_node, &mut HashSet::new(), 0) } {
+    let content = match unsafe {
+        xsd_type_particle(type_node, &mut HashSet::new(), &mut HashSet::new(), 0)
+    } {
         Ok(Some(particle)) => XsdContent::Particle(particle),
         Ok(None) if matches!(element.content_type, 1 | 4 | 6) => XsdContent::Empty,
         Ok(None) => XsdContent::Any,
@@ -675,6 +677,7 @@ unsafe extern "C" fn scan_xsd_element(payload: *mut c_void, data: *mut c_void, _
 unsafe fn xsd_type_particle(
     type_node: *mut XmlNode,
     visited_groups: &mut HashSet<usize>,
+    visited_types: &mut HashSet<usize>,
     depth: usize,
 ) -> Result<Option<ContentParticle>, String> {
     if type_node.is_null() {
@@ -690,17 +693,49 @@ unsafe fn xsd_type_particle(
             }
             Some("complexContent" | "simpleContent") if unsafe { is_xsd_node(child) } => {
                 for derivation in unsafe { xsd_children(child) }? {
-                    if matches!(
-                        unsafe { node_local_name(derivation) }.as_deref(),
+                    let derivation_kind = unsafe { node_local_name(derivation) };
+                    if !matches!(
+                        derivation_kind.as_deref(),
                         Some("extension" | "restriction")
-                    ) && unsafe { is_xsd_node(derivation) }
+                    ) || !unsafe { is_xsd_node(derivation) }
                     {
-                        if let Some(particle) =
-                            unsafe { xsd_type_particle(derivation, visited_groups, depth + 1) }?
-                        {
-                            return Ok(Some(particle));
-                        }
+                        continue;
                     }
+                    let local = unsafe {
+                        xsd_type_particle(derivation, visited_groups, visited_types, depth + 1)
+                    }?;
+                    if derivation_kind.as_deref() == Some("restriction") {
+                        return Ok(local);
+                    }
+                    let base_name = unsafe { node_property(derivation, "base") }?
+                        .ok_or_else(|| "XSD extension has no base type".to_owned())?;
+                    let Some(base) = (unsafe {
+                        find_global_declaration(derivation, "complexType", &base_name)
+                    })?
+                    else {
+                        return Ok(None);
+                    };
+                    if !visited_types.insert(base as usize) {
+                        return Ok(None);
+                    }
+                    let inherited = unsafe {
+                        xsd_type_particle(base, visited_groups, visited_types, depth + 1)
+                    }?;
+                    visited_types.remove(&(base as usize));
+                    let local_declares_particle = unsafe {
+                        first_xsd_child(derivation, &["sequence", "choice", "all", "group", "any"])?
+                    }
+                    .is_some();
+                    if local_declares_particle && local.is_none() {
+                        return Ok(None);
+                    }
+                    return match (inherited, local) {
+                        (Some(base), Some(extension)) => {
+                            Ok(Some(ContentParticle::Sequence(vec![base, extension])))
+                        }
+                        (Some(base), None) => Ok(Some(base)),
+                        _ => Ok(None),
+                    };
                 }
             }
             _ => {}
@@ -828,7 +863,15 @@ unsafe fn xsd_type_attributes(
     if type_node.is_null() {
         return Ok(attributes);
     }
-    unsafe { collect_xsd_attributes(type_node, &mut attributes, &mut HashSet::new(), 0) }?;
+    unsafe {
+        collect_xsd_attributes(
+            type_node,
+            &mut attributes,
+            &mut HashSet::new(),
+            &mut HashSet::new(),
+            0,
+        )
+    }?;
     Ok(attributes)
 }
 
@@ -836,6 +879,7 @@ unsafe fn collect_xsd_attributes(
     container: *mut XmlNode,
     output: &mut Vec<AttributeDeclaration>,
     visited_groups: &mut HashSet<usize>,
+    visited_types: &mut HashSet<usize>,
     depth: usize,
 ) -> Result<(), String> {
     if depth > 8 {
@@ -852,8 +896,34 @@ unsafe fn collect_xsd_attributes(
                 }
                 output.push(unsafe { xsd_attribute(child) }?);
             }
-            Some("complexContent" | "simpleContent" | "extension" | "restriction") => {
-                unsafe { collect_xsd_attributes(child, output, visited_groups, depth + 1) }?;
+            Some("complexContent" | "simpleContent") => {
+                unsafe {
+                    collect_xsd_attributes(child, output, visited_groups, visited_types, depth + 1)
+                }?;
+            }
+            Some("extension" | "restriction") => {
+                if let Some(base_name) = unsafe { node_property(child, "base") }? {
+                    if let Some(base) =
+                        unsafe { find_global_declaration(child, "complexType", &base_name) }?
+                    {
+                        if !visited_types.insert(base as usize) {
+                            return Err("XSD complex type reference cycle detected".into());
+                        }
+                        unsafe {
+                            collect_xsd_attributes(
+                                base,
+                                output,
+                                visited_groups,
+                                visited_types,
+                                depth + 1,
+                            )
+                        }?;
+                        visited_types.remove(&(base as usize));
+                    }
+                }
+                unsafe {
+                    collect_xsd_attributes(child, output, visited_groups, visited_types, depth + 1)
+                }?;
             }
             Some("attributeGroup") => {
                 let reference = unsafe { node_property(child, "ref") }?
@@ -866,7 +936,9 @@ unsafe fn collect_xsd_attributes(
                 if !visited_groups.insert(group as usize) {
                     return Err("XSD attributeGroup reference cycle detected".into());
                 }
-                unsafe { collect_xsd_attributes(group, output, visited_groups, depth + 1) }?;
+                unsafe {
+                    collect_xsd_attributes(group, output, visited_groups, visited_types, depth + 1)
+                }?;
                 visited_groups.remove(&(group as usize));
             }
             _ => {}

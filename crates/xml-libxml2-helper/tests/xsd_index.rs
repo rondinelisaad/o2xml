@@ -95,3 +95,45 @@ fn expands_same_document_groups_and_preserves_all_ordering() -> Result<(), Box<d
     assert!(after_front.can_close);
     Ok(())
 }
+
+#[test]
+fn expands_same_document_complex_type_inheritance() -> Result<(), Box<dyn Error>> {
+    let root = fixtures();
+    let policy = ResourcePolicy::offline([root.clone()])?;
+    let catalog = CatalogResolver::load(root.join("catalog.xml"), policy)?;
+    let engine = Libxml2XsdIndexEngine::new(env!("CARGO_BIN_EXE_xml-libxml2-helper"))?;
+    let report = runtime()?.block_on(engine.compile(XsdIndexRequest {
+        catalog: &catalog,
+        uri: "https://example.org/inheritance.xsd",
+    }))?;
+
+    let article = ExpandedName::new(Some("urn:article"), "article")?;
+    let front = ExpandedName::new(Some("urn:article"), "front")?;
+    let body = ExpandedName::new(Some("urn:article"), "body")?;
+    let back = ExpandedName::new(Some("urn:article"), "back")?;
+    let start = report.index.complete_children(&article, &[])?;
+    assert_eq!(start.children, vec![front.clone()]);
+    let after_front = report
+        .index
+        .complete_children(&article, std::slice::from_ref(&front))?;
+    assert_eq!(after_front.children, vec![body.clone()]);
+    let after_body = report.index.complete_children(&article, &[front, body])?;
+    assert_eq!(after_body.children, vec![back]);
+    assert!(after_body.can_close);
+
+    let attributes = report
+        .index
+        .complete_attributes(&article, &Default::default())?;
+    assert_eq!(
+        attributes
+            .iter()
+            .map(|attribute| attribute.name.local_name.as_str())
+            .collect::<Vec<_>>(),
+        ["article-type", "id", "status"]
+    );
+    assert_eq!(
+        attributes[2].value_constraint,
+        Some(ValueConstraint::Default("draft".to_owned()))
+    );
+    Ok(())
+}

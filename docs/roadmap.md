@@ -75,9 +75,10 @@ Current progress:
   and an audited asynchronous desktop service.
 - [x] Expand same-document model groups and preserve exact `xs:all` unordered,
   single-occurrence semantics with bounded state construction.
-- [ ] Add namespace-constrained wildcards, cross-document model groups, and
-  inherited base-type content without treating completion as authoritative
-  validation.
+- [x] Expand same-document complex type extensions across bounded inheritance
+  chains, combining base/derived content and inherited attribute declarations.
+- [ ] Add namespace-constrained wildcards and cross-document model groups/types
+  without treating completion as authoritative validation.
 
 Gate: relevant standards/conformance fixtures pass, offline catalog scenarios are
 demonstrated, and all resource-policy denial tests pass.
