@@ -1,0 +1,20 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<xs:schema xmlns:xs="http://www.w3.org/2001/XMLSchema">
+  <xs:element name="article">
+    <xs:complexType>
+      <xs:sequence>
+        <xs:element name="front"/>
+        <xs:element name="body"/>
+        <xs:element name="back" minOccurs="0"/>
+      </xs:sequence>
+      <xs:attribute name="article-type" use="required">
+        <xs:simpleType>
+          <xs:restriction base="xs:string">
+            <xs:enumeration value="research-article"/>
+            <xs:enumeration value="review-article"/>
+          </xs:restriction>
+        </xs:simpleType>
+      </xs:attribute>
+    </xs:complexType>
+  </xs:element>
+</xs:schema>

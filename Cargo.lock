@@ -1935,6 +1935,7 @@ dependencies = [
  "xml-schema",
  "xml-syntax",
  "xml-xpath",
+ "xml-xsd",
 ]
 
 [[package]]

@@ -29,9 +29,11 @@ import type {
   Diagnostic,
   DocumentPayload,
   DtdCompletionPayload,
+  ExpandedNamePayload,
   OutlineEntry,
   ProjectPayload,
   XPathReport,
+  XsdCompletionPayload,
 } from "./contracts";
 
 interface OpenDocument extends DocumentPayload {
@@ -138,7 +140,7 @@ function baseExtensions(): Extension[] {
     foldGutter(),
     indentOnInput(),
     closeBrackets(),
-    autocompletion({ override: [dtdCompletionSource] }),
+    autocompletion({ override: [schemaCompletionSource] }),
     xml(),
     keymap.of([
       ...closeBracketsKeymap,
@@ -204,14 +206,99 @@ function attributeNames(tag: XmlSyntaxNode, state: EditorState): string[] {
   });
 }
 
-async function requestDtdCompletion(
+function namespaceBindings(scope: XmlSyntaxNode, state: EditorState): Map<string, string> {
+  const bindings = new Map<string, string>();
+  const visited = new Set<number>();
+  for (let current: XmlSyntaxNode | null = scope; current; current = current.parent) {
+    const tag = current.name === "OpenTag" || current.name === "SelfClosingTag"
+      ? current
+      : current.name === "Element"
+        ? current.firstChild
+        : null;
+    if (!tag || visited.has(tag.from)) continue;
+    visited.add(tag.from);
+    for (const attribute of tag.getChildren("Attribute")) {
+      const nameNode = attribute.getChild("AttributeName");
+      const valueNode = attribute.getChild("AttributeValue");
+      if (!nameNode || !valueNode) continue;
+      const name = state.doc.sliceString(nameNode.from, nameNode.to);
+      const prefix = name === "xmlns" ? "" : name.startsWith("xmlns:") ? name.slice(6) : null;
+      if (prefix === null || bindings.has(prefix)) continue;
+      const quoted = state.doc.sliceString(valueNode.from, valueNode.to);
+      bindings.set(prefix, quoted.replace(/^['"]|['"]$/g, ""));
+    }
+  }
+  return bindings;
+}
+
+function expandedName(
+  lexical: string,
+  bindings: Map<string, string>,
+  attribute: boolean,
+): ExpandedNamePayload {
+  const separator = lexical.indexOf(":");
+  if (separator >= 0) {
+    const prefix = lexical.slice(0, separator);
+    return {
+      namespaceUri: bindings.get(prefix) ?? null,
+      localName: lexical.slice(separator + 1),
+    };
+  }
+  return {
+    namespaceUri: attribute ? null : bindings.get("") ?? null,
+    localName: lexical,
+  };
+}
+
+function lexicalName(
+  name: ExpandedNamePayload,
+  bindings: Map<string, string>,
+  attribute: boolean,
+): string {
+  if (!name.namespaceUri) return name.localName;
+  for (const [prefix, namespace] of bindings) {
+    if (namespace === name.namespaceUri && (!attribute || prefix !== "")) {
+      return prefix ? `${prefix}:${name.localName}` : name.localName;
+    }
+  }
+  return name.localName;
+}
+
+async function requestSchemaCompletion(
   document: OpenDocument,
   parent: string,
   precedingChildren: string[],
   presentAttributes: string[],
+  state: EditorState,
+  scope: XmlSyntaxNode,
 ): Promise<DtdCompletionPayload | null> {
   if (!(await synchronize(document))) return null;
   try {
+    const source = state.doc.toString();
+    const hasXsdAssociation = source.includes("http://www.w3.org/2001/XMLSchema-instance")
+      && /(?:schemaLocation|noNamespaceSchemaLocation)\s*=/.test(source);
+    if (hasXsdAssociation) {
+      const bindings = namespaceBindings(scope, state);
+      const result = await invoke<XsdCompletionPayload>("complete_xsd", {
+        id: document.id,
+        context: {
+          parent: expandedName(parent, bindings, false),
+          precedingChildren: precedingChildren.map((name) => expandedName(name, bindings, false)),
+          presentAttributes: presentAttributes.map((name) => expandedName(name, bindings, true)),
+        },
+      });
+      if (document.id !== activeId || result.revision !== document.revision) return null;
+      return {
+        revision: result.revision,
+        children: result.children.map((name) => lexicalName(name, bindings, false)),
+        attributes: result.attributes.map((attribute) => ({
+          ...attribute,
+          name: lexicalName(attribute.name, bindings, true),
+        })),
+        canClose: result.canClose,
+        acceptsAny: result.acceptsAny,
+      };
+    }
     const result = await invoke<DtdCompletionPayload>("complete_dtd", {
       id: document.id,
       parent,
@@ -224,7 +311,7 @@ async function requestDtdCompletion(
   }
 }
 
-async function dtdCompletionSource(
+async function schemaCompletionSource(
   context: CompletionContext,
 ): Promise<CompletionResult | null> {
   const document = activeDocument();
@@ -245,7 +332,9 @@ async function dtdCompletionSource(
         ? context.state.doc.sliceString(attributeNameNode.from, attributeNameNode.to)
         : "";
       const present = attributeNames(tag, context.state).filter((item) => item !== attributeName);
-      const result = await requestDtdCompletion(document, name, [], present);
+      const result = await requestSchemaCompletion(
+        document, name, [], present, context.state, tag,
+      );
       const specification = result?.attributes.find((item) => item.name === attributeName);
       if (!specification || specification.values.length === 0) return null;
       return {
@@ -258,11 +347,13 @@ async function dtdCompletionSource(
       };
     }
     if (name && nameNode && nameNode.to < context.pos && word) {
-      const result = await requestDtdCompletion(
+      const result = await requestSchemaCompletion(
         document,
         name,
         [],
         attributeNames(tag, context.state),
+        context.state,
+        tag,
       );
       if (!result) return null;
       return {
@@ -301,11 +392,13 @@ async function dtdCompletionSource(
   if (!element) return null;
   const name = tagName(element, context.state);
   if (!name) return null;
-  const result = await requestDtdCompletion(
+  const result = await requestSchemaCompletion(
     document,
     name,
     directChildNames(element, context.pos, context.state),
     [],
+    context.state,
+    element,
   );
   if (!result) return null;
   return {

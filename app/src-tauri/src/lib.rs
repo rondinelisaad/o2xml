@@ -10,7 +10,7 @@ use std::{
     },
 };
 
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use tauri::State;
 use tracing_subscriber::EnvFilter;
 use xml_document::XmlDocument;
@@ -20,6 +20,7 @@ use xml_project::ProjectManifest;
 use xml_resource::{CatalogResolver, ResourcePolicy};
 use xml_schema::{AttributeUse, ExpandedName, SchemaIndex, ValueConstraint};
 use xml_xpath::{Libxml2XPathEngine, XPathEngine, XPathReport, XPathRequest};
+use xml_xsd::{Libxml2XsdIndexEngine, XsdIndexEngine, XsdIndexRequest};
 
 #[derive(Default)]
 struct AppState {
@@ -27,6 +28,7 @@ struct AppState {
     documents: Mutex<HashMap<u64, XmlDocument>>,
     project: Mutex<Option<OpenedProject>>,
     dtd_indexes: Mutex<HashMap<(String, Option<String>), SchemaIndex>>,
+    xsd_indexes: Mutex<HashMap<String, SchemaIndex>>,
 }
 
 #[derive(Clone)]
@@ -80,6 +82,34 @@ struct DtdAttributePayload {
     values: Vec<String>,
     default_value: Option<String>,
     fixed: bool,
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct XsdCompletionPayload {
+    revision: Revision,
+    children: Vec<ExpandedName>,
+    attributes: Vec<XsdAttributePayload>,
+    can_close: bool,
+    accepts_any: bool,
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct XsdAttributePayload {
+    name: ExpandedName,
+    required: bool,
+    values: Vec<String>,
+    default_value: Option<String>,
+    fixed: bool,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct XsdCompletionContext {
+    parent: ExpandedName,
+    preceding_children: Vec<ExpandedName>,
+    present_attributes: Vec<ExpandedName>,
 }
 
 fn display_name(path: Option<&Path>) -> String {
@@ -471,6 +501,148 @@ async fn complete_dtd(
 }
 
 #[tauri::command]
+async fn complete_xsd(
+    id: u64,
+    context: XsdCompletionContext,
+    state: State<'_, AppState>,
+) -> Result<XsdCompletionPayload, String> {
+    const MAX_CONTEXT_NAMES: usize = 4_096;
+    if context.preceding_children.len() > MAX_CONTEXT_NAMES
+        || context.present_attributes.len() > MAX_CONTEXT_NAMES
+    {
+        return Err("XSD completion context exceeds its safety limits".to_owned());
+    }
+    let validate_name = |name: &ExpandedName| {
+        ExpandedName::new(name.namespace_uri.as_deref(), &name.local_name)
+            .map(|_| ())
+            .map_err(|error| error.to_string())
+    };
+    validate_name(&context.parent)?;
+    for name in context
+        .preceding_children
+        .iter()
+        .chain(context.present_attributes.iter())
+    {
+        validate_name(name)?;
+    }
+    let (snapshot, document_path) = {
+        let documents = state
+            .documents
+            .lock()
+            .map_err(|_| "document store is unavailable".to_owned())?;
+        let document = documents
+            .get(&id)
+            .ok_or_else(|| "document is not open".to_owned())?;
+        (document.snapshot(), document.path().cloned())
+    };
+    let revision = snapshot.revision();
+    let result = async {
+        let project = state
+            .project
+            .lock()
+            .map_err(|_| "project store is unavailable".to_owned())?
+            .clone()
+            .ok_or_else(|| "open a project before requesting XSD completion".to_owned())?;
+        if document_path
+            .as_ref()
+            .is_some_and(|path| !path.starts_with(&project.root))
+        {
+            return Err("document is outside the active project".to_owned());
+        }
+        let catalog_setting = project
+            .manifest
+            .xml
+            .catalog
+            .as_deref()
+            .ok_or_else(|| "active project has no XML catalog".to_owned())?;
+        let catalog_path = normalized_path(&project.root.join(catalog_setting))?;
+        if !catalog_path.starts_with(&project.root) {
+            return Err("project catalog is outside the project root".to_owned());
+        }
+        let association = xml_syntax::schema_association(&snapshot.text())
+            .map_err(|error| error.to_string())?
+            .ok_or_else(|| "document has no XSD association".to_owned())?;
+        let schema_uri = match context.parent.namespace_uri.as_deref() {
+            Some(namespace) => association.namespace_locations.get(namespace).cloned(),
+            None => association.no_namespace_schema_location,
+        }
+        .ok_or_else(|| "document has no XSD association for the current namespace".to_owned())?;
+        let cached = state
+            .xsd_indexes
+            .lock()
+            .map_err(|_| "XSD index cache is unavailable".to_owned())?
+            .get(&schema_uri)
+            .cloned();
+        let index = if let Some(index) = cached {
+            index
+        } else {
+            let policy = ResourcePolicy::offline([project.root.clone()])
+                .map_err(|error| error.to_string())?;
+            let catalog =
+                CatalogResolver::load(&catalog_path, policy).map_err(|error| error.to_string())?;
+            let engine = Libxml2XsdIndexEngine::new(libxml2_helper_path()?)
+                .map_err(|error| error.to_string())?;
+            let report = engine
+                .compile(XsdIndexRequest {
+                    catalog: &catalog,
+                    uri: &schema_uri,
+                })
+                .await
+                .map_err(|error| error.to_string())?;
+            state
+                .xsd_indexes
+                .lock()
+                .map_err(|_| "XSD index cache is unavailable".to_owned())?
+                .insert(schema_uri, report.index.clone());
+            report.index
+        };
+        let present = context
+            .present_attributes
+            .into_iter()
+            .collect::<std::collections::BTreeSet<_>>();
+        let child_completion = index
+            .complete_children(&context.parent, &context.preceding_children)
+            .map_err(|error| error.to_string())?;
+        let attributes = index
+            .complete_attributes(&context.parent, &present)
+            .map_err(|error| error.to_string())?
+            .into_iter()
+            .map(|attribute| {
+                let (default_value, fixed) = match attribute.value_constraint {
+                    Some(ValueConstraint::Default(value)) => (Some(value), false),
+                    Some(ValueConstraint::Fixed(value)) => (Some(value), true),
+                    None => (None, false),
+                };
+                XsdAttributePayload {
+                    name: attribute.name,
+                    required: attribute.use_kind == AttributeUse::Required,
+                    values: attribute.allowed_values,
+                    default_value,
+                    fixed,
+                }
+            })
+            .collect();
+        Ok(XsdCompletionPayload {
+            revision,
+            children: child_completion.children,
+            attributes,
+            can_close: child_completion.can_close,
+            accepts_any: child_completion.accepts_any,
+        })
+    }
+    .await;
+    audit::event(
+        "completion.xsd",
+        if result.is_ok() { "success" } else { "failure" },
+        "document",
+        id,
+        Some(revision),
+        Some("libxml2"),
+    );
+    result
+}
+
+#[tauri::command]
 fn format_document(
     id: u64,
     indent_size: usize,
@@ -571,6 +743,11 @@ fn open_project(path: String, state: State<'_, AppState>) -> Result<ProjectPaylo
         .lock()
         .map_err(|_| "DTD index cache is unavailable".to_owned())?
         .clear();
+    state
+        .xsd_indexes
+        .lock()
+        .map_err(|_| "XSD index cache is unavailable".to_owned())?
+        .clear();
     audit::event("project.open", "success", "project", 0, None, None);
     Ok(payload)
 }
@@ -627,6 +804,7 @@ pub fn run() {
             analyze_document,
             evaluate_xpath,
             complete_dtd,
+            complete_xsd,
             format_document,
             save_document,
             open_project,

@@ -23,7 +23,7 @@ desktop MVP with a Rust core and a Tauri/CodeMirror interface.
   attribute uses are projected from libxml2-resolved types. Same-document
   attribute groups and enumeration facets are supported; model groups, exact
   `all`, constrained wildcards, inherited content, cross-document groups, and
-  desktop XSD completion remain.
+  advanced XSD content-model projection remains.
 - Phases 3–5: planned; Schematron/JATS/SPS validation is not presented as
   implemented yet.
 

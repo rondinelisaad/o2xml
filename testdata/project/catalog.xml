@@ -1,4 +1,5 @@
 <?xml version="1.0"?>
 <catalog xmlns="urn:oasis:names:tc:entity:xmlns:xml:catalog">
   <system systemId="https://example.org/jats-synthetic.dtd" uri="schemas/jats-synthetic.dtd"/>
+  <uri name="https://example.org/jats-synthetic.xsd" uri="schemas/jats-synthetic.xsd"/>
 </catalog>

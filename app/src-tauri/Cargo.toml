@@ -25,6 +25,7 @@ xml-project = { path = "../../crates/xml-project" }
 xml-resource = { path = "../../crates/xml-resource" }
 xml-schema = { path = "../../crates/xml-schema" }
 xml-syntax = { path = "../../crates/xml-syntax" }
+xml-xsd = { path = "../../crates/xml-xsd" }
 xml-xpath = { path = "../../crates/xml-xpath" }
 
 [lints]

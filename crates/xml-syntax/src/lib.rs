@@ -1,3 +1,5 @@
+use std::collections::BTreeMap;
+
 use quick_xml::{
     events::{BytesStart, Event},
     name::{NamespaceResolver, ResolveResult},
@@ -9,6 +11,7 @@ use xml_document::LineIndex;
 use xml_domain::{Diagnostic, OutlineEntry, Revision, Severity};
 
 const MAX_DOCTYPE_IDENTIFIER_BYTES: usize = 8 * 1024;
+const XSI_NAMESPACE: &[u8] = b"http://www.w3.org/2001/XMLSchema-instance";
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct DocumentType {
@@ -39,6 +42,78 @@ pub fn document_type(source: &str) -> Result<Option<DocumentType>, DocumentTypeE
             Err(error) => return Err(DocumentTypeError::Xml(error.to_string())),
         }
     }
+}
+
+#[derive(Clone, Debug, Default, Eq, PartialEq)]
+pub struct SchemaAssociation {
+    pub no_namespace_schema_location: Option<String>,
+    pub namespace_locations: BTreeMap<String, String>,
+}
+
+#[derive(Debug, Eq, Error, PartialEq)]
+pub enum SchemaAssociationError {
+    #[error("schema location exceeds the {limit}-byte limit")]
+    LocationTooLarge { limit: usize },
+    #[error("xsi:schemaLocation must contain namespace and location pairs")]
+    InvalidPairs,
+    #[error("cannot inspect XML schema association: {0}")]
+    Xml(String),
+}
+
+pub fn schema_association(
+    source: &str,
+) -> Result<Option<SchemaAssociation>, SchemaAssociationError> {
+    let mut reader = NsReader::from_str(source);
+    loop {
+        match reader.read_resolved_event() {
+            Ok((_, Event::Start(element) | Event::Empty(element))) => {
+                let mut association = SchemaAssociation::default();
+                for attribute in element.attributes() {
+                    let attribute = attribute
+                        .map_err(|error| SchemaAssociationError::Xml(error.to_string()))?;
+                    let (resolution, local_name) =
+                        reader.resolver().resolve_attribute(attribute.key);
+                    if !matches!(resolution, ResolveResult::Bound(namespace) if namespace.as_ref() == XSI_NAMESPACE)
+                    {
+                        continue;
+                    }
+                    let value = attribute
+                        .normalized_value(quick_xml::XmlVersion::Implicit1_0)
+                        .map_err(|error| SchemaAssociationError::Xml(error.to_string()))?;
+                    if local_name.as_ref() == b"noNamespaceSchemaLocation" {
+                        validate_schema_location(&value)?;
+                        association.no_namespace_schema_location = Some(value.into_owned());
+                    } else if local_name.as_ref() == b"schemaLocation" {
+                        let tokens = value.split_ascii_whitespace().collect::<Vec<_>>();
+                        if tokens.len() % 2 != 0 {
+                            return Err(SchemaAssociationError::InvalidPairs);
+                        }
+                        let (pairs, _) = tokens.as_chunks::<2>();
+                        for [namespace, location] in pairs {
+                            validate_schema_location(namespace)?;
+                            validate_schema_location(location)?;
+                            association
+                                .namespace_locations
+                                .insert((*namespace).to_owned(), (*location).to_owned());
+                        }
+                    }
+                }
+                return Ok((association != SchemaAssociation::default()).then_some(association));
+            }
+            Ok((_, Event::Eof)) => return Ok(None),
+            Ok(_) => {}
+            Err(error) => return Err(SchemaAssociationError::Xml(error.to_string())),
+        }
+    }
+}
+
+fn validate_schema_location(value: &str) -> Result<(), SchemaAssociationError> {
+    if value.is_empty() || value.len() > MAX_DOCTYPE_IDENTIFIER_BYTES {
+        return Err(SchemaAssociationError::LocationTooLarge {
+            limit: MAX_DOCTYPE_IDENTIFIER_BYTES,
+        });
+    }
+    Ok(())
 }
 
 fn parse_document_type(value: &str) -> Result<DocumentType, DocumentTypeError> {
@@ -362,6 +437,39 @@ mod tests {
                 system_id: Some("JATS.dtd".to_owned()),
                 public_id: Some("-//NLM//DTD JATS 1.3//EN".to_owned()),
             }))
+        );
+    }
+
+    #[test]
+    fn reads_schema_locations_with_any_xsi_prefix() -> Result<(), SchemaAssociationError> {
+        let association = schema_association(
+            r#"<article xmlns:i="http://www.w3.org/2001/XMLSchema-instance"
+                i:schemaLocation="urn:jats https://example.org/jats.xsd"
+                i:noNamespaceSchemaLocation="https://example.org/local.xsd"/>"#,
+        )?
+        .ok_or(SchemaAssociationError::InvalidPairs)?;
+        assert_eq!(
+            association
+                .namespace_locations
+                .get("urn:jats")
+                .map(String::as_str),
+            Some("https://example.org/jats.xsd")
+        );
+        assert_eq!(
+            association.no_namespace_schema_location.as_deref(),
+            Some("https://example.org/local.xsd")
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn rejects_unpaired_schema_location() {
+        assert_eq!(
+            schema_association(
+                r#"<article xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+                    xsi:schemaLocation="urn:jats"/>"#,
+            ),
+            Err(SchemaAssociationError::InvalidPairs)
         );
     }
 

@@ -70,6 +70,9 @@ Current progress:
 - [x] Expand same-document attribute groups and preserve enumeration facets,
   with cycle/depth/count limits and conservative fallback when a reference
   cannot be projected safely.
+- [x] Expose project-bound XSD element, attribute, and enumeration completion
+  through document schema associations, the offline catalog, a bounded cache,
+  and an audited asynchronous desktop service.
 - [ ] Add model groups, exact `all` semantics, namespace-constrained wildcards,
   cross-document groups, and inherited base-type content without treating
   completion as authoritative validation.

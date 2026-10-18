@@ -85,3 +85,24 @@ export interface DtdCompletionPayload {
   canClose: boolean;
   acceptsAny: boolean;
 }
+
+export interface ExpandedNamePayload {
+  namespaceUri: string | null;
+  localName: string;
+}
+
+export interface XsdAttributeCompletion {
+  name: ExpandedNamePayload;
+  required: boolean;
+  values: string[];
+  defaultValue: string | null;
+  fixed: boolean;
+}
+
+export interface XsdCompletionPayload {
+  revision: number;
+  children: ExpandedNamePayload[];
+  attributes: XsdAttributeCompletion[];
+  canClose: boolean;
+  acceptsAny: boolean;
+}
