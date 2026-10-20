@@ -45,6 +45,18 @@ jobs:
             pkg-config \
             patchelf
 
+      - name: Verify release version consistency
+        shell: bash
+        run: |
+          version=$(jq -r '.version' app/src-tauri/tauri.conf.json)
+          test "$(jq -r '.version' app/package.json)" = "$version"
+          test "$(jq -r '.version' app/package-lock.json)" = "$version"
+          test "$(jq -r '.packages[""].version' app/package-lock.json)" = "$version"
+          workspace_versions=$(cargo metadata --locked --no-deps --format-version 1 \
+            | jq -r '.packages[] | select(.source == null) | .version' \
+            | sort -u)
+          test "$workspace_versions" = "$version"
+
       - name: Prepare XML helper for workspace checks
         run: |
           cargo build --locked --package xml-libxml2-helper

@@ -55,6 +55,12 @@ gh workflow run release.yml --ref main
 The release tag is derived by Tauri as `o2xml-v<version>`. Do not reuse an
 existing published version.
 
+Published releases are immutable product snapshots. Never upload newly built
+artifacts to an already published version: increment the semantic version and
+run the workflow again so that every installer, portable archive, source tag,
+and checksum represents the same commit. The quality job rejects inconsistent
+versions across the Rust workspace, Tauri configuration, and npm manifests.
+
 ## Local package verification
 
 Build and stage the native helper before invoking Tauri:
