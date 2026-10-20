@@ -214,6 +214,13 @@ export interface AuthorPreviewPayload {
   engine: string;
   html: string;
   stylesheet: string;
+  assets: AuthorPreviewAsset[];
+  assetsSkipped: number;
+}
+
+export interface AuthorPreviewAsset {
+  source: string;
+  dataUri: string;
 }
 
 export interface AuthorEditPayload {

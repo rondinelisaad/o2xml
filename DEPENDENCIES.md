@@ -7,6 +7,7 @@ phase gate. CI will add `cargo audit`, `cargo deny`, npm audit, and license chec
 
 | Dependency | Purpose | License | Rationale / constraint |
 |---|---|---|---|
+| `base64` 0.23.1 | Encode approved local preview images as self-contained data URLs | MIT OR Apache-2.0 | Mature no-I/O codec; default SIMD/unsafe feature disabled, only bounded bytes already confined by the Rust filesystem broker are encoded |
 | `tauri` 2 | Desktop lifecycle and typed IPC | MIT OR Apache-2.0 | Cross-platform Rust core; capabilities kept minimal |
 | `tauri-plugin-dialog` 2 | Native open/save dialog | MIT OR Apache-2.0 | Avoid custom platform dialog code |
 | `quick-xml` | Streaming XML events | MIT | Mature, fast Phase 1 well-formedness/outline/format foundation |
@@ -142,4 +143,6 @@ override them.
 - **Security:** libxslt runs in the isolated helper; local reads require approval
   from the offline catalog broker, writes and network remain denied, parameters
   are bounded/quoted, and generated HTML is allowlist-sanitized before entering
-  a scriptless sandboxed iframe.
+  a scriptless sandboxed iframe. Referenced local raster images are separately
+  canonicalized below the XML directory, signature-checked, bounded, base64-
+  encoded, and admitted only through an exact generated-source map.

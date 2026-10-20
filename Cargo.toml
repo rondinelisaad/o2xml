@@ -31,6 +31,7 @@ repository = "https://github.com/scieloorg/o2xml"
 
 [workspace.dependencies]
 anyhow = "1"
+base64 = { version = "0.23.1", default-features = false, features = ["std"] }
 quick-xml = "0.40"
 reqwest = { version = "0.13.5", default-features = false, features = ["rustls"] }
 ropey = "1.6"

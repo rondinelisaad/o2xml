@@ -41,6 +41,7 @@ available alongside this read-only publication preview.
 - JATS articles can be previewed offline with the SciELO presentation used by
   SPSValidator v0.3.0, without requiring Python or a GPL runtime.
 - The first integration is intentionally a safe static preview. Interactive
-  Packtools JavaScript and article media are not executed or loaded.
+  Packtools JavaScript is not executed. ADR 0010 subsequently admits bounded,
+  directory-confined local raster figures as copied data URLs.
 - Updates require an explicit Packtools version review, asset update, license
   notice update, and golden/integration test run.

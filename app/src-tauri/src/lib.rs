@@ -1,10 +1,10 @@
 mod audit;
 
 use std::{
-    collections::{BTreeMap, HashMap},
+    collections::{BTreeMap, BTreeSet, HashMap},
     env, fs,
     io::Write,
-    path::{Path, PathBuf},
+    path::{Component, Path, PathBuf},
     sync::{
         atomic::{AtomicU64, Ordering},
         Mutex,
@@ -12,6 +12,7 @@ use std::{
     time::SystemTime,
 };
 
+use base64::{engine::general_purpose::STANDARD as BASE64_STANDARD, Engine as _};
 use quick_xml::{events::Event, Reader, XmlVersion};
 use serde::{Deserialize, Serialize};
 use tauri::{path::BaseDirectory, AppHandle, Manager, State};
@@ -190,6 +191,15 @@ struct AuthorPreviewPayload {
     engine: &'static str,
     html: String,
     stylesheet: String,
+    assets: Vec<AuthorPreviewAsset>,
+    assets_skipped: usize,
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct AuthorPreviewAsset {
+    source: String,
+    data_uri: String,
 }
 
 #[derive(Debug, Serialize)]
@@ -1515,15 +1525,15 @@ async fn preview_author_inner(
 ) -> Result<AuthorPreviewPayload, String> {
     const MAX_AUTHOR_PREVIEW_SOURCE_BYTES: usize = 32 * 1024 * 1024;
     const MAX_AUTHOR_PREVIEW_CSS_BYTES: u64 = 1024 * 1024;
-    let snapshot = {
+    let (snapshot, document_path) = {
         let documents = state
             .documents
             .lock()
             .map_err(|_| "document store is unavailable".to_owned())?;
-        documents
+        let document = documents
             .get(&id)
-            .ok_or_else(|| "document is not open".to_owned())?
-            .snapshot()
+            .ok_or_else(|| "document is not open".to_owned())?;
+        (document.snapshot(), document.path().cloned())
     };
     let source = snapshot.text();
     if source.len() > MAX_AUTHOR_PREVIEW_SOURCE_BYTES {
@@ -1584,11 +1594,15 @@ async fn preview_author_inner(
         .map_err(|_| "Packtools preview output is not UTF-8".to_owned())?;
     let stylesheet = fs::read_to_string(css_path)
         .map_err(|error| format!("cannot read Packtools preview stylesheet: {error}"))?;
+    let (assets, assets_skipped) =
+        collect_author_preview_assets(&source, document_path.as_deref())?;
     Ok(AuthorPreviewPayload {
         revision: report.revision,
         engine: "Packtools HTMLGenerator 4.16.9",
         html,
         stylesheet,
+        assets,
+        assets_skipped,
     })
 }
 
@@ -1626,6 +1640,157 @@ fn jats_article_language(source: &str) -> Result<String, String> {
             Ok(_) => {}
             Err(error) => return Err(format!("cannot inspect JATS article: {error}")),
         }
+    }
+}
+
+fn collect_author_preview_assets(
+    source: &str,
+    document_path: Option<&Path>,
+) -> Result<(Vec<AuthorPreviewAsset>, usize), String> {
+    const MAX_ASSETS: usize = 64;
+    const MAX_ASSET_BYTES: u64 = 8 * 1024 * 1024;
+    const MAX_TOTAL_ASSET_BYTES: u64 = 32 * 1024 * 1024;
+    const MAX_REFERENCE_BYTES: usize = 1024;
+
+    let mut references = BTreeSet::new();
+    let mut reader = Reader::from_str(source);
+    loop {
+        match reader.read_event() {
+            Ok(Event::Start(element) | Event::Empty(element)) => {
+                if !matches!(
+                    element.local_name().as_ref(),
+                    b"graphic" | b"inline-graphic"
+                ) {
+                    continue;
+                }
+                for attribute in element.attributes() {
+                    let attribute = attribute.map_err(|error| {
+                        format!("cannot read JATS preview asset attributes: {error}")
+                    })?;
+                    if attribute.key.local_name().as_ref() != b"href" {
+                        continue;
+                    }
+                    let value = attribute
+                        .decoded_and_normalized_value(XmlVersion::Implicit1_0, reader.decoder())
+                        .map_err(|error| {
+                            format!("cannot decode JATS preview asset reference: {error}")
+                        })?
+                        .into_owned();
+                    if !value.is_empty() && value.len() <= MAX_REFERENCE_BYTES {
+                        references.insert(packtools_image_reference(&value));
+                    }
+                }
+            }
+            Ok(Event::Eof) => break,
+            Ok(_) => {}
+            Err(error) => return Err(format!("cannot inspect JATS preview assets: {error}")),
+        }
+    }
+
+    let mut skipped = references.len().saturating_sub(MAX_ASSETS);
+    let Some(document_path) = document_path else {
+        return Ok((
+            Vec::new(),
+            skipped.saturating_add(references.len().min(MAX_ASSETS)),
+        ));
+    };
+    let Some(parent) = document_path.parent() else {
+        return Ok((
+            Vec::new(),
+            skipped.saturating_add(references.len().min(MAX_ASSETS)),
+        ));
+    };
+    let root = parent
+        .canonicalize()
+        .map_err(|error| format!("cannot resolve the XML directory for preview assets: {error}"))?;
+    let mut assets = Vec::new();
+    let mut total_bytes = 0_u64;
+    for reference in references.into_iter().take(MAX_ASSETS) {
+        let Some(path) = confined_preview_asset_path(&root, &reference) else {
+            skipped = skipped.saturating_add(1);
+            continue;
+        };
+        let Ok(metadata) = fs::metadata(&path) else {
+            skipped = skipped.saturating_add(1);
+            continue;
+        };
+        if !metadata.is_file()
+            || metadata.len() > MAX_ASSET_BYTES
+            || total_bytes.saturating_add(metadata.len()) > MAX_TOTAL_ASSET_BYTES
+        {
+            skipped = skipped.saturating_add(1);
+            continue;
+        }
+        let Ok(bytes) = fs::read(&path) else {
+            skipped = skipped.saturating_add(1);
+            continue;
+        };
+        let actual_len = u64::try_from(bytes.len()).unwrap_or(u64::MAX);
+        if actual_len > MAX_ASSET_BYTES
+            || total_bytes.saturating_add(actual_len) > MAX_TOTAL_ASSET_BYTES
+        {
+            skipped = skipped.saturating_add(1);
+            continue;
+        }
+        let Some(media_type) = preview_image_media_type(&bytes) else {
+            skipped = skipped.saturating_add(1);
+            continue;
+        };
+        total_bytes = total_bytes.saturating_add(actual_len);
+        assets.push(AuthorPreviewAsset {
+            source: reference,
+            data_uri: format!("data:{media_type};base64,{}", BASE64_STANDARD.encode(bytes)),
+        });
+    }
+    Ok((assets, skipped))
+}
+
+fn packtools_image_reference(reference: &str) -> String {
+    let path = Path::new(reference);
+    match path
+        .extension()
+        .and_then(|extension| extension.to_str())
+        .map(str::to_ascii_lowercase)
+    {
+        None => format!("{reference}.jpg"),
+        Some(extension) if extension.contains("tif") => {
+            path.with_extension("jpg").to_string_lossy().into_owned()
+        }
+        Some(_) => reference.to_owned(),
+    }
+}
+
+fn confined_preview_asset_path(root: &Path, reference: &str) -> Option<PathBuf> {
+    if reference.is_empty() || url::Url::parse(reference).is_ok() {
+        return None;
+    }
+    let relative = Path::new(reference);
+    if relative.is_absolute()
+        || !relative
+            .components()
+            .all(|component| matches!(component, Component::Normal(_) | Component::CurDir))
+    {
+        return None;
+    }
+    let candidate = root.join(relative);
+    if fs::symlink_metadata(&candidate).is_ok_and(|metadata| metadata.file_type().is_symlink()) {
+        return None;
+    }
+    let canonical = candidate.canonicalize().ok()?;
+    canonical.starts_with(root).then_some(canonical)
+}
+
+fn preview_image_media_type(bytes: &[u8]) -> Option<&'static str> {
+    if bytes.starts_with(b"\x89PNG\r\n\x1a\n") {
+        Some("image/png")
+    } else if bytes.starts_with(b"\xff\xd8\xff") {
+        Some("image/jpeg")
+    } else if bytes.starts_with(b"GIF87a") || bytes.starts_with(b"GIF89a") {
+        Some("image/gif")
+    } else if bytes.len() >= 12 && &bytes[..4] == b"RIFF" && &bytes[8..12] == b"WEBP" {
+        Some("image/webp")
+    } else {
+        None
     }
 }
 
@@ -2335,5 +2500,80 @@ pub fn run() {
 
     if let Err(error) = application {
         tracing::error!(action = "application.run", result = "failure", error = %error);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn author_preview_loads_only_declared_confined_images() -> Result<(), Box<dyn std::error::Error>>
+    {
+        let temporary = tempfile::tempdir()?;
+        let article_directory = temporary.path().join("article");
+        fs::create_dir(&article_directory)?;
+        let document_path = article_directory.join("article.xml");
+        fs::write(&document_path, b"placeholder")?;
+        fs::write(
+            article_directory.join("figure.png"),
+            b"\x89PNG\r\n\x1a\npreview",
+        )?;
+        fs::write(
+            temporary.path().join("outside.png"),
+            b"\x89PNG\r\n\x1a\noutside",
+        )?;
+        let source = r#"<article xmlns:xlink="http://www.w3.org/1999/xlink"><graphic xlink:href="figure.png"/><graphic xlink:href="../outside.png"/><inline-graphic xlink:href="https://example.org/remote.png"/></article>"#;
+
+        let (assets, skipped) = collect_author_preview_assets(source, Some(&document_path))?;
+
+        assert_eq!(assets.len(), 1);
+        assert_eq!(assets[0].source, "figure.png");
+        assert!(assets[0].data_uri.starts_with("data:image/png;base64,"));
+        assert_eq!(skipped, 2);
+        Ok(())
+    }
+
+    #[test]
+    fn author_preview_rejects_disguised_and_unknown_images(
+    ) -> Result<(), Box<dyn std::error::Error>> {
+        let temporary = tempfile::tempdir()?;
+        let document_path = temporary.path().join("article.xml");
+        fs::write(&document_path, b"placeholder")?;
+        fs::write(temporary.path().join("vector.svg"), b"<svg><script/></svg>")?;
+        fs::write(temporary.path().join("fake.jpg"), b"not an image")?;
+        let source = r#"<article xmlns:xlink="http://www.w3.org/1999/xlink"><graphic xlink:href="vector.svg"/><graphic xlink:href="fake.jpg"/></article>"#;
+
+        let (assets, skipped) = collect_author_preview_assets(source, Some(&document_path))?;
+
+        assert!(assets.is_empty());
+        assert_eq!(skipped, 2);
+        Ok(())
+    }
+
+    #[test]
+    fn follows_packtools_raster_extension_rules() {
+        assert_eq!(packtools_image_reference("figure"), "figure.jpg");
+        assert_eq!(packtools_image_reference("figure.tif"), "figure.jpg");
+        assert_eq!(packtools_image_reference("figure.TIFF"), "figure.jpg");
+        assert_eq!(packtools_image_reference("figure.webp"), "figure.webp");
+    }
+
+    #[test]
+    fn detects_only_browser_safe_raster_signatures() {
+        assert_eq!(
+            preview_image_media_type(b"\x89PNG\r\n\x1a\n"),
+            Some("image/png")
+        );
+        assert_eq!(
+            preview_image_media_type(b"\xff\xd8\xff\xe0"),
+            Some("image/jpeg")
+        );
+        assert_eq!(preview_image_media_type(b"GIF89a"), Some("image/gif"));
+        assert_eq!(
+            preview_image_media_type(b"RIFF0000WEBP"),
+            Some("image/webp")
+        );
+        assert_eq!(preview_image_media_type(b"<svg><script/></svg>"), None);
     }
 }

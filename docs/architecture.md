@@ -152,8 +152,14 @@ bundled Packtools 4.16.9 `root-html-2.0.xslt`. Every include and `document()`
 read crosses the same offline catalog broker used by validation; parameters are
 bounded strings quoted by libxslt. The webview then parses the returned HTML,
 retains an explicit safe element/attribute subset, injects the bundled CSS, and
-uses a scriptless iframe with a deny-all CSP. This branch is read-only and never
-replaces the authoritative XML or the structured-edit projection.
+uses a scriptless iframe with a deny-all CSP. A separate native media broker
+extracts only declared JATS `graphic`/`inline-graphic` references, confines
+canonical paths below the saved XML directory, verifies PNG/JPEG/GIF/WebP file
+signatures, applies per-file/count/aggregate limits, and returns data URLs keyed
+by the exact generated `src`. The sanitizer admits an `img` only when that key
+exists; the iframe never receives a filesystem path or capability. This branch
+is read-only and never replaces the authoritative XML or the structured-edit
+projection.
 
 ## Engine plan
 

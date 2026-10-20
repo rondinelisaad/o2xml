@@ -235,8 +235,15 @@ have bounded count/name/value sizes and are passed through
 `xsltQuoteUserParams`, never interpreted from raw user expressions. Generated
 HTML is reparsed through the preview allowlist and shown in an iframe with no
 sandbox capabilities, `referrerPolicy=no-referrer`, and CSP `default-src
-'none'`. Scripts, active/embed content, forms, images, event attributes, and
-non-fragment links are removed. Audit event `author.preview` records only the
+'none'`. Scripts, active/embed content, forms, event attributes, and non-fragment
+links are removed. Raster images are admitted only when a `graphic` or
+`inline-graphic` reference resolves to a regular PNG/JPEG/GIF/WebP file below
+the saved XML directory. Absolute/remote/traversing paths, final symlinks,
+unsupported signatures, more than 64 files, files above 8 MiB, and aggregate
+content above 32 MiB are skipped. Approved bytes are embedded as generated
+`data:` URLs matched to the exact sanitized `img src`; local paths never enter
+the iframe. CSP permits `data:` only for images. Audit event `author.preview`
+records only the
 result, opaque document ID, revision, and pinned engine name.
 
 The Jing RNC adapter does not expose original grammar paths to the dependency

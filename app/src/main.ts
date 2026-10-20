@@ -880,8 +880,17 @@ async function runAuthorMode(): Promise<void> {
 }
 
 function renderAuthorPreview(payload: AuthorPreviewPayload): void {
-  authorPreviewFrame.srcdoc = sanitizePreviewHtml(payload.html, payload.stylesheet);
-  authorEngine.textContent = payload.engine;
+  const assets = new Map(payload.assets.map((asset) => [asset.source, asset.dataUri]));
+  authorPreviewFrame.srcdoc = sanitizePreviewHtml(payload.html, payload.stylesheet, assets);
+  authorEngine.textContent = authorPreviewEngineLabel(payload);
+}
+
+function authorPreviewEngineLabel(payload: AuthorPreviewPayload): string {
+  return t("author.previewAssets", {
+    engine: payload.engine,
+    loaded: payload.assets.length,
+    skipped: payload.assetsSkipped,
+  });
 }
 
 function showAuthorPane(pane: "preview" | "structured"): void {
@@ -892,7 +901,9 @@ function showAuthorPane(pane: "preview" | "structured"): void {
   authorPreviewButton.classList.toggle("active", preview);
   authorStructuredButton.classList.toggle("active", !preview);
   if (!preview && activeAuthorPreview) authorEngine.textContent = t("author.description");
-  if (preview && activeAuthorPreview) authorEngine.textContent = activeAuthorPreview.engine;
+  if (preview && activeAuthorPreview) {
+    authorEngine.textContent = authorPreviewEngineLabel(activeAuthorPreview);
+  }
 }
 
 function renderAuthor(payload: AuthorPayload): void {
@@ -1694,22 +1705,26 @@ function renderTransformationOutput(summary: HTMLDivElement, result: TransformPa
   show(true);
 }
 
-function sanitizePreviewHtml(source: string, stylesheet = ""): string {
+function sanitizePreviewHtml(
+  source: string,
+  stylesheet = "",
+  imageAssets: ReadonlyMap<string, string> = new Map(),
+): string {
   const parsed = new DOMParser().parseFromString(source, "text/html");
   const allowedElements = new Set([
     "html", "head", "title", "body", "article", "section", "main", "header", "footer",
     "h1", "h2", "h3", "h4", "h5", "h6", "p", "div", "span", "strong", "em",
     "b", "i", "u", "sup", "sub", "blockquote", "pre", "code", "br", "hr", "ul",
     "ol", "li", "dl", "dt", "dd", "table", "caption", "thead", "tbody", "tfoot",
-    "tr", "th", "td", "a",
+    "tr", "th", "td", "a", "img",
   ]);
   const droppedWithContent = new Set([
     "script", "style", "link", "meta", "base", "iframe", "object", "embed", "applet",
     "form", "input", "button", "select", "textarea", "option", "svg", "math", "audio",
-    "video", "source", "track", "img", "picture", "canvas",
+    "video", "source", "track", "picture", "canvas",
   ]);
   const allowedAttributes = new Set([
-    "class", "id", "title", "lang", "dir", "colspan", "rowspan", "scope",
+    "class", "id", "title", "lang", "dir", "colspan", "rowspan", "scope", "alt",
   ]);
   const elements = [...parsed.querySelectorAll("*")];
   if (elements.length > 50_000) throw new Error(t("transform.previewElementLimit"));
@@ -1721,8 +1736,23 @@ function sanitizePreviewHtml(source: string, stylesheet = ""): string {
       else element.replaceWith(...element.childNodes);
       continue;
     }
+    if (name === "img") {
+      const sourceValue = element.getAttribute("src");
+      const dataUri = sourceValue === null ? undefined : imageAssets.get(sourceValue);
+      if (!dataUri) {
+        element.remove();
+        continue;
+      }
+      element.setAttribute("src", dataUri);
+    }
     for (const attribute of [...element.attributes]) {
       const attributeName = attribute.name.toLowerCase();
+      if (name === "img" && attributeName === "src") continue;
+      if (name === "img" && (attributeName === "width" || attributeName === "height")) {
+        if (/^[1-9][0-9]{0,4}$/.test(attribute.value)) continue;
+        element.removeAttribute(attribute.name);
+        continue;
+      }
       if (attributeName === "href" && name === "a" && attribute.value.startsWith("#")) {
         continue;
       }
@@ -1731,8 +1761,8 @@ function sanitizePreviewHtml(source: string, stylesheet = ""): string {
       }
     }
   }
-  const policy = "default-src 'none'; base-uri 'none'; form-action 'none'; navigate-to 'none'; style-src 'unsafe-inline'";
-  const fallback = "body{font:14px system-ui,sans-serif;margin:20px;color:#20242a}table{border-collapse:collapse}th,td{border:1px solid #bbb;padding:4px 6px}pre,code{font-family:ui-monospace,monospace;white-space:pre-wrap}";
+  const policy = "default-src 'none'; base-uri 'none'; form-action 'none'; navigate-to 'none'; style-src 'unsafe-inline'; img-src data:";
+  const fallback = "body{font:14px system-ui,sans-serif;margin:20px;color:#20242a}img{max-width:100%;height:auto}table{border-collapse:collapse}th,td{border:1px solid #bbb;padding:4px 6px}pre,code{font-family:ui-monospace,monospace;white-space:pre-wrap}";
   const style = `${stylesheet}\n${fallback}`.replace(/<\/style/giu, "<\\/style");
   return `<!doctype html><html><head><meta http-equiv="Content-Security-Policy" content="${policy}"><style>${style}</style></head><body>${parsed.body.innerHTML}</body></html>`;
 }

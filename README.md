@@ -95,8 +95,10 @@ desktop MVP with a Rust core and a Tauri/CodeMirror interface.
   one undoable editor change. For JATS articles, the same button also exposes a
   read-only SciELO publication preview generated offline from the Packtools
   4.16.9 HTMLGenerator XSLT/CSS used by SPSValidator v0.3.0. The preview is
-  sanitized and rendered without scripts, network, or filesystem access; the
-  user can switch back to structured editing at any time. CDATA and
+  sanitized and rendered without scripts or network access. Declared local
+  PNG/JPEG/GIF/WebP figures are copied through a bounded, directory-confined
+  broker into self-contained data URLs; the iframe receives no filesystem
+  capability. The user can switch back to structured editing at any time. CDATA and
   entity-reference runs remain visible but read-only; structural editing and
   track changes are not yet claimed.
   SPS validation is not presented as complete while its rule pack and real
