@@ -9,7 +9,14 @@ import {
   type CompletionResult,
 } from "@codemirror/autocomplete";
 import { defaultKeymap, history, historyKeymap, indentWithTab } from "@codemirror/commands";
-import { foldGutter, foldKeymap, indentOnInput, syntaxTree } from "@codemirror/language";
+import {
+  defaultHighlightStyle,
+  foldGutter,
+  foldKeymap,
+  indentOnInput,
+  syntaxHighlighting,
+  syntaxTree,
+} from "@codemirror/language";
 import { xml } from "@codemirror/lang-xml";
 import { searchKeymap } from "@codemirror/search";
 import { Compartment, EditorState, type Extension } from "@codemirror/state";
@@ -22,6 +29,7 @@ import {
   lineNumbers,
 } from "@codemirror/view";
 import { invoke } from "@tauri-apps/api/core";
+import { getCurrentWebview } from "@tauri-apps/api/webview";
 import { open, save } from "@tauri-apps/plugin-dialog";
 
 import {
@@ -43,6 +51,7 @@ import type {
   Diagnostic,
   DiffPayload,
   DocumentPayload,
+  ExternalChangePayload,
   DtdCompletionPayload,
   ExpandedNamePayload,
   FrameworkStage,
@@ -235,6 +244,7 @@ let diffOtherPath: string | null = null;
 let activeDiff: DiffPayload | null = null;
 let authorActive = false;
 let activeAuthor: AuthorPayload | null = null;
+let externalCheckInProgress = false;
 
 const editor = new EditorView({
   parent: editorHost,
@@ -258,6 +268,7 @@ function baseExtensions(): Extension[] {
     closeBrackets(),
     autocompletion({ override: [schemaCompletionSource] }),
     xml(),
+    syntaxHighlighting(defaultHighlightStyle),
     keymap.of([
       ...closeBracketsKeymap,
       ...defaultKeymap,
@@ -556,12 +567,22 @@ function addDocument(payload: DocumentPayload): void {
 
 function renderTabs(): void {
   const nodes = documents.map((item) => {
-    const button = window.document.createElement("button");
-    button.className = item.id === activeId ? "active" : "";
-    button.textContent = `${item.name}${item.dirty ? " •" : ""}`;
-    button.title = item.path ?? t("document.unsaved");
-    button.addEventListener("click", () => activateDocument(item.id));
-    return button;
+    const tab = window.document.createElement("div");
+    tab.className = item.id === activeId ? "tab active" : "tab";
+    tab.title = item.path ?? t("document.unsaved");
+    const activate = window.document.createElement("button");
+    activate.className = "tab-label";
+    activate.textContent = `${item.name}${item.dirty ? " •" : ""}`;
+    activate.addEventListener("click", () => activateDocument(item.id));
+    const close = window.document.createElement("button");
+    close.className = "tab-close";
+    close.type = "button";
+    close.textContent = "×";
+    close.setAttribute("aria-label", t("document.close", { name: item.name }));
+    close.title = t("document.close", { name: item.name });
+    close.addEventListener("click", () => void closeDocument(item.id));
+    tab.append(activate, close);
+    return tab;
   });
   tabsHost.replaceChildren(...nodes);
 }
@@ -622,12 +643,16 @@ async function analyze(document: OpenDocument): Promise<void> {
   try {
     const result = await invoke<AnalysisPayload>("analyze_document", { id: document.id });
     if (document.id !== activeId || result.revision !== document.revision) return;
-    renderProblems(result.diagnostics);
+    renderProblems(result.diagnostics, Boolean(result.jatsInspection), result.frameworkStages.length > 0);
     renderOutline(result.outline);
     renderJatsInspection(result.jatsInspection);
     renderFrameworkStages(result.frameworkStages);
     setStatus(
-      result.diagnostics.length === 0 ? t("validation.wellFormed") : t("validation.failed"),
+      result.diagnostics.length === 0
+        ? result.jatsInspection && result.frameworkStages.length === 0
+          ? t("validation.jatsNotValidated")
+          : t("validation.wellFormed")
+        : t("validation.failed"),
       result.diagnostics.length > 0,
     );
   } catch (error) {
@@ -635,12 +660,18 @@ async function analyze(document: OpenDocument): Promise<void> {
   }
 }
 
-function renderProblems(diagnostics: Diagnostic[]): void {
+function renderProblems(
+  diagnostics: Diagnostic[],
+  isJats = false,
+  frameworkValidated = false,
+): void {
   problemCount.textContent = String(diagnostics.length);
   if (diagnostics.length === 0) {
     const empty = window.document.createElement("div");
     empty.className = "empty";
-    empty.textContent = t("validation.noProblems");
+    empty.textContent = isJats && !frameworkValidated
+      ? t("validation.noJatsValidation")
+      : t("validation.noProblems");
     problemsHost.replaceChildren(empty);
     return;
   }
@@ -1415,13 +1446,83 @@ async function createNew(): Promise<void> {
   }
 }
 
+async function openPaths(paths: string[]): Promise<void> {
+  const supported = /\.(?:xml|xsd|xsl|xslt|rng|sch|dtd)$/iu;
+  const uniquePaths = [...new Set(paths.filter((path) => supported.test(path)))];
+  for (const path of uniquePaths) {
+    const existing = documents.find((document) => document.path === path);
+    if (existing) {
+      activateDocument(existing.id);
+      continue;
+    }
+    try {
+      addDocument(await invoke<DocumentPayload>("open_document", { path }));
+    } catch (error) {
+      setStatus(`${path}: ${String(error)}`, true);
+    }
+  }
+}
+
 async function openFile(): Promise<void> {
-  const selected = await open({ multiple: false, filters: [{ name: "XML", extensions: ["xml", "xsd", "xsl", "xslt", "rng", "sch", "dtd"] }] });
+  const selected = await open({ multiple: true, filters: [{ name: "XML", extensions: ["xml", "xsd", "xsl", "xslt", "rng", "sch", "dtd"] }] });
   if (!selected) return;
+  await openPaths(Array.isArray(selected) ? selected : [selected]);
+}
+
+async function closeDocument(id: number): Promise<void> {
+  const index = documents.findIndex((document) => document.id === id);
+  if (index < 0) return;
+  const document = documents[index];
+  if (!document) return;
+  if (document.dirty && !window.confirm(t("document.closeUnsaved", { name: document.name }))) return;
   try {
-    addDocument(await invoke<DocumentPayload>("open_document", { path: selected }));
+    await invoke("close_document", { id });
+    documents.splice(index, 1);
+    if (activeId === id) {
+      const next = documents[Math.min(index, documents.length - 1)];
+      activeId = null;
+      if (next) activateDocument(next.id);
+      else await createNew();
+    } else {
+      renderTabs();
+    }
   } catch (error) {
     setStatus(String(error), true);
+  }
+}
+
+async function checkExternalChange(): Promise<void> {
+  const document = activeDocument();
+  if (!document?.path || externalCheckInProgress) return;
+  externalCheckInProgress = true;
+  try {
+    const result = await invoke<ExternalChangePayload>("check_external_change", { id: document.id });
+    if (document.id !== activeId || result.status === "unchanged") return;
+    if (result.status === "deleted") {
+      window.alert(t("document.deletedExternally", { name: document.name }));
+      await invoke("acknowledge_external_change", { id: document.id });
+      return;
+    }
+    const reload = window.confirm(t(
+      document.dirty ? "document.modifiedExternallyDirty" : "document.modifiedExternally",
+      { name: document.name },
+    ));
+    if (!reload) {
+      await invoke("acknowledge_external_change", { id: document.id });
+      return;
+    }
+    const payload = await invoke<DocumentPayload>("reload_document", { id: document.id });
+    Object.assign(document, payload, { viewState: createEditorState(payload.text) });
+    suppressChanges = true;
+    editor.setState(document.viewState);
+    suppressChanges = false;
+    renderTabs();
+    await analyze(document);
+    setStatus(t("status.reloaded"));
+  } catch (error) {
+    setStatus(String(error), true);
+  } finally {
+    externalCheckInProgress = false;
   }
 }
 
@@ -1670,6 +1771,28 @@ window.addEventListener("keydown", (event) => {
     event.preventDefault();
     void openFile();
   }
+  if (modifier && event.key.toLowerCase() === "w") {
+    event.preventDefault();
+    const document = activeDocument();
+    if (document) void closeDocument(document.id);
+  }
+});
+
+window.addEventListener("focus", () => void checkExternalChange());
+window.setInterval(() => {
+  if (document.hasFocus()) void checkExternalChange();
+}, 2_000);
+
+void getCurrentWebview().onDragDropEvent((event) => {
+  const shell = requiredElement<HTMLElement>(".shell");
+  if (event.payload.type === "enter" || event.payload.type === "over") {
+    shell.classList.add("drag-active");
+  } else {
+    shell.classList.remove("drag-active");
+  }
+  if (event.payload.type === "drop") void openPaths(event.payload.paths);
+}).catch((error: unknown) => {
+  console.debug("native drag-and-drop is unavailable", error);
 });
 
 void createNew();

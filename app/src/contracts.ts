@@ -35,6 +35,10 @@ export interface DocumentPayload {
   dirty: boolean;
 }
 
+export interface ExternalChangePayload {
+  status: "unchanged" | "modified" | "deleted";
+}
+
 export interface AnalysisPayload {
   revision: number;
   diagnostics: Diagnostic[];

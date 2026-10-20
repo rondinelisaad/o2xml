@@ -9,6 +9,7 @@ use std::{
         atomic::{AtomicU64, Ordering},
         Mutex,
     },
+    time::SystemTime,
 };
 
 use serde::{Deserialize, Serialize};
@@ -38,9 +39,33 @@ use xml_xsd::{Libxml2XsdIndexEngine, XsdIndexEngine, XsdIndexRequest};
 struct AppState {
     next_id: AtomicU64,
     documents: Mutex<HashMap<u64, XmlDocument>>,
+    file_stamps: Mutex<HashMap<u64, FileStamp>>,
     project: Mutex<Option<OpenedProject>>,
     dtd_indexes: Mutex<HashMap<(String, Option<String>), SchemaIndex>>,
     xsd_indexes: Mutex<HashMap<String, SchemaIndex>>,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+enum FileStamp {
+    Missing,
+    Present {
+        len: u64,
+        modified: Option<SystemTime>,
+    },
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct ExternalChangePayload {
+    status: ExternalChangeStatus,
+}
+
+#[derive(Clone, Copy, Debug, Serialize)]
+#[serde(rename_all = "snake_case")]
+enum ExternalChangeStatus {
+    Unchanged,
+    Modified,
+    Deleted,
 }
 
 #[derive(Clone)]
@@ -225,6 +250,16 @@ fn normalized_path(path: &Path) -> Result<PathBuf, String> {
         .map_err(|error| format!("cannot resolve selected path: {error}"))
 }
 
+fn file_stamp(path: &Path) -> FileStamp {
+    match fs::metadata(path) {
+        Ok(metadata) if metadata.is_file() => FileStamp::Present {
+            len: metadata.len(),
+            modified: metadata.modified().ok(),
+        },
+        _ => FileStamp::Missing,
+    }
+}
+
 fn document_payload(id: u64, document: &XmlDocument) -> DocumentPayload {
     DocumentPayload {
         id,
@@ -281,12 +316,138 @@ fn open_document(path: String, state: State<'_, AppState>) -> Result<DocumentPay
         .lock()
         .map_err(|_| "document store is unavailable".to_owned())?
         .insert(id, document);
+    state
+        .file_stamps
+        .lock()
+        .map_err(|_| "file state store is unavailable".to_owned())?
+        .insert(
+            id,
+            file_stamp(Path::new(payload.path.as_deref().unwrap_or_default())),
+        );
     audit::event(
         "document.open",
         "success",
         "document",
         id,
         Some(Revision(0)),
+        None,
+    );
+    Ok(payload)
+}
+
+#[tauri::command]
+fn close_document(id: u64, state: State<'_, AppState>) -> Result<(), String> {
+    let removed = state
+        .documents
+        .lock()
+        .map_err(|_| "document store is unavailable".to_owned())?
+        .remove(&id)
+        .is_some();
+    state
+        .file_stamps
+        .lock()
+        .map_err(|_| "file state store is unavailable".to_owned())?
+        .remove(&id);
+    if !removed {
+        return Err("document is not open".to_owned());
+    }
+    audit::event("document.close", "success", "document", id, None, None);
+    Ok(())
+}
+
+#[tauri::command]
+fn check_external_change(
+    id: u64,
+    state: State<'_, AppState>,
+) -> Result<ExternalChangePayload, String> {
+    let path = state
+        .documents
+        .lock()
+        .map_err(|_| "document store is unavailable".to_owned())?
+        .get(&id)
+        .ok_or_else(|| "document is not open".to_owned())?
+        .path()
+        .cloned();
+    let Some(path) = path else {
+        return Ok(ExternalChangePayload {
+            status: ExternalChangeStatus::Unchanged,
+        });
+    };
+    let current = file_stamp(&path);
+    let expected = state
+        .file_stamps
+        .lock()
+        .map_err(|_| "file state store is unavailable".to_owned())?
+        .get(&id)
+        .cloned()
+        .unwrap_or_else(|| current.clone());
+    let status = if current == expected {
+        ExternalChangeStatus::Unchanged
+    } else if matches!(current, FileStamp::Missing) {
+        ExternalChangeStatus::Deleted
+    } else {
+        ExternalChangeStatus::Modified
+    };
+    Ok(ExternalChangePayload { status })
+}
+
+#[tauri::command]
+fn acknowledge_external_change(id: u64, state: State<'_, AppState>) -> Result<(), String> {
+    let path = state
+        .documents
+        .lock()
+        .map_err(|_| "document store is unavailable".to_owned())?
+        .get(&id)
+        .ok_or_else(|| "document is not open".to_owned())?
+        .path()
+        .cloned();
+    if let Some(path) = path {
+        state
+            .file_stamps
+            .lock()
+            .map_err(|_| "file state store is unavailable".to_owned())?
+            .insert(id, file_stamp(&path));
+    }
+    Ok(())
+}
+
+#[tauri::command]
+fn reload_document(id: u64, state: State<'_, AppState>) -> Result<DocumentPayload, String> {
+    const MAX_MVP_BYTES: u64 = 128 * 1024 * 1024;
+    let mut documents = state
+        .documents
+        .lock()
+        .map_err(|_| "document store is unavailable".to_owned())?;
+    let document = documents
+        .get_mut(&id)
+        .ok_or_else(|| "document is not open".to_owned())?;
+    let path = document
+        .path()
+        .cloned()
+        .ok_or_else(|| "document has no file path".to_owned())?;
+    let metadata = fs::metadata(&path).map_err(|error| format!("cannot inspect file: {error}"))?;
+    if !metadata.is_file() || metadata.len() > MAX_MVP_BYTES {
+        return Err("file is unavailable or exceeds the 128 MiB safety limit".to_owned());
+    }
+    let text = fs::read_to_string(&path)
+        .map_err(|error| format!("cannot read UTF-8 XML file: {error}"))?;
+    document
+        .replace_all(document.revision(), &text)
+        .map_err(|error| error.to_string())?;
+    document.mark_saved(path.clone());
+    let payload = document_payload(id, document);
+    drop(documents);
+    state
+        .file_stamps
+        .lock()
+        .map_err(|_| "file state store is unavailable".to_owned())?
+        .insert(id, file_stamp(&path));
+    audit::event(
+        "document.reload",
+        "success",
+        "document",
+        id,
+        Some(payload.revision),
         None,
     );
     Ok(payload)
@@ -1787,6 +1948,15 @@ fn save_document(
         .map_err(|error| format!("cannot atomically replace file: {error}"))?;
     document.mark_saved(target);
     let payload = document_payload(id, document);
+    let saved_path = document.path().cloned();
+    drop(documents);
+    if let Some(saved_path) = saved_path {
+        state
+            .file_stamps
+            .lock()
+            .map_err(|_| "file state store is unavailable".to_owned())?
+            .insert(id, file_stamp(&saved_path));
+    }
     audit::event(
         "document.save",
         "success",
@@ -1887,6 +2057,10 @@ pub fn run() {
         .invoke_handler(tauri::generate_handler![
             new_document,
             open_document,
+            close_document,
+            check_external_change,
+            acknowledge_external_change,
+            reload_document,
             update_document,
             analyze_document,
             run_transformation,
