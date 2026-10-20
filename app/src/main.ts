@@ -649,15 +649,21 @@ async function analyze(document: OpenDocument): Promise<void> {
     renderFrameworkStages(result.frameworkStages);
     setStatus(
       result.diagnostics.length === 0
-        ? result.jatsInspection && result.frameworkStages.length === 0
-          ? t("validation.jatsNotValidated")
-          : t("validation.wellFormed")
+        ? validationSuccessMessage(result)
         : t("validation.failed"),
       result.diagnostics.length > 0,
     );
   } catch (error) {
     setStatus(String(error), true);
   }
+}
+
+function validationSuccessMessage(result: AnalysisPayload): string {
+  if (!result.jatsInspection) return t("validation.wellFormed");
+  const stages = new Set(result.frameworkStages.map((stage) => stage.id));
+  if (stages.has("sps-rules")) return t("validation.jatsSpsValid");
+  if (stages.has("jats-grammar")) return t("validation.jatsValidSpsNotValidated");
+  return t("validation.jatsNotValidated");
 }
 
 function renderProblems(
@@ -669,8 +675,10 @@ function renderProblems(
   if (diagnostics.length === 0) {
     const empty = window.document.createElement("div");
     empty.className = "empty";
-    empty.textContent = isJats && !frameworkValidated
-      ? t("validation.noJatsValidation")
+    empty.textContent = isJats
+      ? frameworkValidated
+        ? t("validation.noFrameworkProblems")
+        : t("validation.noJatsValidation")
       : t("validation.noProblems");
     problemsHost.replaceChildren(empty);
     return;

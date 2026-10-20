@@ -49,6 +49,16 @@ fn validates_dtd_xsd_relax_ng_schematron_and_brokered_dependencies() -> Result<(
             public_id: None,
         },
     }))?;
+    let declared_dtd = runtime.block_on(engine.validate(ValidationRequest {
+        source: "<!DOCTYPE article SYSTEM \"https://example.org/article.dtd\">\n<article>text</article>",
+        revision: Revision(9),
+        file: Some("declared.xml"),
+        catalog: &catalog,
+        grammar: GrammarReference::Dtd {
+            system_id: "https://example.org/article.dtd",
+            public_id: None,
+        },
+    }))?;
     let xsd_report = runtime.block_on(engine.validate(ValidationRequest {
         source: "<article/>",
         revision: Revision(3),
@@ -107,6 +117,7 @@ fn validates_dtd_xsd_relax_ng_schematron_and_brokered_dependencies() -> Result<(
     assert!(dtd_report.diagnostics.is_empty());
     assert_eq!(dtd_report.approved_grammar_resources, 2);
     assert!(!invalid_dtd.diagnostics.is_empty());
+    assert!(declared_dtd.diagnostics.is_empty());
     assert!(xsd_report.diagnostics.is_empty());
     assert!(composite_report.diagnostics.is_empty());
     assert_eq!(composite_report.approved_grammar_resources, 2);

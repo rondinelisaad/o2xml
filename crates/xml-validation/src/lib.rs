@@ -1,4 +1,5 @@
 use std::{
+    borrow::Cow,
     collections::HashMap,
     future::Future,
     path::{Path, PathBuf},
@@ -219,11 +220,8 @@ impl Libxml2ProcessEngine {
                 limit: self.max_document_bytes,
             });
         }
-        if has_external_doctype(request.source) {
-            return Err(ValidationError::ExternalDocumentType);
-        }
-
         let grammar = resolve_grammar(request.catalog, request.grammar)?;
+        let document_source = mask_document_type(request.source);
         let mut command = Command::new(&self.executable);
         command
             .env_clear()
@@ -235,12 +233,13 @@ impl Libxml2ProcessEngine {
         let mut child = command.spawn().map_err(ValidationError::Spawn)?;
         let mut stdin = child.stdin.take().ok_or(ValidationError::MissingStdin)?;
         let stdout = child.stdout.take().ok_or(ValidationError::MissingStdout)?;
-        let header = serde_json::to_vec(&HelperRequest::new(request.grammar, request.source.len()))
-            .map_err(|error| ValidationError::Protocol(error.to_string()))?;
+        let header =
+            serde_json::to_vec(&HelperRequest::new(request.grammar, document_source.len()))
+                .map_err(|error| ValidationError::Protocol(error.to_string()))?;
         let send_document = async {
             stdin.write_all(&header).await?;
             stdin.write_all(b"\n").await?;
-            stdin.write_all(request.source.as_bytes()).await?;
+            stdin.write_all(document_source.as_bytes()).await?;
             stdin.write_all(b"\n").await?;
             stdin.flush().await
         };
@@ -594,10 +593,39 @@ fn resolve_grammar(
     resolved.ok_or(ValidationError::GrammarNotFound)
 }
 
+fn mask_document_type(source: &str) -> Cow<'_, str> {
+    let Some((start, end)) = document_type_span(source) else {
+        return Cow::Borrowed(source);
+    };
+    let mut masked = source.as_bytes().to_vec();
+    for byte in &mut masked[start..end] {
+        if !matches!(*byte, b'\n' | b'\r') {
+            *byte = b' ';
+        }
+    }
+    Cow::Owned(String::from_utf8(masked).unwrap_or_else(|_| source.to_owned()))
+}
+
 fn has_external_doctype(source: &str) -> bool {
-    let upper = source.to_ascii_uppercase();
-    upper.contains("<!DOCTYPE")
-        && (contains_xml_keyword(source, "SYSTEM") || contains_xml_keyword(source, "PUBLIC"))
+    document_type_span(source).is_some_and(|(start, end)| {
+        let declaration = &source[start..end];
+        contains_xml_keyword(declaration, "SYSTEM") || contains_xml_keyword(declaration, "PUBLIC")
+    })
+}
+
+fn document_type_span(source: &str) -> Option<(usize, usize)> {
+    let mut reader = quick_xml::Reader::from_str(source);
+    loop {
+        let start = usize::try_from(reader.buffer_position()).ok()?;
+        match reader.read_event() {
+            Ok(quick_xml::events::Event::DocType(_)) => {
+                let end = usize::try_from(reader.buffer_position()).ok()?;
+                return Some((start, end));
+            }
+            Ok(quick_xml::events::Event::Eof) | Err(_) => return None,
+            Ok(_) => {}
+        }
+    }
 }
 
 fn contains_xml_keyword(source: &str, expected: &str) -> bool {
@@ -722,5 +750,27 @@ mod tests {
         assert_eq!(diagnostics[0].span.start.line, 2);
         assert!(diagnostics[0].span.approximate);
         assert_eq!(diagnostics[0].revision, Revision(7));
+    }
+
+    #[test]
+    fn masks_external_or_internal_doctype_without_moving_lines() {
+        let source = "<?xml version=\"1.0\"?>\n<!DOCTYPE article PUBLIC \"public>id\" \"schema.dtd\" [\n<!ENTITY local \"value>\">\n]>\n<article/>";
+        let masked = mask_document_type(source);
+        assert!(!masked.contains("DOCTYPE"));
+        assert!(masked.ends_with("<article/>"));
+        assert_eq!(masked.len(), source.len());
+        assert_eq!(masked.lines().count(), source.lines().count());
+    }
+
+    #[test]
+    fn leaves_documents_without_doctype_borrowed() {
+        assert!(matches!(mask_document_type("<article/>"), Cow::Borrowed(_)));
+    }
+
+    #[test]
+    fn does_not_mask_doctype_text_inside_comments() {
+        let source = "<!-- example: <!DOCTYPE article SYSTEM 'example.dtd'> --><article/>";
+        assert!(matches!(mask_document_type(source), Cow::Borrowed(_)));
+        assert!(!has_external_doctype(source));
     }
 }

@@ -13,7 +13,7 @@ use std::{
 };
 
 use serde::{Deserialize, Serialize};
-use tauri::State;
+use tauri::{path::BaseDirectory, AppHandle, Manager, State};
 use tracing_subscriber::EnvFilter;
 use xml_author::AuthorDocument;
 use xml_diff::{XmlDiffOptions, XmlDiffReport};
@@ -477,7 +477,11 @@ fn update_document(
 }
 
 #[tauri::command]
-async fn analyze_document(id: u64, state: State<'_, AppState>) -> Result<AnalysisPayload, String> {
+async fn analyze_document(
+    id: u64,
+    app: AppHandle,
+    state: State<'_, AppState>,
+) -> Result<AnalysisPayload, String> {
     let (snapshot, file) = {
         let documents = state
             .documents
@@ -552,6 +556,28 @@ async fn analyze_document(id: u64, state: State<'_, AppState>) -> Result<Analysi
                     .iter()
                     .flat_map(|stage| stage.diagnostics.iter().cloned()),
             );
+        } else if analysis.jats_inspection.is_some() {
+            let text = {
+                let documents = state
+                    .documents
+                    .lock()
+                    .map_err(|_| "document store is unavailable".to_owned())?;
+                let document = documents
+                    .get(&id)
+                    .ok_or_else(|| "document is not open".to_owned())?;
+                if document.revision() != revision {
+                    return Ok(analysis);
+                }
+                document.snapshot().text()
+            };
+            analysis.framework_stages =
+                validate_builtin_jats(&app, &text, revision, file.as_deref()).await?;
+            analysis.diagnostics.extend(
+                analysis
+                    .framework_stages
+                    .iter()
+                    .flat_map(|stage| stage.diagnostics.iter().cloned()),
+            );
         }
     }
     let result = if analysis.diagnostics.is_empty() {
@@ -568,6 +594,81 @@ async fn analyze_document(id: u64, state: State<'_, AppState>) -> Result<Analysi
         Some("quick-xml"),
     );
     Ok(analysis)
+}
+
+async fn validate_builtin_jats(
+    app: &AppHandle,
+    source: &str,
+    revision: Revision,
+    file: Option<&str>,
+) -> Result<Vec<FrameworkStagePayload>, String> {
+    let Some(document_type) =
+        xml_syntax::document_type(source).map_err(|error| error.to_string())?
+    else {
+        return Ok(Vec::new());
+    };
+    const JATS_11_PUBLIC: &str =
+        "-//NLM//DTD JATS (Z39.96) Journal Publishing DTD v1.1 20151215//EN";
+    const JATS_11_SYSTEM: &str =
+        "https://jats.nlm.nih.gov/publishing/1.1/JATS-journalpublishing1.dtd";
+    if document_type.public_id.as_deref() != Some(JATS_11_PUBLIC)
+        && document_type.system_id.as_deref() != Some(JATS_11_SYSTEM)
+    {
+        return Ok(Vec::new());
+    }
+    let catalog_path = bundled_resource(app, "resources/jats/1.1/catalog-jats-v1-1-no-base.xml")?;
+    let root = catalog_path
+        .parent()
+        .ok_or_else(|| "built-in JATS catalog has no parent directory".to_owned())?;
+    let policy =
+        ResourcePolicy::offline([root.to_path_buf()]).map_err(|error| error.to_string())?;
+    let catalog =
+        CatalogResolver::load(&catalog_path, policy).map_err(|error| error.to_string())?;
+    let engine =
+        Libxml2ProcessEngine::new(libxml2_helper_path()?).map_err(|error| error.to_string())?;
+    let system_id = document_type.system_id.as_deref().unwrap_or(JATS_11_SYSTEM);
+    let report = engine
+        .validate(ValidationRequest {
+            source,
+            revision,
+            file,
+            catalog: &catalog,
+            grammar: GrammarReference::Dtd {
+                system_id,
+                public_id: document_type.public_id.as_deref(),
+            },
+        })
+        .await
+        .map_err(|error| error.to_string())?;
+    let status = if report.diagnostics.is_empty() {
+        FrameworkStageStatus::Passed
+    } else {
+        FrameworkStageStatus::Failed
+    };
+    Ok(vec![FrameworkStagePayload {
+        id: "jats-grammar".to_owned(),
+        label: "JATS 1.1".to_owned(),
+        engine: "libxml2",
+        status,
+        diagnostics: report.diagnostics,
+    }])
+}
+
+fn bundled_resource(app: &AppHandle, relative: &str) -> Result<PathBuf, String> {
+    let bundled = app
+        .path()
+        .resolve(relative, BaseDirectory::Resource)
+        .map_err(|error| format!("cannot locate application resources: {error}"))?;
+    if bundled.is_file() {
+        return Ok(bundled);
+    }
+    let development = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join(relative);
+    if development.is_file() {
+        return Ok(development);
+    }
+    Err(format!(
+        "required application resource is missing: {relative}"
+    ))
 }
 
 async fn validate_project_framework(

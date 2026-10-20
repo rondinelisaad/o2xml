@@ -26,6 +26,9 @@
   "bundle": {
     "active": true,
     "targets": "all",
+    "resources": [
+      "resources/jats"
+    ],
     "externalBin": [
       "binaries/xml-libxml2-helper"
     ],

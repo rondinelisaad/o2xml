@@ -24,8 +24,10 @@ desktop MVP with a Rust core and a Tauri/CodeMirror interface.
   attribute groups, model groups, exact `all`, constrained wildcards, inherited
   content, and cross-document groups are supported.
 - Phase 3: in progress; the bounded framework registry models SPS 1.9/JATS 1.1
-  and SPS 1.10/JATS 1.3 as separate grammar and rules stages. External JATS/SPS
-  assets remain user-supplied and are not redistributed by O2XML. A bounded
+  and SPS 1.10/JATS 1.3 as separate grammar and rules stages. The public-domain
+  official JATS 1.1 Publishing DTD is bundled for automatic offline validation
+  of matching standalone documents; other JATS versions and SPS rule packs
+  remain explicitly installed project resources. A bounded
   JATS Inspector recognizes the editorial structure and provides navigable
   source positions in the desktop UI. RELAX NG XML validation runs through the
   isolated libxml2 helper and the same offline catalog broker used by DTD/XSD;
@@ -92,8 +94,9 @@ desktop MVP with a Rust core and a Tauri/CodeMirror interface.
   checked against the active project framework, revision-gated, and applied as
   one undoable editor change. CDATA and entity-reference runs remain visible
   but read-only; structural editing and track changes are not yet claimed.
-  Schematron/JATS/SPS validation is not presented as complete while licensed
-  upstream packs and real external-engine conformance corpora are not installed.
+  SPS validation is not presented as complete while its rule pack and real
+  external-engine conformance corpora are not installed. JATS and SPS results
+  remain visibly separate.
 
 ## Build and run
 

@@ -114,3 +114,15 @@ explicitly instead of silently skipping the rules stage.
 Schemas and framework resources are dependencies too. Their asset licenses and
 checksums live in framework manifests; the project source license does not
 override them.
+
+### NISO JATS 1.1 Journal Publishing DTD
+
+- **Source:** NLM/NCBI, `JATS-Publishing-1-1-MathML2-DTD.zip`.
+- **Upstream archive SHA-256:**
+  `cf86eba5b8baa56462fd4e276a620f62e5b9775bc69bf658c9f788696afed354`.
+- **Purpose:** offline JATS 1.1 grammar validation, including modular entity and
+  MathML resources.
+- **License/status:** public domain. The unmodified upstream files and README are
+  bundled under `app/src-tauri/resources/jats/1.1`.
+- **Security:** resources are resolved only through the offline XML Catalog
+  broker; the parser helper retains network denial and resource limits.
