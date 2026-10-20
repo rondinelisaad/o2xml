@@ -85,7 +85,7 @@ jobs:
           version=$(jq -r '.version' app/src-tauri/tauri.conf.json)
           tag="o2xml-v${version}"
           name="O2XML v${version}"
-          body=$'Instaladores multiplataforma do O2XML.\n\nEsta release permanece como rascunho até os smoke tests dos instaladores.'
+          body=$'Instaladores multiplataforma e pacote portátil do O2XML.\n\nEsta release permanece como rascunho até os smoke tests dos artefatos.'
           releases=$(gh api "repos/${GITHUB_REPOSITORY}/releases?per_page=100")
           release_id=$(printf '%s' "$releases" | jq -r --arg tag "$tag" \
             '[.[] | select(.draft and .tag_name == $tag)] | sort_by(.id) | first | .id // empty')
@@ -229,3 +229,72 @@ jobs:
           args: >-
             --target ${{ matrix.target }}
             --bundles ${{ matrix.bundles }}
+
+      - name: Create Windows portable archive
+        if: runner.os == 'Windows'
+        id: portable
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = "Stop"
+          $version = (Get-Content "app/src-tauri/tauri.conf.json" -Raw | ConvertFrom-Json).version
+          if ($version -notmatch '^\d+\.\d+\.\d+([-.][0-9A-Za-z.-]+)?$') {
+            throw "Invalid application version: $version"
+          }
+
+          $releaseDirectory = Join-Path "target" "${{ matrix.target }}" "release"
+          $application = Join-Path $releaseDirectory "o2xml-desktop.exe"
+          $helper = Join-Path $releaseDirectory "xml-libxml2-helper.exe"
+          if (-not (Test-Path $application -PathType Leaf)) {
+            throw "Portable application executable was not produced: $application"
+          }
+          if (-not (Test-Path $helper -PathType Leaf)) {
+            throw "Portable XML helper was not produced: $helper"
+          }
+
+          $portableName = "O2XML-$version-windows-x64-portable"
+          $portableRoot = Join-Path $env:RUNNER_TEMP $portableName
+          $resourceRoot = Join-Path $portableRoot "resources"
+          New-Item -ItemType Directory -Force -Path $resourceRoot | Out-Null
+          Copy-Item $application (Join-Path $portableRoot "O2XML.exe")
+          Copy-Item $helper (Join-Path $portableRoot "xml-libxml2-helper.exe")
+          Copy-Item "app/src-tauri/resources/jats" (Join-Path $resourceRoot "jats") -Recurse
+          Copy-Item "app/src-tauri/resources/packtools-html" (Join-Path $resourceRoot "packtools-html") -Recurse
+          Copy-Item "packaging/windows/README-PORTABLE.txt" $portableRoot
+          Copy-Item "LICENSE-MIT" $portableRoot
+          Copy-Item "LICENSE-APACHE" $portableRoot
+          Copy-Item "DEPENDENCIES.md" $portableRoot
+
+          $requiredFiles = @(
+            (Join-Path $portableRoot "O2XML.exe"),
+            (Join-Path $portableRoot "xml-libxml2-helper.exe"),
+            (Join-Path $resourceRoot "jats/1.1/JATS-journalpublishing1.dtd"),
+            (Join-Path $resourceRoot "packtools-html/4.16.9/catalog.xml")
+          )
+          foreach ($requiredFile in $requiredFiles) {
+            if (-not (Test-Path $requiredFile -PathType Leaf)) {
+              throw "Portable package is incomplete: $requiredFile"
+            }
+          }
+
+          $archive = Join-Path $env:RUNNER_TEMP "$portableName.zip"
+          Compress-Archive -Path $portableRoot -DestinationPath $archive -CompressionLevel Optimal
+          $archiveInfo = Get-Item $archive
+          if ($archiveInfo.Length -le 0) {
+            throw "Portable archive is empty"
+          }
+          $hash = (Get-FileHash $archive -Algorithm SHA256).Hash.ToLowerInvariant()
+          $checksum = "$archive.sha256"
+          "$hash  $($archiveInfo.Name)" | Set-Content $checksum -Encoding ascii -NoNewline
+          "archive=$archive" | Out-File -Append -FilePath $env:GITHUB_OUTPUT
+          "checksum=$checksum" | Out-File -Append -FilePath $env:GITHUB_OUTPUT
+
+      - name: Upload Windows portable archive to draft release
+        if: runner.os == 'Windows'
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh release upload "${{ needs.prepare-release.outputs.tag_name }}" `
+            "${{ steps.portable.outputs.archive }}" `
+            "${{ steps.portable.outputs.checksum }}" `
+            --clobber

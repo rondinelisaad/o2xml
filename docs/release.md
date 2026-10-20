@@ -12,7 +12,7 @@ release instead of racing to create duplicate drafts.
 | Platform | Architecture | Bundles |
 |---|---|---|
 | Linux | x86-64 | Debian package and AppImage |
-| Windows | x86-64 | MSI and NSIS installer |
+| Windows | x86-64 | MSI, NSIS installer, and portable ZIP |
 | macOS | Apple Silicon | application bundle and DMG |
 | macOS | Intel | application bundle and DMG |
 
@@ -24,6 +24,16 @@ triplet. The official vcpkg libxml2 port does not enable its legacy Schematron
 module; Windows therefore requires the supported SchXslt/Saxon adapter for
 Schematron, while DTD, XSD, RELAX NG, XPath, and XSLT 1.0 remain available in
 the native helper.
+
+The Windows portable ZIP contains `O2XML.exe`, the native helper, the bundled
+JATS and Packtools resources, license files, dependency documentation, and a
+short usage guide. It does not write an installation record or require
+administrator privileges. Extract the complete directory before launching; the
+two executables and `resources` directory must remain together. A SHA-256 file
+is uploaded beside the archive so downloads can be verified independently.
+Windows must already provide the Microsoft Edge WebView2 Runtime. Unsigned
+internal builds can trigger Microsoft Defender SmartScreen; public releases
+should be Authenticode-signed.
 
 ## Start a draft release
 
@@ -81,6 +91,9 @@ Test on a clean supported machine or VM for each produced architecture:
 
 - install, launch, and uninstall without elevated privileges beyond those the
   native installer normally requests;
+- extract the Windows portable ZIP into a clean directory, verify its SHA-256,
+  launch `O2XML.exe` without installation, and confirm no missing-resource or
+  missing-helper error is reported;
 - open, edit, save, format, and validate a representative XML document;
 - confirm the packaged libxml2 helper executes without an external package
   manager or developer toolchain;
