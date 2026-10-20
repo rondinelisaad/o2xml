@@ -1,4 +1,10 @@
-use std::{collections::HashMap, fs, path::PathBuf, process::Stdio, time::Instant};
+use std::{
+    collections::{BTreeMap, HashMap},
+    fs,
+    path::PathBuf,
+    process::Stdio,
+    time::Instant,
+};
 
 use serde::{Deserialize, Serialize};
 use tokio::{
@@ -22,6 +28,7 @@ pub struct LibxsltRequest<'a> {
     pub revision: Revision,
     pub catalog: &'a CatalogResolver,
     pub stylesheet_uri: &'a str,
+    pub parameters: Option<&'a BTreeMap<String, String>>,
 }
 
 #[derive(Clone, Debug)]
@@ -87,6 +94,7 @@ impl LibxsltProcessEngine {
             public_id: None,
             document_bytes: request.source.len(),
             expression: None,
+            parameters: request.parameters,
         })
         .map_err(|error| TransformError::Protocol(error.to_string()))?;
         stdin
@@ -108,7 +116,7 @@ impl LibxsltProcessEngine {
         stdin.flush().await.map_err(TransformError::Write)?;
 
         let stderr_reader = tokio::spawn(capture_bounded_stderr(stderr));
-        let output = match timeout(
+        let broker_result = match timeout(
             self.deadline,
             broker_transform(
                 BufReader::new(stdout),
@@ -120,13 +128,29 @@ impl LibxsltProcessEngine {
         )
         .await
         {
-            Ok(result) => result?,
+            Ok(result) => result,
             Err(_) => {
                 stderr_reader.abort();
                 let _ = child.kill().await;
                 return Err(TransformError::Timeout(self.deadline));
             }
         };
+        if let Err(error) = broker_result {
+            drop(stdin);
+            if child.try_wait().map_err(TransformError::Wait)?.is_none() {
+                let _ = child.kill().await;
+            }
+            let _ = child.wait().await;
+            let (stderr, _) = stderr_reader.await.map_err(TransformError::Task)??;
+            let detail = String::from_utf8_lossy(&stderr)
+                .chars()
+                .take(8 * 1024)
+                .collect::<String>();
+            return Err(TransformError::EngineFailed(format!(
+                "{error}; helper: {detail}"
+            )));
+        }
+        let output = broker_result?;
         drop(stdin);
         let status = match timeout(self.deadline, child.wait()).await {
             Ok(status) => status.map_err(TransformError::Wait)?,
@@ -160,6 +184,8 @@ struct HelperRequest<'a> {
     public_id: Option<&'a str>,
     document_bytes: usize,
     expression: Option<&'a str>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    parameters: Option<&'a BTreeMap<String, String>>,
 }
 
 #[derive(Deserialize)]

@@ -126,3 +126,20 @@ override them.
   bundled under `app/src-tauri/resources/jats/1.1`.
 - **Security:** resources are resolved only through the offline XML Catalog
   broker; the parser helper retains network denial and resource limits.
+
+### Packtools HTML Generator 4.16.9
+
+- **Source:** `scieloorg/packtools`, tag `4.16.9`, commit
+  `a5455f82995d68bccc79365e3e0c5a023c70c7d4`.
+- **Purpose:** offline SciELO article preview in Author Mode using the same
+  `HTMLGenerator` XSLT/CSS generation layer selected by SPSValidator v0.3.0.
+- **License:** BSD-3-Clause. The upstream license is bundled at
+  `app/src-tauri/resources/packtools-html/4.16.9/LICENSE` and its notice must
+  accompany binary distributions.
+- **Bundled subset:** `root-html-2.0.xslt`, its `v2.0` XSLT/config resources,
+  and `scielo-article-standalone.css`. O2XML's catalog is an integration file;
+  no SPSValidator GPL source is included.
+- **Security:** libxslt runs in the isolated helper; local reads require approval
+  from the offline catalog broker, writes and network remain denied, parameters
+  are bounded/quoted, and generated HTML is allowlist-sanitized before entering
+  a scriptless sandboxed iframe.

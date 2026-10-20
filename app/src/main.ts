@@ -47,6 +47,7 @@ import type {
   AuthorEditPayload,
   AuthorElement,
   AuthorPayload,
+  AuthorPreviewPayload,
   AuthorTextRun,
   Diagnostic,
   DiffPayload,
@@ -131,9 +132,12 @@ app.innerHTML = `
         <div id="author-view" class="author-view" hidden>
           <div class="author-toolbar">
             <strong>${t("author.title")}</strong>
-            <span>${t("author.description")}</span>
+            <button id="author-preview-button" type="button">${t("author.scieloPreview")}</button>
+            <button id="author-structured-button" type="button">${t("author.structuredEditing")}</button>
+            <span id="author-engine">${t("author.description")}</span>
           </div>
           <div id="author-document" class="author-document" aria-live="polite"></div>
+          <iframe id="author-preview" class="author-preview" title="${t("author.previewTitle")}" sandbox="" referrerpolicy="no-referrer" hidden></iframe>
         </div>
       </section>
     </main>
@@ -218,6 +222,10 @@ const gridRun = requiredElement<HTMLButtonElement>("#grid-run");
 const gridSummary = requiredElement<HTMLSpanElement>("#grid-summary");
 const authorView = requiredElement<HTMLDivElement>("#author-view");
 const authorDocumentHost = requiredElement<HTMLDivElement>("#author-document");
+const authorPreviewFrame = requiredElement<HTMLIFrameElement>("#author-preview");
+const authorPreviewButton = requiredElement<HTMLButtonElement>("#author-preview-button");
+const authorStructuredButton = requiredElement<HTMLButtonElement>("#author-structured-button");
+const authorEngine = requiredElement<HTMLSpanElement>("#author-engine");
 const authorButton = requiredElement<HTMLButtonElement>("[data-action='author']");
 const transformScenario = requiredElement<HTMLSelectElement>("#transform-scenario");
 const transformButton = requiredElement<HTMLButtonElement>("[data-action='transform']");
@@ -244,6 +252,7 @@ let diffOtherPath: string | null = null;
 let activeDiff: DiffPayload | null = null;
 let authorActive = false;
 let activeAuthor: AuthorPayload | null = null;
+let activeAuthorPreview: AuthorPreviewPayload | null = null;
 let externalCheckInProgress = false;
 
 const editor = new EditorView({
@@ -810,6 +819,8 @@ function goToByte(byte: number): void {
 function showSourceMode(): void {
   authorActive = false;
   activeAuthor = null;
+  activeAuthorPreview = null;
+  authorPreviewFrame.srcdoc = "";
   authorView.hidden = true;
   editorHost.hidden = false;
   authorButton.textContent = t("menu.authorMode");
@@ -836,11 +847,26 @@ async function runAuthorMode(): Promise<void> {
   setStatus(t("status.buildingAuthor"));
   authorButton.disabled = true;
   try {
-    const payload = await invoke<AuthorPayload>("inspect_author", { id: document.id });
+    const [payload, previewResult] = await Promise.all([
+      invoke<AuthorPayload>("inspect_author", { id: document.id }),
+      invoke<AuthorPreviewPayload>("preview_author", { id: document.id })
+        .then((preview) => ({ preview, error: null }))
+        .catch((error: unknown) => ({ preview: null, error: String(error) })),
+    ]);
     if (document.id !== activeId || payload.revision !== document.revision) return;
     activeAuthor = payload;
+    activeAuthorPreview = previewResult.preview;
     authorActive = true;
     renderAuthor(payload);
+    if (previewResult.preview?.revision === document.revision) {
+      renderAuthorPreview(previewResult.preview);
+      showAuthorPane("preview");
+    } else {
+      authorEngine.textContent = previewResult.error
+        ? t("author.previewUnavailable", { reason: previewResult.error })
+        : t("author.description");
+      showAuthorPane("structured");
+    }
     editorHost.hidden = true;
     authorView.hidden = false;
     authorButton.textContent = t("menu.xmlSource");
@@ -851,6 +877,22 @@ async function runAuthorMode(): Promise<void> {
   } finally {
     authorButton.disabled = false;
   }
+}
+
+function renderAuthorPreview(payload: AuthorPreviewPayload): void {
+  authorPreviewFrame.srcdoc = sanitizePreviewHtml(payload.html, payload.stylesheet);
+  authorEngine.textContent = payload.engine;
+}
+
+function showAuthorPane(pane: "preview" | "structured"): void {
+  const preview = pane === "preview" && activeAuthorPreview !== null;
+  authorPreviewFrame.hidden = !preview;
+  authorDocumentHost.hidden = preview;
+  authorPreviewButton.disabled = activeAuthorPreview === null;
+  authorPreviewButton.classList.toggle("active", preview);
+  authorStructuredButton.classList.toggle("active", !preview);
+  if (!preview && activeAuthorPreview) authorEngine.textContent = t("author.description");
+  if (preview && activeAuthorPreview) authorEngine.textContent = activeAuthorPreview.engine;
 }
 
 function renderAuthor(payload: AuthorPayload): void {
@@ -1652,7 +1694,7 @@ function renderTransformationOutput(summary: HTMLDivElement, result: TransformPa
   show(true);
 }
 
-function sanitizePreviewHtml(source: string): string {
+function sanitizePreviewHtml(source: string, stylesheet = ""): string {
   const parsed = new DOMParser().parseFromString(source, "text/html");
   const allowedElements = new Set([
     "html", "head", "title", "body", "article", "section", "main", "header", "footer",
@@ -1680,13 +1722,18 @@ function sanitizePreviewHtml(source: string): string {
       continue;
     }
     for (const attribute of [...element.attributes]) {
-      if (!allowedAttributes.has(attribute.name.toLowerCase())) {
+      const attributeName = attribute.name.toLowerCase();
+      if (attributeName === "href" && name === "a" && attribute.value.startsWith("#")) {
+        continue;
+      }
+      if (!allowedAttributes.has(attributeName)) {
         element.removeAttribute(attribute.name);
       }
     }
   }
   const policy = "default-src 'none'; base-uri 'none'; form-action 'none'; navigate-to 'none'; style-src 'unsafe-inline'";
-  const style = "body{font:14px system-ui,sans-serif;margin:20px;color:#20242a}table{border-collapse:collapse}th,td{border:1px solid #bbb;padding:4px 6px}pre,code{font-family:ui-monospace,monospace;white-space:pre-wrap}";
+  const fallback = "body{font:14px system-ui,sans-serif;margin:20px;color:#20242a}table{border-collapse:collapse}th,td{border:1px solid #bbb;padding:4px 6px}pre,code{font-family:ui-monospace,monospace;white-space:pre-wrap}";
+  const style = `${stylesheet}\n${fallback}`.replace(/<\/style/giu, "<\\/style");
   return `<!doctype html><html><head><meta http-equiv="Content-Security-Policy" content="${policy}"><style>${style}</style></head><body>${parsed.body.innerHTML}</body></html>`;
 }
 
@@ -1720,6 +1767,9 @@ function changeLanguage(value: string): void {
 }
 
 document.documentElement.dataset.theme = dark ? "dark" : "light";
+
+authorPreviewButton.addEventListener("click", () => showAuthorPane("preview"));
+authorStructuredButton.addEventListener("click", () => showAuthorPane("structured"));
 
 requiredElement<HTMLElement>(".menubar").addEventListener("click", (event) => {
   const action = (event.target as HTMLElement).closest<HTMLButtonElement>("button")?.dataset.action;

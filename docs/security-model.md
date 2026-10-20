@@ -212,8 +212,8 @@ must provision a distinct BaseX account with only local `read` permission for
 the intended database. No REST `query`, `command`, `run`, PUT, POST, or DELETE
 operation is represented by the Rust API.
 
-Author Mode receives only the current bounded in-memory source and never loads
-external entities or resources. Its presentation tree is disposable; the XML
+The structured Author projection receives only the current bounded in-memory
+source and never loads external entities or resources. Its presentation tree is disposable; the XML
 rope remains authoritative. Each writable item identifies one complete
 ordinary text event by a generated run ID and source span. Replacement text is
 size-limited, XML-escaped, and accepted only after a full well-formedness parse;
@@ -225,6 +225,19 @@ only `textContent`, forces paste through a plain-text DOM text node, disables a
 run while validation is pending, and rebuilds the projection after an accepted
 revision. Audit events `author.inspect` and `author.edit` contain only result,
 opaque document ID, revision, and engine profile—not edited text or paths.
+
+The optional SciELO publication view transforms only the current bounded
+in-memory JATS source. Packtools XSLT/config/CSS resources are pinned to 4.16.9
+and constrained to their canonical bundled directory. libxslt file-read checks
+consult the Rust catalog broker before the parser receives any bytes;
+file/directory writes and all network access remain forbidden. XSLT parameters
+have bounded count/name/value sizes and are passed through
+`xsltQuoteUserParams`, never interpreted from raw user expressions. Generated
+HTML is reparsed through the preview allowlist and shown in an iframe with no
+sandbox capabilities, `referrerPolicy=no-referrer`, and CSP `default-src
+'none'`. Scripts, active/embed content, forms, images, event attributes, and
+non-fragment links are removed. Audit event `author.preview` records only the
+result, opaque document ID, revision, and pinned engine name.
 
 The Jing RNC adapter does not expose original grammar paths to the dependency
 resolver. A conservative native lexer finds resource directives outside strings,

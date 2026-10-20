@@ -128,8 +128,13 @@ h2 { margin: 0; padding: 10px 12px 7px; color: var(--muted); font-size: 11px; le
 .author-view[hidden] { display: none; }
 .author-toolbar { display: flex; align-items: center; gap: 12px; padding: 0 14px; border-bottom: 1px solid var(--border); background: var(--panel-2); }
 .author-toolbar strong { color: var(--accent); font-size: 13px; }
-.author-toolbar span { color: var(--muted); font-size: 12px; }
+.author-toolbar span { min-width: 0; overflow: hidden; color: var(--muted); font-size: 12px; text-overflow: ellipsis; white-space: nowrap; }
+.author-toolbar button { border: 1px solid var(--border); border-radius: 4px; padding: 4px 9px; background: var(--panel); color: var(--text); cursor: pointer; }
+.author-toolbar button.active { border-color: var(--accent); background: var(--accent); color: white; }
+.author-toolbar button:disabled { opacity: .55; cursor: default; }
 .author-document { overflow: auto; padding: 28px max(28px, calc((100% - 920px) / 2)); line-height: 1.6; }
+.author-preview { width: 100%; height: 100%; border: 0; background: white; }
+.author-preview[hidden], .author-document[hidden] { display: none; }
 .author-element { position: relative; }
 .author-element-label { display: block; margin: 0 0 3px; border: 0; background: transparent; color: var(--muted); font: 10px/1.2 "SFMono-Regular", Consolas, monospace; letter-spacing: .04em; cursor: pointer; opacity: .65; }
 .author-element-label::before { content: "<"; }

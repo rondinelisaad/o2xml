@@ -14,6 +14,7 @@ tauri-build = { version = "2", features = [] }
 [dependencies]
 anyhow.workspace = true
 serde.workspace = true
+quick-xml.workspace = true
 tauri = { workspace = true, features = [] }
 tauri-plugin-dialog.workspace = true
 tempfile.workspace = true

@@ -219,6 +219,9 @@ Current progress:
 - [x] Add the initial desktop Author Mode with inert DOM rendering, source
   navigation, source-cursor projection, plain-text paste, project-framework
   validation, stale-revision rejection, and one undoable source transaction.
+- [x] Add a scriptless offline SciELO publication preview beside structured
+  Author editing, using the Packtools 4.16.9 HTMLGenerator assets selected by
+  SPSValidator v0.3.0 and catalog-brokered libxslt resource reads.
   Structural element editing, track changes, and collaborative operations remain
   later extensions.
 

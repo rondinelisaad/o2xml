@@ -2438,6 +2438,7 @@ name = "o2xml-desktop"
 version = "0.2.0"
 dependencies = [
  "anyhow",
+ "quick-xml 0.40.1",
  "serde",
  "tauri",
  "tauri-build",
@@ -5981,6 +5982,7 @@ dependencies = [
  "serde",
  "serde_json",
  "tokio",
+ "url",
  "vcpkg",
  "xml-domain",
  "xml-dtd",

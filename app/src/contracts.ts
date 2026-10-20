@@ -209,6 +209,13 @@ export interface AuthorPayload {
   document: AuthorDocument;
 }
 
+export interface AuthorPreviewPayload {
+  revision: number;
+  engine: string;
+  html: string;
+  stylesheet: string;
+}
+
 export interface AuthorEditPayload {
   revision: number;
   text: string;

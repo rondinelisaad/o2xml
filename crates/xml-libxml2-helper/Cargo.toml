@@ -19,6 +19,7 @@ vcpkg.workspace = true
 
 [dev-dependencies]
 tokio.workspace = true
+url.workspace = true
 xml-domain = { path = "../xml-domain" }
 xml-framework = { path = "../xml-framework" }
 xml-resource = { path = "../xml-resource" }

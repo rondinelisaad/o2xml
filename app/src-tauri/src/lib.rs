@@ -12,6 +12,7 @@ use std::{
     time::SystemTime,
 };
 
+use quick_xml::{events::Event, Reader, XmlVersion};
 use serde::{Deserialize, Serialize};
 use tauri::{path::BaseDirectory, AppHandle, Manager, State};
 use tracing_subscriber::EnvFilter;
@@ -180,6 +181,15 @@ struct GridEditPayload {
 struct AuthorPayload {
     revision: Revision,
     document: AuthorDocument,
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct AuthorPreviewPayload {
+    revision: Revision,
+    engine: &'static str,
+    html: String,
+    stylesheet: String,
 }
 
 #[derive(Debug, Serialize)]
@@ -941,6 +951,7 @@ async fn run_transformation_inner(
                         revision: snapshot.revision(),
                         catalog: &catalog,
                         stylesheet_uri: stylesheet_uri.as_str(),
+                        parameters: None,
                     })
                     .await
                     .map_err(|error| error.to_string())?;
@@ -1476,6 +1487,146 @@ async fn inspect_author_inner(
         revision: snapshot.revision(),
         document,
     })
+}
+
+#[tauri::command]
+async fn preview_author(
+    id: u64,
+    app: AppHandle,
+    state: State<'_, AppState>,
+) -> Result<AuthorPreviewPayload, String> {
+    let result = preview_author_inner(id, &app, &state).await;
+    let revision = result.as_ref().ok().map(|payload| payload.revision);
+    audit::event(
+        "author.preview",
+        if result.is_ok() { "success" } else { "failure" },
+        "document",
+        id,
+        revision,
+        Some("packtools-html-4.16.9"),
+    );
+    result
+}
+
+async fn preview_author_inner(
+    id: u64,
+    app: &AppHandle,
+    state: &State<'_, AppState>,
+) -> Result<AuthorPreviewPayload, String> {
+    const MAX_AUTHOR_PREVIEW_SOURCE_BYTES: usize = 32 * 1024 * 1024;
+    const MAX_AUTHOR_PREVIEW_CSS_BYTES: u64 = 1024 * 1024;
+    let snapshot = {
+        let documents = state
+            .documents
+            .lock()
+            .map_err(|_| "document store is unavailable".to_owned())?;
+        documents
+            .get(&id)
+            .ok_or_else(|| "document is not open".to_owned())?
+            .snapshot()
+    };
+    let source = snapshot.text();
+    if source.len() > MAX_AUTHOR_PREVIEW_SOURCE_BYTES {
+        return Err("SciELO preview source exceeds the 32 MiB safety limit".to_owned());
+    }
+    let language = jats_article_language(&source)?;
+    let catalog_path = bundled_resource(app, "resources/packtools-html/4.16.9/catalog.xml")?;
+    let resource_root = catalog_path
+        .parent()
+        .ok_or_else(|| "Packtools preview catalog has no parent directory".to_owned())?;
+    let stylesheet_path = resource_root.join("root-html-2.0.xslt");
+    let css_path = resource_root.join("static/scielo-article-standalone.css");
+    let css_metadata = fs::metadata(&css_path)
+        .map_err(|error| format!("cannot inspect Packtools preview stylesheet: {error}"))?;
+    if css_metadata.len() > MAX_AUTHOR_PREVIEW_CSS_BYTES {
+        return Err("Packtools preview stylesheet exceeds the 1 MiB safety limit".to_owned());
+    }
+    let stylesheet_uri = url::Url::from_file_path(&stylesheet_path)
+        .map_err(|()| "cannot convert Packtools stylesheet path to a file URI".to_owned())?;
+    let policy = ResourcePolicy::offline([resource_root.to_path_buf()])
+        .map_err(|error| error.to_string())?;
+    let catalog =
+        CatalogResolver::load(&catalog_path, policy).map_err(|error| error.to_string())?;
+    let parameters = BTreeMap::from([
+        ("article_lang".to_owned(), language),
+        ("is_translation".to_owned(), "False".to_owned()),
+        ("styles_css_path".to_owned(), String::new()),
+        ("print_styles_css_path".to_owned(), String::new()),
+        ("js_path".to_owned(), String::new()),
+        ("output_style".to_owned(), String::new()),
+        ("math_js".to_owned(), String::new()),
+    ]);
+    let engine =
+        LibxsltProcessEngine::new(libxml2_helper_path()?).map_err(|error| error.to_string())?;
+    let report = engine
+        .transform(LibxsltRequest {
+            source: &source,
+            revision: snapshot.revision(),
+            catalog: &catalog,
+            stylesheet_uri: stylesheet_uri.as_str(),
+            parameters: Some(&parameters),
+        })
+        .await
+        .map_err(|error| error.to_string())?;
+    {
+        let documents = state
+            .documents
+            .lock()
+            .map_err(|_| "document store is unavailable".to_owned())?;
+        let current = documents
+            .get(&id)
+            .ok_or_else(|| "document is not open".to_owned())?;
+        if current.revision() != report.revision {
+            return Err("document changed while the SciELO preview was being built".to_owned());
+        }
+    }
+    let html = String::from_utf8(report.output)
+        .map_err(|_| "Packtools preview output is not UTF-8".to_owned())?;
+    let stylesheet = fs::read_to_string(css_path)
+        .map_err(|error| format!("cannot read Packtools preview stylesheet: {error}"))?;
+    Ok(AuthorPreviewPayload {
+        revision: report.revision,
+        engine: "Packtools HTMLGenerator 4.16.9",
+        html,
+        stylesheet,
+    })
+}
+
+fn jats_article_language(source: &str) -> Result<String, String> {
+    let mut reader = Reader::from_str(source);
+    loop {
+        match reader.read_event() {
+            Ok(Event::Start(element) | Event::Empty(element)) => {
+                if element.local_name().as_ref() != b"article" {
+                    return Err("SciELO preview requires a JATS <article> document".to_owned());
+                }
+                for attribute in element.attributes() {
+                    let attribute = attribute
+                        .map_err(|error| format!("cannot read JATS article attributes: {error}"))?;
+                    if attribute.key.as_ref() == b"xml:lang" {
+                        let value = attribute
+                            .decoded_and_normalized_value(XmlVersion::Implicit1_0, reader.decoder())
+                            .map_err(|error| format!("cannot read JATS article language: {error}"))?
+                            .into_owned();
+                        if (2..=16).contains(&value.len())
+                            && value.bytes().all(|byte| {
+                                byte.is_ascii_alphanumeric() || matches!(byte, b'-' | b'_')
+                            })
+                        {
+                            return Ok(value);
+                        }
+                        return Err("JATS article has an invalid xml:lang value".to_owned());
+                    }
+                }
+                return Err("SciELO preview requires xml:lang on the JATS article".to_owned());
+            }
+            Ok(Event::Eof) => {
+                return Err("SciELO preview requires a JATS <article> document".to_owned());
+            }
+            Ok(_) => {}
+            Err(error) => return Err(format!("cannot inspect JATS article: {error}")),
+        }
+    }
 }
 
 #[tauri::command]
@@ -2172,6 +2323,7 @@ pub fn run() {
             inspect_grid,
             edit_grid_cell,
             inspect_author,
+            preview_author,
             edit_author_text,
             complete_dtd,
             complete_xsd,

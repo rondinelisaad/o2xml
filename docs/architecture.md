@@ -146,6 +146,15 @@ revision. Entering the mode maps and reveals the current source cursor; element
 labels navigate back to their exact source span. Switching documents discards
 the projection rather than carrying a mapping across document identities.
 
+JATS Author Mode also has a disposable publication-preview branch. The desktop
+service sends the current revision to the isolated libxslt helper with the
+bundled Packtools 4.16.9 `root-html-2.0.xslt`. Every include and `document()`
+read crosses the same offline catalog broker used by validation; parameters are
+bounded strings quoted by libxslt. The webview then parses the returned HTML,
+retains an explicit safe element/attribute subset, injects the bundled CSS, and
+uses a scriptless iframe with a deny-all CSP. This branch is read-only and never
+replaces the authoritative XML or the structured-edit projection.
+
 ## Engine plan
 
 - **Parsing/well-formedness:** `quick-xml` streaming reader in Phase 1. It is

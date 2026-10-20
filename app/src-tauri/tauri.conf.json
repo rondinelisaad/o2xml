@@ -27,7 +27,8 @@
     "active": true,
     "targets": "all",
     "resources": [
-      "resources/jats"
+      "resources/jats",
+      "resources/packtools-html"
     ],
     "externalBin": [
       "binaries/xml-libxml2-helper"

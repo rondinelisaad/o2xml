@@ -386,6 +386,10 @@ extern "C" {
         preferences: *mut XsltSecurityPrefs,
         context: *mut XsltTransformContext,
     ) -> c_int;
+    fn xsltQuoteUserParams(
+        context: *mut XsltTransformContext,
+        parameters: *const *const c_char,
+    ) -> c_int;
     fn xsltSecurityForbid(
         preferences: *mut XsltSecurityPrefs,
         context: *mut XsltTransformContext,
@@ -404,6 +408,8 @@ struct Request {
     namespaces: BTreeMap<String, String>,
     #[serde(default = "default_max_results")]
     max_results: usize,
+    #[serde(default)]
+    parameters: BTreeMap<String, String>,
 }
 
 #[derive(Clone, Copy, Deserialize)]
@@ -575,6 +581,26 @@ unsafe extern "C" fn deny_resource_loader(
     ptr::null_mut()
 }
 
+unsafe extern "C" fn brokered_file_read(
+    _preferences: *mut XsltSecurityPrefs,
+    _context: *mut XsltTransformContext,
+    value: *const c_char,
+) -> c_int {
+    let Some(url) = c_string(value) else {
+        return 0;
+    };
+    let Some(broker) = BROKER.get() else {
+        return 0;
+    };
+    let Ok(mut broker) = broker.lock() else {
+        return 0;
+    };
+    match broker.request(&url, None) {
+        Ok(Some(_)) => 1,
+        Ok(None) | Err(_) => 0,
+    }
+}
+
 fn c_string(pointer: *const c_char) -> Option<String> {
     if pointer.is_null() {
         return None;
@@ -699,7 +725,7 @@ fn run() -> Result<bool, String> {
     }
 
     if matches!(request.mode, Mode::Transform) {
-        let output = unsafe { transform_libxslt(document_ptr, &grammar_uri) };
+        let output = unsafe { transform_libxslt(document_ptr, &grammar_uri, &request.parameters) };
         unsafe { xmlFreeDoc(document_ptr) };
         let output = output?;
         emit_transform_result(&output)?;
@@ -1853,7 +1879,9 @@ unsafe fn evaluate_xpath(
 unsafe fn transform_libxslt(
     document: *mut XmlDoc,
     stylesheet_uri: &CString,
+    parameters: &BTreeMap<String, String>,
 ) -> Result<Vec<u8>, String> {
+    let parameter_storage = quoted_parameter_storage(parameters)?;
     let stylesheet_url = stylesheet_uri
         .to_str()
         .map_err(|_| "stylesheet URI is not UTF-8".to_owned())?;
@@ -1900,8 +1928,22 @@ unsafe fn transform_libxslt(
         }
         return Err("cannot allocate XSLT security preferences".into());
     }
+    if unsafe {
+        xsltSetSecurityPrefs(
+            preferences,
+            XSLT_SECPREF_READ_FILE,
+            Some(brokered_file_read),
+        )
+    } != 0
+    {
+        unsafe {
+            xsltFreeSecurityPrefs(preferences);
+            xsltFreeTransformContext(context);
+            xsltFreeStylesheet(stylesheet);
+        }
+        return Err("cannot configure brokered XSLT file reads".into());
+    }
     for option in [
-        XSLT_SECPREF_READ_FILE,
         XSLT_SECPREF_WRITE_FILE,
         XSLT_SECPREF_CREATE_DIRECTORY,
         XSLT_SECPREF_READ_NETWORK,
@@ -1923,6 +1965,21 @@ unsafe fn transform_libxslt(
             xsltFreeStylesheet(stylesheet);
         }
         return Err("cannot apply XSLT security preferences".into());
+    }
+    let mut parameter_pointers = parameter_storage
+        .iter()
+        .map(|value| value.as_ptr())
+        .collect::<Vec<_>>();
+    parameter_pointers.push(ptr::null());
+    if !parameters.is_empty()
+        && unsafe { xsltQuoteUserParams(context, parameter_pointers.as_ptr()) } != 0
+    {
+        unsafe {
+            xsltFreeSecurityPrefs(preferences);
+            xsltFreeTransformContext(context);
+            xsltFreeStylesheet(stylesheet);
+        }
+        return Err("cannot apply XSLT parameters".into());
     }
     let result = unsafe {
         xsltApplyStylesheetUser(
@@ -1962,6 +2019,33 @@ unsafe fn transform_libxslt(
         xsltFreeStylesheet(stylesheet);
     }
     output
+}
+
+fn quoted_parameter_storage(parameters: &BTreeMap<String, String>) -> Result<Vec<CString>, String> {
+    const MAX_PARAMETERS: usize = 32;
+    const MAX_NAME_BYTES: usize = 128;
+    const MAX_VALUE_BYTES: usize = 8 * 1024;
+    if parameters.len() > MAX_PARAMETERS {
+        return Err("too many XSLT parameters".into());
+    }
+    let mut storage = Vec::with_capacity(parameters.len().saturating_mul(2));
+    for (name, value) in parameters {
+        if name.is_empty()
+            || name.len() > MAX_NAME_BYTES
+            || !name
+                .bytes()
+                .all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'_' | b'-' | b'.'))
+        {
+            return Err("invalid XSLT parameter name".into());
+        }
+        if value.len() > MAX_VALUE_BYTES {
+            return Err("XSLT parameter value is too large".into());
+        }
+        storage.push(CString::new(name.as_str()).map_err(|_| "XSLT parameter name contains NUL")?);
+        storage
+            .push(CString::new(value.as_str()).map_err(|_| "XSLT parameter value contains NUL")?);
+    }
+    Ok(storage)
 }
 
 unsafe fn xpath_value(

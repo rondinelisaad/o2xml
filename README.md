@@ -92,8 +92,13 @@ desktop MVP with a Rust core and a Tauri/CodeMirror interface.
   Author Mode now projects bounded mixed XML into a source-mapped structural
   desktop view. Plain-text runs are edited transactionally, escaped, reparsed,
   checked against the active project framework, revision-gated, and applied as
-  one undoable editor change. CDATA and entity-reference runs remain visible
-  but read-only; structural editing and track changes are not yet claimed.
+  one undoable editor change. For JATS articles, the same button also exposes a
+  read-only SciELO publication preview generated offline from the Packtools
+  4.16.9 HTMLGenerator XSLT/CSS used by SPSValidator v0.3.0. The preview is
+  sanitized and rendered without scripts, network, or filesystem access; the
+  user can switch back to structured editing at any time. CDATA and
+  entity-reference runs remain visible but read-only; structural editing and
+  track changes are not yet claimed.
   SPS validation is not presented as complete while its rule pack and real
   external-engine conformance corpora are not installed. JATS and SPS results
   remain visibly separate.
