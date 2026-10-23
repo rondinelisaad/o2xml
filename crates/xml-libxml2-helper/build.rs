@@ -13,7 +13,12 @@ fn main() {
 
 #[cfg(all(target_os = "windows", target_env = "msvc"))]
 fn configure_native_libraries() -> Vec<std::path::PathBuf> {
-    let mut include_paths = probe_vcpkg("libxml2");
+    let libxml2_include_paths = probe_vcpkg("libxml2");
+    let mut include_paths = libxml2_include_paths
+        .iter()
+        .map(|path| path.join("libxml2"))
+        .collect::<Vec<_>>();
+    include_paths.extend(libxml2_include_paths);
     include_paths.extend(probe_vcpkg("libxslt"));
     include_paths
 }
