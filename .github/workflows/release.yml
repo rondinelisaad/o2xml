@@ -180,20 +180,35 @@ jobs:
 
       - name: Install macOS dependencies
         if: runner.os == 'macOS'
-        run: brew install pkg-config libxml2 libxslt
-
-      - name: Configure macOS pkg-config
-        if: runner.os == 'macOS'
-        run: |
-          echo "PKG_CONFIG_PATH=$(brew --prefix libxml2)/lib/pkgconfig:$(brew --prefix libxslt)/lib/pkgconfig" >> "$GITHUB_ENV"
+        run: brew install pkg-config
 
       - name: Install Windows native dependencies
         if: runner.os == 'Windows'
         shell: pwsh
         run: |
+          $overlayRoot = Join-Path $env:RUNNER_TEMP "o2xml-vcpkg-overlay"
+          $overlayPort = Join-Path $overlayRoot "libxml2"
+          Copy-Item `
+            -Path (Join-Path $env:VCPKG_INSTALLATION_ROOT "ports\libxml2") `
+            -Destination $overlayPort `
+            -Recurse
+
+          $portfile = Join-Path $overlayPort "portfile.cmake"
+          $contents = Get-Content $portfile -Raw
+          $needle = "        -DLIBXML2_WITH_SCHEMAS=ON"
+          if (-not $contents.Contains($needle)) {
+            throw "Unable to enable Schematron in the vcpkg libxml2 port"
+          }
+          $contents = $contents.Replace(
+            $needle,
+            "$needle`n        -DLIBXML2_WITH_SCHEMATRON=ON"
+          )
+          Set-Content -Path $portfile -Value $contents -NoNewline
+
           & "$env:VCPKG_INSTALLATION_ROOT\vcpkg.exe" install `
             "libxml2:x64-windows-static-md" `
-            "libxslt:x64-windows-static-md"
+            "libxslt:x64-windows-static-md" `
+            "--overlay-ports=$overlayRoot"
           "VCPKG_ROOT=$env:VCPKG_INSTALLATION_ROOT" | Out-File -Append -FilePath $env:GITHUB_ENV
           "VCPKGRS_TRIPLET=x64-windows-static-md" | Out-File -Append -FilePath $env:GITHUB_ENV
 
@@ -205,11 +220,22 @@ jobs:
         shell: bash
         run: test "$(rustc --print host-tuple)" = "${{ matrix.target }}"
 
-      - name: Build isolated XML helper on Unix
-        if: runner.os != 'Windows'
+      - name: Build isolated XML helper on Linux
+        if: runner.os == 'Linux'
         shell: bash
         run: |
           O2XML_STATIC_XML_LIBS=1 cargo build \
+            --locked \
+            --release \
+            --package xml-libxml2-helper \
+            --target "${{ matrix.target }}"
+          node app/scripts/stage-sidecar.mjs "${{ matrix.target }}"
+
+      - name: Build isolated XML helper on macOS
+        if: runner.os == 'macOS'
+        shell: bash
+        run: |
+          cargo build \
             --locked \
             --release \
             --package xml-libxml2-helper \
