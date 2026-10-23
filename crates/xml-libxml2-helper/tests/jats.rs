@@ -49,6 +49,70 @@ fn bundled_jats_rejects_invalid_fn_type_offline() -> Result<(), Box<dyn Error>> 
         "expected an fn-type diagnostic, got: {:?}",
         report.diagnostics
     );
+    assert!(
+        report.diagnostics.iter().all(|diagnostic| !diagnostic
+            .message
+            .contains("without a structured diagnostic")),
+        "expected structured DTD diagnostics, got: {:?}",
+        report.diagnostics
+    );
+    assert!(
+        report
+            .diagnostics
+            .iter()
+            .any(|diagnostic| diagnostic.span.start.line == 2),
+        "expected the invalid fn-type location on line 2, got: {:?}",
+        report.diagnostics
+    );
+    Ok(())
+}
+
+#[test]
+fn bundled_jats_reports_multiple_dtd_errors_with_locations() -> Result<(), Box<dyn Error>> {
+    let resources = jats_resources("1.1");
+    let policy = ResourcePolicy::offline([resources.clone()])?;
+    let catalog = CatalogResolver::load(resources.join("catalog-jats-v1-1-no-base.xml"), policy)?;
+    let engine = Libxml2ProcessEngine::new(env!("CARGO_BIN_EXE_xml-libxml2-helper"))?;
+    let runtime = tokio::runtime::Builder::new_current_thread()
+        .enable_io()
+        .enable_time()
+        .build()?;
+    let source = format!(
+        "<!DOCTYPE article PUBLIC \"{JATS_11_PUBLIC}\" \"{JATS_11_SYSTEM}\">\n\
+         <article dtd-version=\"1.1\">\n\
+         <front/>\n\
+         <body><fn fn-type=\"first-invalid\"/></body>\n\
+         <back><fn-group><fn fn-type=\"second-invalid\"/></fn-group></back>\n\
+         </article>"
+    );
+    let report = runtime.block_on(engine.validate(ValidationRequest {
+        source: &source,
+        revision: Revision(1),
+        file: Some("multiple-invalid-jats.xml"),
+        catalog: &catalog,
+        grammar: GrammarReference::Dtd {
+            system_id: JATS_11_SYSTEM,
+            public_id: Some(JATS_11_PUBLIC),
+        },
+    }))?;
+
+    let invalid_values = report
+        .diagnostics
+        .iter()
+        .filter(|diagnostic| diagnostic.message.contains("fn-type"))
+        .collect::<Vec<_>>();
+    assert!(
+        invalid_values.len() >= 2,
+        "expected both invalid fn-type diagnostics, got: {:?}",
+        report.diagnostics
+    );
+    assert!(
+        invalid_values
+            .iter()
+            .all(|diagnostic| diagnostic.span.start.line > 1),
+        "expected useful source locations, got: {:?}",
+        invalid_values
+    );
     Ok(())
 }
 

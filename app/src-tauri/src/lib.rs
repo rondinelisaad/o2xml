@@ -28,13 +28,13 @@ use xml_jats::JatsInspection;
 use xml_project::{ProjectManifest, TransformEngine, TransformMediaType};
 use xml_resource::{CatalogResolver, ResourcePolicy};
 use xml_schema::{AttributeUse, ExpandedName, SchemaIndex, ValueConstraint};
-use xml_schematron::{SchXsltProcessEngine, SchXsltRequest};
+use xml_schematron::{parse_svrl, SchXsltProcessEngine, SchXsltRequest};
 use xml_transform::{
     LibxsltProcessEngine, LibxsltRequest, SaxonProcessEngine, SaxonXQueryEngine, TransformRequest,
     XQueryRequest,
 };
 use xml_validation::{GrammarReference, Libxml2ProcessEngine, ValidationEngine, ValidationRequest};
-use xml_xpath::{Libxml2XPathEngine, XPathEngine, XPathReport, XPathRequest};
+use xml_xpath::{Libxml2XPathEngine, XPathEngine, XPathReport, XPathRequest, XPathValue};
 use xml_xsd::{Libxml2XsdIndexEngine, XsdIndexEngine, XsdIndexRequest};
 
 #[derive(Default)]
@@ -661,13 +661,159 @@ async fn validate_builtin_jats(
     } else {
         FrameworkStageStatus::Failed
     };
-    Ok(vec![FrameworkStagePayload {
+    let mut stages = vec![FrameworkStagePayload {
         id: "jats-grammar".to_owned(),
         label: bundled.label.to_owned(),
         engine: "libxml2",
         status,
         diagnostics: report.diagnostics,
-    }])
+    }];
+    if let Some(sps_version) = detected_sps_version(source)? {
+        stages.push(validate_builtin_sps(app, source, revision, file, sps_version).await?);
+    }
+    Ok(stages)
+}
+
+fn detected_sps_version(source: &str) -> Result<Option<&'static str>, String> {
+    let mut reader = Reader::from_str(source);
+    reader.config_mut().trim_text(false);
+    loop {
+        match reader.read_event().map_err(|error| error.to_string())? {
+            Event::Start(element) | Event::Empty(element)
+                if element.name().as_ref() == b"article" =>
+            {
+                for attribute in element.attributes() {
+                    let attribute = attribute.map_err(|error| error.to_string())?;
+                    if attribute.key.as_ref() != b"specific-use" {
+                        continue;
+                    }
+                    let value = attribute
+                        .decoded_and_normalized_value(XmlVersion::Implicit1_0, reader.decoder())
+                        .map_err(|error| error.to_string())?;
+                    return Ok(match value.trim().to_ascii_lowercase().as_str() {
+                        "sps-1.9" => Some("1.9"),
+                        "sps-1.10" => Some("1.10"),
+                        _ => None,
+                    });
+                }
+                return Ok(None);
+            }
+            Event::Eof => return Ok(None),
+            _ => {}
+        }
+    }
+}
+
+async fn validate_builtin_sps(
+    app: &AppHandle,
+    source: &str,
+    revision: Revision,
+    file: Option<&str>,
+    version: &'static str,
+) -> Result<FrameworkStagePayload, String> {
+    let catalog_path = bundled_resource(app, "resources/sps/catalog.xml")?;
+    let root = catalog_path
+        .parent()
+        .ok_or_else(|| "built-in SPS catalog has no parent directory".to_owned())?;
+    let policy =
+        ResourcePolicy::offline([root.to_path_buf()]).map_err(|error| error.to_string())?;
+    let catalog =
+        CatalogResolver::load(&catalog_path, policy).map_err(|error| error.to_string())?;
+    let stylesheet_uri = format!("urn:o2xml:framework:sps:{version}:compiled-schematron");
+    let engine =
+        LibxsltProcessEngine::new(libxml2_helper_path()?).map_err(|error| error.to_string())?;
+    let transformed = engine
+        .transform(LibxsltRequest {
+            source,
+            revision,
+            catalog: &catalog,
+            stylesheet_uri: &stylesheet_uri,
+            parameters: None,
+        })
+        .await
+        .map_err(|error| error.to_string())?;
+    let svrl = String::from_utf8(transformed.output)
+        .map_err(|_| "SPS validator produced non-UTF-8 SVRL".to_owned())?;
+    let report = parse_svrl(&svrl).map_err(|error| error.to_string())?;
+    let locations = match resolve_svrl_locations(source, revision, &report).await {
+        Ok(locations) => locations,
+        Err(error) => {
+            tracing::warn!(
+                action = "validation.sps_location_resolution",
+                result = "failure",
+                error = %error,
+            );
+            BTreeMap::new()
+        }
+    };
+    let mut diagnostics = report.diagnostics(source, revision, file, &locations);
+    let label = format!("SPS {version}");
+    for diagnostic in &mut diagnostics {
+        diagnostic.source.clone_from(&label);
+    }
+    let status = if diagnostics.is_empty() {
+        FrameworkStageStatus::Passed
+    } else {
+        FrameworkStageStatus::Failed
+    };
+    Ok(FrameworkStagePayload {
+        id: "sps-rules".to_owned(),
+        label,
+        engine: "packtools-schematron-libxslt",
+        status,
+        diagnostics,
+    })
+}
+
+async fn resolve_svrl_locations(
+    source: &str,
+    revision: Revision,
+    report: &xml_schematron::SvrlReport,
+) -> Result<BTreeMap<String, xml_domain::SourceSpan>, String> {
+    const MAX_LOCATION_EXPRESSION_BYTES: usize = 60 * 1024;
+    let mut expression = String::new();
+    for location in report
+        .findings
+        .iter()
+        .filter_map(|finding| finding.location.as_deref())
+        .collect::<BTreeSet<_>>()
+    {
+        let separator_bytes = usize::from(!expression.is_empty()).saturating_mul(3);
+        if expression
+            .len()
+            .saturating_add(separator_bytes)
+            .saturating_add(location.len())
+            > MAX_LOCATION_EXPRESSION_BYTES
+        {
+            break;
+        }
+        if !expression.is_empty() {
+            expression.push_str(" | ");
+        }
+        expression.push_str(location);
+    }
+    if expression.is_empty() {
+        return Ok(BTreeMap::new());
+    }
+    let engine =
+        Libxml2XPathEngine::new(libxml2_helper_path()?).map_err(|error| error.to_string())?;
+    let namespaces = BTreeMap::new();
+    let xpath = engine
+        .evaluate(XPathRequest {
+            source,
+            revision,
+            expression: &expression,
+            namespaces: &namespaces,
+        })
+        .await
+        .map_err(|error| error.to_string())?;
+    let XPathValue::Nodes { items, .. } = xpath.value else {
+        return Ok(BTreeMap::new());
+    };
+    Ok(items
+        .into_iter()
+        .map(|node| (node.path, node.span))
+        .collect())
 }
 
 #[derive(Clone, Copy)]
@@ -2557,6 +2703,23 @@ mod tests {
         assert_eq!(jats_11.map(|jats| jats.label), Some("JATS 1.1"));
         assert_eq!(jats_13.map(|jats| jats.label), Some("JATS 1.3"));
         assert!(bundled_jats_dtd(None, Some("https://example.org/article.dtd")).is_none());
+    }
+
+    #[test]
+    fn detects_sps_version_from_article_specific_use() -> Result<(), String> {
+        assert_eq!(
+            detected_sps_version(r#"<article specific-use="sps-1.9"/>"#)?,
+            Some("1.9")
+        );
+        assert_eq!(
+            detected_sps_version(r#"<article specific-use="SPS-1.10"/>"#)?,
+            Some("1.10")
+        );
+        assert_eq!(
+            detected_sps_version(r#"<article specific-use="other"/>"#)?,
+            None
+        );
+        Ok(())
     }
 
     #[test]

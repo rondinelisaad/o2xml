@@ -696,7 +696,11 @@ function renderProblems(
     const row = window.document.createElement("button");
     row.className = `problem ${diagnostic.severity}`;
     row.textContent = `${translatedSeverity(diagnostic.severity)}  [${translatedDiagnosticSource(diagnostic.source)}] ${diagnostic.message}  (${diagnostic.span.start.line}:${diagnostic.span.start.column})`;
-    row.addEventListener("click", () => goToByte(diagnostic.span.start.byte));
+    row.title = t("validation.goToDiagnostic", {
+      line: diagnostic.span.start.line,
+      column: diagnostic.span.start.column,
+    });
+    row.addEventListener("click", () => goToDiagnostic(diagnostic));
     return row;
   });
   problemsHost.replaceChildren(...rows);
@@ -813,6 +817,45 @@ function goToByte(byte: number): void {
   const text = editor.state.doc.toString();
   const position = Math.min(byteToUtf16(text, byte), editor.state.doc.length);
   editor.dispatch({ selection: { anchor: position }, scrollIntoView: true });
+  editor.focus();
+}
+
+function goToDiagnostic(diagnostic: Diagnostic): void {
+  showSourceMode();
+  const text = editor.state.doc.toString();
+  const lineNumber = Math.min(
+    Math.max(diagnostic.span.start.line, 1),
+    editor.state.doc.lines,
+  );
+  const line = editor.state.doc.line(lineNumber);
+  const bytePosition = byteToUtf16(text, diagnostic.span.start.byte);
+  const reportedColumn = Math.max(diagnostic.span.start.column - 1, 0);
+  const columnPosition = Math.min(line.from + reportedColumn, line.to);
+  let start = diagnostic.span.start.byte > 0
+    ? Math.min(bytePosition, editor.state.doc.length)
+    : columnPosition;
+  const reportedEnd = Math.min(
+    byteToUtf16(text, diagnostic.span.end.byte),
+    editor.state.doc.length,
+  );
+  let end = reportedEnd;
+  if (diagnostic.span.approximate) {
+    const lineText = editor.state.doc.sliceString(line.from, line.to);
+    const tagStart = lineText.indexOf("<");
+    if (tagStart >= 0) {
+      start = line.from + tagStart;
+      const tagEnd = lineText.indexOf(">", tagStart);
+      end = tagEnd >= 0 ? line.from + tagEnd + 1 : line.to;
+    }
+  }
+  if (end <= start) {
+    const tokenEnd = text.slice(start).search(/[\s<>]/);
+    end = tokenEnd > 0 ? start + tokenEnd : Math.min(start + 1, line.to);
+  }
+  editor.dispatch({
+    selection: { anchor: start, head: end },
+    scrollIntoView: true,
+  });
   editor.focus();
 }
 

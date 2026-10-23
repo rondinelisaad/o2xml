@@ -11,6 +11,7 @@ phase gate. CI will add `cargo audit`, `cargo deny`, npm audit, and license chec
 | `tauri` 2 | Desktop lifecycle and typed IPC | MIT OR Apache-2.0 | Cross-platform Rust core; capabilities kept minimal |
 | `tauri-plugin-dialog` 2 | Native open/save dialog | MIT OR Apache-2.0 | Avoid custom platform dialog code |
 | `quick-xml` | Streaming XML events | MIT | Mature, fast Phase 1 well-formedness/outline/format foundation |
+| `regex` 1 | EXSLT `regexp:test` compatibility for the bundled SPS Schematron rules | MIT OR Apache-2.0 | Mature Rust implementation; patterns come only from the bundled, reviewed Packtools stylesheets and execute inside the isolated helper |
 | `reqwest` 0.13.5 + Rustls | Opt-in pinned HTTPS resource retrieval | MIT OR Apache-2.0 | Redirects/proxies disabled; per-hop DNS results are policy-checked and pinned; certificate and hostname verification remain enabled |
 | `ropey` | Large editable UTF-8 text | MIT | Logarithmic edits/queries and cheap thread-safe snapshots |
 | `serde`, `serde_json` | IPC/project data | MIT OR Apache-2.0 | Ubiquitous typed serialization; input limits still required |
@@ -106,11 +107,11 @@ transitive dependencies, supported versions, and platform packaging are reviewed
 before inclusion. Saxon PE/EE is commercial and is never silently bundled or
 treated as open source.
 
-The official vcpkg libxml2 port currently builds Schematron support out and
-does not expose it as a feature. Windows bundles therefore use libxml2 for
-DTD/XSD/RELAX NG/XPath and libxslt for XSLT 1.0, while Schematron requires the
-separately configured SchXslt/Saxon adapter. O2XML reports this capability gap
-explicitly instead of silently skipping the rules stage.
+The official vcpkg libxml2 port currently builds the generic Schematron module
+out and does not expose it as a feature. Windows bundles still validate the
+built-in SPS 1.9 and 1.10 profiles because their reviewed ISO Schematron is
+precompiled to XSLT 1.0 and executed by the isolated libxslt helper. Arbitrary
+project Schematron continues to use the optional SchXslt/Saxon adapter.
 
 Schemas and framework resources are dependencies too. Their asset licenses and
 checksums live in framework manifests; the project source license does not
@@ -147,7 +148,7 @@ override them.
   `a5455f82995d68bccc79365e3e0c5a023c70c7d4`.
 - **Purpose:** offline SciELO article preview in Author Mode using the same
   `HTMLGenerator` XSLT/CSS generation layer selected by SPSValidator v0.3.0.
-- **License:** BSD-3-Clause. The upstream license is bundled at
+- **License:** BSD-2-Clause. The upstream license is bundled at
   `app/src-tauri/resources/packtools-html/4.16.9/LICENSE` and its notice must
   accompany binary distributions.
 - **Bundled subset:** `root-html-2.0.xslt`, its `v2.0` XSLT/config resources,
@@ -159,3 +160,16 @@ override them.
   a scriptless sandboxed iframe. Referenced local raster images are separately
   canonicalized below the XML directory, signature-checked, bounded, base64-
   encoded, and admitted only through an exact generated-source map.
+
+### Packtools SPS Schematron 4.16.9
+
+- **Source:** `scieloorg/packtools`, tag `4.16.9`, using
+  `scielo-style-1.9.sch`, `scielo-style-1.10.sch`, and `common.sch`.
+- **Purpose:** automatic, offline SPS 1.9 and SPS 1.10 validation when the JATS
+  root declares the corresponding `specific-use` value.
+- **License:** BSD-2-Clause. The notice is distributed at
+  `app/src-tauri/resources/sps/licenses/PACKTOOLS-BSD-2-CLAUSE.txt`.
+- **Generated assets:** ISO Schematron was compiled to committed XSLT 1.0 at
+  build preparation time; installed validation needs neither Python nor Java.
+- **Security:** the XSLT is served only by the offline catalog broker and runs
+  in the isolated helper with filesystem writes and network access denied.

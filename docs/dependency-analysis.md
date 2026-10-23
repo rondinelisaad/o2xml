@@ -28,12 +28,11 @@ claim that a version is current.
    resource broker. A supervised Jing V20241231 adapter handles RNC after a
    native broker resolves and rewrites bounded `include`/`external` graphs into
    private staging.
-10. **Schematron:** an isolated libxml2 baseline provides immediate XPath 1.0
-    assertions behind the catalog broker. The optional supervised SchXslt/Saxon
-    adapter compiles ISO rules to XSLT and then SVRL. Static includes/imports are
-    catalog-brokered into private staging; a project-owned JAXP launcher applies
-    Saxon's deny-all protocol policy and fail-closed URI resolvers. Quick Fix
-    remains disabled.
+10. **Schematron:** the bundled SPS 1.9/1.10 rules are precompiled from the
+    Packtools ISO Schematron sources to XSLT 1.0 and run offline in the isolated
+    libxslt helper. The optional supervised SchXslt/Saxon adapter remains the
+    path for arbitrary project rules. Static includes/imports are
+    catalog-brokered into private staging; Quick Fix remains disabled.
 11. **XPath:** libxml2 for 1.0; Saxon HE for non-schema-aware 3.1.
 12. **XSLT:** isolated, catalog-brokered libxslt for 1.0; supervised Saxon HE for
     self-contained 3.0. Each scenario names its engine and the UI reports it.
@@ -86,7 +85,7 @@ claim that a version is current.
 | XML Catalog 1.1 | project resolver | Yes | Apache-2.0 OR MIT | HIGH | 2 |
 | Schema completion | common model + adapters | Mixed | mixed/project | HIGH | 2 |
 | JATS framework | NLM schemas + project manifest | Mixed | verify per asset | MEDIUM | 3 |
-| SPS framework | external SPS rules/assets | Mixed | CC BY-NC 4.0 reported by upstream | HIGH | 3 |
+| SPS 1.9/1.10 framework | Packtools 4.16.9 Schematron compiled to XSLT 1.0 | Mixed | BSD-2-Clause | MEDIUM | 3 |
 | Plugin host | Wasmtime 48 LTS Component Model / supervised process | Yes/mixed | Apache-2.0 WITH LLVM-exception / mixed | HIGH | 5 |
 | Benchmarks | Criterion | Yes | Apache-2.0 OR MIT | LOW | 1+ |
 

@@ -1,18 +1,18 @@
-# Manual de validação de XML no O2XML 0.3.1
+# Manual de validação de XML no O2XML 0.3.2
 
 Este manual descreve como abrir, validar e corrigir um documento XML na versão
-0.3.1 do O2XML. O exemplo utilizado é o artigo
+0.3.2 do O2XML. O exemplo utilizado é o artigo
 `0001-3765-aabc-98-03-e20251145.xml`, fornecido para teste.
 
-> **Escopo da versão 0.3.1:** o O2XML verifica a boa formação de qualquer XML e
+> **Escopo da versão 0.3.2:** o O2XML verifica a boa formação de qualquer XML,
 > valida automaticamente documentos que declaram as DTDs JATS Publishing 1.1 ou
-> 1.3 incluídas no aplicativo. A conformidade com o SciELO Publishing Schema
-> (SPS) é uma etapa separada e requer um projeto configurado com o catálogo, a
-> gramática e as regras Schematron oficiais da versão SPS correspondente.
+> 1.3 e, ao encontrar `specific-use="sps-1.9"` ou `specific-use="sps-1.10"`,
+> também executa offline as regras SPS correspondentes. JATS e SPS permanecem
+> etapas independentes.
 
 ## 1. Antes de começar
 
-1. Instale ou extraia o pacote do O2XML 0.3.1 adequado ao sistema operacional.
+1. Instale ou extraia o pacote do O2XML 0.3.2 adequado ao sistema operacional.
    No Windows, o pacote portátil pode ser extraído em qualquer pasta gravável;
    mantenha `O2XML.exe`, o helper e a pasta `resources` juntos.
 2. Preserve uma cópia do XML original antes de corrigir erros.
@@ -102,8 +102,8 @@ Não substitua `data-availability` apenas para zerar a etapa JATS. Fazer isso po
 eliminar uma informação exigida pelo SPS e produzir um documento editorialmente
 incorreto.
 
-Ao abrir o artigo dentro de um projeto **SPS-1.9**, o O2XML executa as etapas
-separadamente:
+Ao abrir o artigo, o O2XML reconhece `specific-use="sps-1.9"` e executa as
+etapas separadamente:
 
 - a etapa **JATS 1.1** pode falhar por causa da extensão exigida pelo SPS; e
 - a etapa **SPS 1.9** continua sendo executada e apresenta seu próprio resultado.
@@ -116,67 +116,31 @@ deve ser interpretado separadamente.
 
 ## 6. Validar como SPS 1.9
 
-O atributo `specific-use="sps-1.9"` informa a intenção do documento, mas não
-ativa nem substitui as regras SPS. Para executar as duas etapas separadamente,
-prepare um projeto local com os recursos oficiais e suas respectivas licenças:
-
-```text
-meu-projeto/
-├── project.toml
-├── catalog.xml
-├── xml/
-│   └── 0001-3765-aabc-98-03-e20251145.xml
-├── schemas/
-│   └── JATS-journalpublishing1.dtd
-└── schematron/
-    └── sps-1.9.sch
-```
-
-Exemplo mínimo de `project.toml`:
-
-```toml
-[project]
-name = "Validação SPS 1.9"
-
-[xml]
-catalog = "catalog.xml"
-
-[validation]
-framework = "SPS-1.9"
-```
-
-O `catalog.xml` deve resolver os identificadores lógicos esperados pelo O2XML
-para os arquivos locais revisados:
+Não é mais necessário criar `project.toml`, copiar Schematron ou configurar um
+processador externo para o perfil padrão. Confirme que o elemento raiz contém:
 
 ```xml
-<?xml version="1.0"?>
-<catalog xmlns="urn:oasis:names:tc:entity:xmlns:xml:catalog">
-  <system
-    systemId="urn:o2xml:framework:sps:1.9:jats"
-    uri="schemas/JATS-journalpublishing1.dtd"/>
-  <uri
-    name="urn:o2xml:framework:sps:1.9:schematron"
-    uri="schematron/sps-1.9.sch"/>
-</catalog>
+<article dtd-version="1.1" specific-use="sps-1.9" ...>
 ```
 
-Para usar o projeto:
+Depois:
 
-1. clique em **Projeto…** e selecione `project.toml`;
-2. abra o XML localizado dentro da pasta do projeto;
-3. clique em **Validar**;
-4. confira separadamente as etapas **JATS 1.1** e **SPS 1.9** em **Framework de
-   validação**, mesmo que a primeira tenha falhado; e
-5. examine os diagnósticos de cada origem no painel **Problemas**.
+1. abra o XML;
+2. clique em **Validar**;
+3. confira separadamente **JATS 1.1** e **SPS 1.9** em **Framework de
+   validação**; e
+4. clique em qualquer ocorrência do painel **Problemas** para selecionar a tag
+   correspondente no editor.
 
-Se a etapa SPS aparecer como **indisponível**, verifique o catálogo, os caminhos
-dos arquivos e a disponibilidade do processador Schematron configurado. A
-versão 0.3.1 não baixa nem fornece silenciosamente o conjunto oficial de regras
-SPS.
+As regras Packtools/SPS incluídas no aplicativo funcionam offline. A etapa SPS
+é executada mesmo quando a etapa JATS contém erros. Apenas um XML malformado
+impede as duas etapas estruturais, pois não existe uma árvore XML segura sobre a
+qual aplicar DTD ou Schematron.
 
 ## 7. Documentos SPS 1.10 e JATS 1.3
 
-O O2XML 0.3.1 também inclui a DTD oficial JATS Publishing 1.3 para uso offline.
+O O2XML 0.3.2 também inclui a DTD oficial JATS Publishing 1.3 e as regras SPS
+1.10 para uso offline.
 Um documento SPS 1.10 pode declarar:
 
 ```xml
@@ -192,15 +156,9 @@ Um documento SPS 1.10 pode declarar:
          xml:lang="en">
 ```
 
-O identificador é reconhecido automaticamente e a validação JATS 1.3 ocorre sem
-acesso à internet. Para executar também as regras SPS 1.10, abra um projeto com
-`framework = "SPS-1.10"` e mapeie no catálogo os identificadores:
-
-- `urn:o2xml:framework:sps:1.10:jats` para a gramática adotada pelo SPS 1.10; e
-- `urn:o2xml:framework:sps:1.10:schematron` para as regras Schematron SPS 1.10.
-
-Assim como no SPS 1.9, as etapas JATS 1.3 e SPS 1.10 são executadas e exibidas
-independentemente.
+Os atributos `dtd-version="1.3"` e `specific-use="sps-1.10"` são reconhecidos
+automaticamente. Assim como no SPS 1.9, as etapas JATS 1.3 e SPS 1.10 são
+executadas offline e exibidas independentemente.
 
 ## 8. Interpretar e navegar pelos problemas
 
@@ -211,9 +169,12 @@ Cada linha do painel **Problemas** apresenta:
 - mensagem do mecanismo de validação; e
 - linha e coluna aproximadas no documento.
 
-Clique no problema para navegar ao XML. Corrija um erro por vez, começando por
-problemas de boa formação; erros sintáticos podem impedir a execução das etapas
-JATS e SPS.
+Clique no problema para navegar ao XML. O2XML rola até a linha e seleciona a tag
+associada, o que permite distinguir uma ocorrência mesmo em documentos com
+centenas de elementos `<p>`. A DTD e o SPS podem apresentar várias ocorrências
+na mesma validação. Para XML malformado, corrija primeiro o erro sintático
+indicado e valide novamente: após uma ruptura da árvore, erros posteriores
+podem ser apenas consequência do primeiro.
 
 ## 9. Conferência final
 
@@ -230,15 +191,15 @@ Antes de entregar o documento, confirme:
 - [ ] o documento corrigido foi reaberto e validado novamente; e
 - [ ] a cópia original foi preservada.
 
-## 10. Limitações importantes da versão 0.3.1
+## 10. Limitações importantes da versão 0.3.2
 
-- A validação automática embutida cobre as DTDs JATS Publishing 1.1 e 1.3
-  reconhecidas pelo identificador declarado no documento.
-- `specific-use="sps-1.9"` não equivale a uma validação SPS.
+- A validação automática embutida cobre as DTDs JATS Publishing 1.1 e 1.3 e os
+  perfis SPS 1.9 e 1.10 reconhecidos pelos identificadores do documento.
+- `specific-use` seleciona as regras SPS, mas não substitui a validação JATS.
 - Um erro JATS não bloqueia a etapa SPS; somente XML malformado impede as etapas
   de framework.
-- Os recursos oficiais SPS precisam ser instalados e mapeados em um catálogo de
-  projeto; as licenças e a procedência desses recursos devem ser respeitadas.
+- Schematron arbitrário de projetos continua sendo uma configuração avançada;
+  a execução embutida cobre especificamente os perfis SPS versionados incluídos.
 - O O2XML mantém recursos remotos bloqueados por padrão. Essa proteção evita
   XXE, acessos arbitrários a arquivos e downloads inesperados durante a
   validação.

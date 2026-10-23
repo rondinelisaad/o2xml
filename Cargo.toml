@@ -24,7 +24,7 @@ members = [
 resolver = "2"
 
 [workspace.package]
-version = "0.3.1"
+version = "0.3.2"
 edition = "2021"
 license = "MIT OR Apache-2.0"
 repository = "https://github.com/scieloorg/o2xml"
@@ -32,7 +32,9 @@ repository = "https://github.com/scieloorg/o2xml"
 [workspace.dependencies]
 anyhow = "1"
 base64 = { version = "0.23.1", default-features = false, features = ["std"] }
+cc = "1"
 quick-xml = "0.40"
+regex = "1"
 reqwest = { version = "0.13.5", default-features = false, features = ["rustls"] }
 ropey = "1.6"
 serde = { version = "1", features = ["derive"] }

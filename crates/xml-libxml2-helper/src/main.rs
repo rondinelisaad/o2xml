@@ -7,6 +7,7 @@ use std::{
     sync::{Mutex, OnceLock},
 };
 
+use regex::RegexBuilder;
 use serde::{Deserialize, Serialize};
 use xml_dtd::{DtdContent, DtdElementDeclaration, DtdParticle};
 use xml_schema::{AttributeDeclaration, AttributeUse, ExpandedName, ValueConstraint};
@@ -41,13 +42,15 @@ type XmlSchematron = c_void;
 type XmlSchematronParserCtxt = c_void;
 #[cfg(not(target_os = "windows"))]
 type XmlSchematronValidCtxt = c_void;
-type XmlValidCtxt = c_void;
 type XmlXPathContext = c_void;
+type XmlXPathParserContext = c_void;
 type XmlNode = c_void;
 type XmlNs = c_void;
 type XsltStylesheet = c_void;
 type XsltTransformContext = c_void;
 type XsltSecurityPrefs = c_void;
+
+type XmlXPathFunction = Option<unsafe extern "C" fn(*mut XmlXPathParserContext, c_int)>;
 
 type ExternalEntityLoader = Option<
     unsafe extern "C" fn(
@@ -255,7 +258,9 @@ struct XmlEnumerationLayout {
 }
 
 extern "C" {
+    fn o2xmlValidateDtdWithLocations(document: *mut XmlDoc, dtd: *mut XmlDtd) -> c_int;
     fn xmlInitParser();
+    fn xmlLineNumbersDefault(value: c_int) -> c_int;
     fn xmlSetExternalEntityLoader(loader: ExternalEntityLoader);
     fn xmlParserInputBufferCreateMem(
         memory: *const c_char,
@@ -284,10 +289,6 @@ extern "C" {
         scanner: Option<unsafe extern "C" fn(*mut c_void, *mut c_void, *const u8)>,
         data: *mut c_void,
     );
-    fn xmlNewValidCtxt() -> *mut XmlValidCtxt;
-    fn xmlFreeValidCtxt(context: *mut XmlValidCtxt);
-    fn xmlValidateDtd(context: *mut XmlValidCtxt, document: *mut XmlDoc, dtd: *mut XmlDtd)
-        -> c_int;
     fn xmlSchemaNewParserCtxt(url: *const c_char) -> *mut XmlSchemaParserCtxt;
     fn xmlSchemaFreeParserCtxt(context: *mut XmlSchemaParserCtxt);
     fn xmlSchemaParse(context: *mut XmlSchemaParserCtxt) -> *mut XmlSchema;
@@ -339,6 +340,9 @@ extern "C" {
         context: *mut XmlXPathContext,
     ) -> *mut XmlXPathObject;
     fn xmlXPathFreeObject(object: *mut XmlXPathObject);
+    fn xmlXPathPopString(context: *mut XmlXPathParserContext) -> *mut u8;
+    fn xmlXPathNewBoolean(value: c_int) -> *mut XmlXPathObject;
+    fn valuePush(context: *mut XmlXPathParserContext, value: *mut XmlXPathObject) -> c_int;
     fn xmlXPathCastToString(object: *mut XmlXPathObject) -> *mut u8;
     fn xmlGetNodePath(node: *const c_void) -> *mut u8;
     fn xmlGetLineNo(node: *const c_void) -> c_long;
@@ -354,6 +358,11 @@ type XsltSecurityCheck = Option<
 
 extern "C" {
     fn xsltInit();
+    fn xsltRegisterExtModuleFunction(
+        name: *const u8,
+        uri: *const u8,
+        function: XmlXPathFunction,
+    ) -> c_int;
     fn xsltParseStylesheetDoc(document: *mut XmlDoc) -> *mut XsltStylesheet;
     fn xsltFreeStylesheet(stylesheet: *mut XsltStylesheet);
     fn xsltNewTransformContext(
@@ -395,6 +404,71 @@ extern "C" {
         context: *mut XsltTransformContext,
         value: *const c_char,
     ) -> c_int;
+}
+
+unsafe extern "C" fn exslt_regexp_test(context: *mut XmlXPathParserContext, nargs: c_int) {
+    if context.is_null() || !(2..=3).contains(&nargs) {
+        return_xpath_boolean(context, false);
+        return;
+    }
+    let flags = if nargs == 3 {
+        unsafe { take_xpath_string(context) }
+    } else {
+        Some(String::new())
+    };
+    let pattern = unsafe { take_xpath_string(context) };
+    let value = unsafe { take_xpath_string(context) };
+    let matches = match (value, pattern, flags) {
+        (Some(value), Some(pattern), Some(flags))
+            if value.len() <= 8 * 1024 * 1024 && pattern.len() <= 8 * 1024 && flags.len() <= 32 =>
+        {
+            RegexBuilder::new(&pattern)
+                .case_insensitive(flags.contains('i'))
+                .multi_line(flags.contains('m'))
+                .size_limit(1024 * 1024)
+                .dfa_size_limit(1024 * 1024)
+                .build()
+                .is_ok_and(|expression| expression.is_match(&value))
+        }
+        _ => false,
+    };
+    unsafe { return_xpath_boolean(context, matches) };
+}
+
+unsafe fn take_xpath_string(context: *mut XmlXPathParserContext) -> Option<String> {
+    let value = unsafe { xmlXPathPopString(context) };
+    let decoded = unsafe { optional_xml_string(value) };
+    if !value.is_null() {
+        unsafe { xmlMemFree(value.cast()) };
+    }
+    decoded
+}
+
+unsafe fn return_xpath_boolean(context: *mut XmlXPathParserContext, value: bool) {
+    if context.is_null() {
+        return;
+    }
+    let result = unsafe { xmlXPathNewBoolean(c_int::from(value)) };
+    if !result.is_null() && unsafe { valuePush(context, result) } < 0 {
+        unsafe { xmlXPathFreeObject(result) };
+    }
+}
+
+unsafe fn register_exslt_regexp() -> Result<(), String> {
+    const TEST: &[u8] = b"test\0";
+    const REGEXP_NAMESPACE: &[u8] = b"http://exslt.org/regular-expressions\0";
+    let status = unsafe {
+        xsltRegisterExtModuleFunction(
+            TEST.as_ptr(),
+            REGEXP_NAMESPACE.as_ptr(),
+            Some(exslt_regexp_test),
+        )
+    };
+    if status == 0 {
+        Ok(())
+    } else {
+        Err("cannot register the EXSLT regular-expression function".to_owned())
+    }
 }
 
 #[derive(Deserialize)]
@@ -666,6 +740,7 @@ fn run() -> Result<bool, String> {
 
     unsafe {
         xmlInitParser();
+        xmlLineNumbersDefault(1);
         xmlSetExternalEntityLoader(Some(match request.mode {
             Mode::XPath => deny_resource_loader,
             Mode::Dtd
@@ -1675,14 +1750,8 @@ unsafe fn validate_dtd(
     if dtd.is_null() {
         return Ok(false);
     }
-    let context = unsafe { xmlNewValidCtxt() };
-    if context.is_null() {
-        unsafe { xmlFreeDtd(dtd) };
-        return Err("cannot allocate DTD validation context".into());
-    }
-    let result = unsafe { xmlValidateDtd(context, document, dtd) };
+    let result = unsafe { o2xmlValidateDtdWithLocations(document, dtd) };
     unsafe {
-        xmlFreeValidCtxt(context);
         xmlFreeDtd(dtd);
     }
     Ok(result == 1)
@@ -1911,6 +1980,7 @@ unsafe fn transform_libxslt(
         return Err("cannot parse XSLT stylesheet".into());
     }
     unsafe { xsltInit() };
+    unsafe { register_exslt_regexp() }?;
     let stylesheet = unsafe { xsltParseStylesheetDoc(stylesheet_document) };
     if stylesheet.is_null() {
         return Err("cannot compile XSLT stylesheet".into());

@@ -160,7 +160,7 @@ Windows, macOS Apple Silicon, and macOS Intel. See
 smoke tests, and publication requirements.
 
 The Portuguese user guide [Manual de validação de XML no O2XML
-0.3.1](docs/manual-validacao-xml-v0.3.1.md) explains the validation workflow,
+0.3.2](docs/manual-validacao-xml-v0.3.2.md) explains the validation workflow,
 diagnostic navigation, and the distinction between well-formed XML, JATS, and
 SPS, using a real JATS 1.1 article as an example.
 

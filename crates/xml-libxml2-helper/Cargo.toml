@@ -9,11 +9,13 @@ build = "build.rs"
 [dependencies]
 serde.workspace = true
 serde_json.workspace = true
+regex.workspace = true
 xml-dtd = { path = "../xml-dtd" }
 xml-schema = { path = "../xml-schema" }
 xml-xsd = { path = "../xml-xsd" }
 
 [build-dependencies]
+cc.workspace = true
 pkg-config.workspace = true
 vcpkg.workspace = true
 
@@ -23,6 +25,7 @@ url.workspace = true
 xml-domain = { path = "../xml-domain" }
 xml-framework = { path = "../xml-framework" }
 xml-resource = { path = "../xml-resource" }
+xml-schematron = { path = "../xml-schematron" }
 xml-transform = { path = "../xml-transform" }
 xml-validation = { path = "../xml-validation" }
 xml-xpath = { path = "../xml-xpath" }

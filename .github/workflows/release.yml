@@ -271,6 +271,7 @@ jobs:
           Copy-Item $helper (Join-Path $portableRoot "xml-libxml2-helper.exe")
           Copy-Item "app/src-tauri/resources/jats" (Join-Path $resourceRoot "jats") -Recurse
           Copy-Item "app/src-tauri/resources/packtools-html" (Join-Path $resourceRoot "packtools-html") -Recurse
+          Copy-Item "app/src-tauri/resources/sps" (Join-Path $resourceRoot "sps") -Recurse
           Copy-Item "packaging/windows/README-PORTABLE.txt" $portableRoot
           Copy-Item "LICENSE-MIT" $portableRoot
           Copy-Item "LICENSE-APACHE" $portableRoot
@@ -281,7 +282,9 @@ jobs:
             (Join-Path $portableRoot "xml-libxml2-helper.exe"),
             (Join-Path $resourceRoot "jats/1.1/JATS-journalpublishing1.dtd"),
             (Join-Path $resourceRoot "jats/1.3/JATS-journalpublishing1-3.dtd"),
-            (Join-Path $resourceRoot "packtools-html/4.16.9/catalog.xml")
+            (Join-Path $resourceRoot "packtools-html/4.16.9/catalog.xml"),
+            (Join-Path $resourceRoot "sps/1.9/scielo-style-1.9.xsl"),
+            (Join-Path $resourceRoot "sps/1.10/scielo-style-1.10.xsl")
           )
           foreach ($requiredFile in $requiredFiles) {
             if (-not (Test-Path $requiredFile -PathType Leaf)) {
