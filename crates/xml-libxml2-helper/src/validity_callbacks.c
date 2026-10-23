@@ -1,6 +1,7 @@
 #include <libxml/tree.h>
 #include <libxml/valid.h>
 #include <libxml/xmlerror.h>
+#include <libxml/xmlversion.h>
 
 #include <stdarg.h>
 #include <stdio.h>
@@ -57,7 +58,11 @@ static void o2xml_ignore_validity_message(void *context, const char *format, ...
     (void)format;
 }
 
+#if LIBXML_VERSION >= 21400
+static void o2xml_structured_error(void *context, const xmlError *error) {
+#else
 static void o2xml_structured_error(void *context, xmlErrorPtr error) {
+#endif
     char message[O2XML_DIAGNOSTIC_LIMIT];
     long line = 1;
     const char *severity = "error";
