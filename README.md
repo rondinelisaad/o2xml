@@ -159,6 +159,11 @@ Windows, macOS Apple Silicon, and macOS Intel. See
 [docs/release.md](docs/release.md) for local packaging, CI operation, signing,
 smoke tests, and publication requirements.
 
+The Portuguese user guide [Manual de validação de XML no O2XML
+0.3.0](docs/manual-validacao-xml-v0.3.0.md) explains the validation workflow,
+diagnostic navigation, and the distinction between well-formed XML, JATS, and
+SPS, using a real JATS 1.1 article as an example.
+
 ## Repository layout
 
 ```text
