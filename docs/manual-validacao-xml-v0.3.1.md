@@ -1,18 +1,18 @@
-# Manual de validação de XML no O2XML 0.3.0
+# Manual de validação de XML no O2XML 0.3.1
 
 Este manual descreve como abrir, validar e corrigir um documento XML na versão
-0.3.0 do O2XML. O exemplo utilizado é o artigo
+0.3.1 do O2XML. O exemplo utilizado é o artigo
 `0001-3765-aabc-98-03-e20251145.xml`, fornecido para teste.
 
-> **Escopo da versão 0.3.0:** o O2XML verifica a boa formação de qualquer XML e
-> valida automaticamente documentos que declaram a DTD JATS Publishing 1.1
-> incluída no aplicativo. A conformidade completa com o SciELO Publishing Schema
+> **Escopo da versão 0.3.1:** o O2XML verifica a boa formação de qualquer XML e
+> valida automaticamente documentos que declaram as DTDs JATS Publishing 1.1 ou
+> 1.3 incluídas no aplicativo. A conformidade com o SciELO Publishing Schema
 > (SPS) é uma etapa separada e requer um projeto configurado com o catálogo, a
 > gramática e as regras Schematron oficiais da versão SPS correspondente.
 
 ## 1. Antes de começar
 
-1. Instale ou extraia o pacote do O2XML 0.3.0 adequado ao sistema operacional.
+1. Instale ou extraia o pacote do O2XML 0.3.1 adequado ao sistema operacional.
    No Windows, o pacote portátil pode ser extraído em qualquer pasta gravável;
    mantenha `O2XML.exe`, o helper e a pasta `resources` juntos.
 2. Preserve uma cópia do XML original antes de corrigir erros.
@@ -44,7 +44,7 @@ uma nova análise é agendada após uma pequena pausa de digitação. O botão
 |---|---|---|
 | XML bem formado | Sintaxe XML, abertura e fechamento de elementos, atributos, entidades e caracteres | Barra de status e painel **Problemas** |
 | JATS válido | Estrutura e valores permitidos pela DTD JATS declarada | **Framework de validação → JATS 1.1: aprovado** |
-| SPS válido | JATS mais as regras adicionais do SPS | Etapas **JATS** e **SPS** aprovadas em um projeto configurado |
+| SPS avaliado | Regras adicionais do SPS | Etapa **SPS** aprovada ou reprovada, independentemente do resultado JATS |
 
 Um XML bem formado não é necessariamente JATS válido. Da mesma forma, um XML
 JATS válido não é necessariamente compatível com o SPS.
@@ -89,33 +89,30 @@ validação local encontrou na linha 5239:
 ```
 
 O valor `data-availability` não pertence à lista de valores admitidos para o
-atributo `fn-type` na DTD JATS Publishing 1.1. Portanto, o resultado esperado é:
+atributo `fn-type` na DTD JATS Publishing 1.1. Ele é uma exigência específica
+do SPS para esse tipo de nota. Portanto, o resultado esperado da etapa JATS é:
 
 - **JATS 1.1: falhou**;
 - um erro no painel **Problemas**, associado à linha 5239; e
 - a barra de status indicando falha na validação.
 
-### Como tratar o erro
+### Como interpretar o conflito JATS × SPS
 
-Não substitua o valor sem avaliar o significado editorial da nota. Escolha um
-valor permitido pela JATS 1.1 que corresponda à política da publicação e às
-regras do SPS utilizado.
+Não substitua `data-availability` apenas para zerar a etapa JATS. Fazer isso pode
+eliminar uma informação exigida pelo SPS e produzir um documento editorialmente
+incorreto.
 
-Para um teste exclusivamente técnico em uma cópia do arquivo, o valor
-`fn-type="other"` é aceito pela DTD JATS 1.1. Mantendo o restante do exemplo
-inalterado, essa substituição eliminou o erro em um teste local com a mesma DTD
-e o mesmo mecanismo libxml2 utilizado pelo O2XML. Isso não comprova, por si só,
-conformidade SPS nem que `other` seja a classificação editorial correta.
+Ao abrir o artigo dentro de um projeto **SPS-1.9**, o O2XML executa as etapas
+separadamente:
 
-Depois da correção:
+- a etapa **JATS 1.1** pode falhar por causa da extensão exigida pelo SPS; e
+- a etapa **SPS 1.9** continua sendo executada e apresenta seu próprio resultado.
 
-1. salve a cópia com **Salvar**;
-2. clique novamente em **Validar**;
-3. confirme que **JATS 1.1** aparece como **aprovado**;
-4. verifique se o contador de **Problemas** está em zero; e
-5. leia a mensagem de status. Para um documento aberto sem projeto SPS, ela deve
-   informar que o JATS é válido, mas que a conformidade SPS ainda não foi
-   validada.
+Um erro na etapa JATS não bloqueia a etapa SPS. Somente um XML malformado — por
+exemplo, com uma tag não fechada — impede que as validações estruturais seguintes
+sejam executadas com segurança. O resultado geral pode continuar indicando
+falha porque há um diagnóstico JATS, mas o resultado SPS permanece visível e
+deve ser interpretado separadamente.
 
 ## 6. Validar como SPS 1.9
 
@@ -169,15 +166,43 @@ Para usar o projeto:
 2. abra o XML localizado dentro da pasta do projeto;
 3. clique em **Validar**;
 4. confira separadamente as etapas **JATS 1.1** e **SPS 1.9** em **Framework de
-   validação**; e
+   validação**, mesmo que a primeira tenha falhado; e
 5. examine os diagnósticos de cada origem no painel **Problemas**.
 
 Se a etapa SPS aparecer como **indisponível**, verifique o catálogo, os caminhos
 dos arquivos e a disponibilidade do processador Schematron configurado. A
-versão 0.3.0 não baixa nem fornece silenciosamente o conjunto oficial de regras
+versão 0.3.1 não baixa nem fornece silenciosamente o conjunto oficial de regras
 SPS.
 
-## 7. Interpretar e navegar pelos problemas
+## 7. Documentos SPS 1.10 e JATS 1.3
+
+O O2XML 0.3.1 também inclui a DTD oficial JATS Publishing 1.3 para uso offline.
+Um documento SPS 1.10 pode declarar:
+
+```xml
+<?xml version="1.0" encoding="utf-8"?>
+<!DOCTYPE article PUBLIC
+  "-//NLM//DTD JATS (Z39.96) Journal Publishing DTD v1.3 20210610//EN"
+  "https://jats.nlm.nih.gov/publishing/1.3/JATS-journalpublishing1-3.dtd">
+<article xmlns:xlink="http://www.w3.org/1999/xlink"
+         xmlns:mml="http://www.w3.org/1998/Math/MathML"
+         dtd-version="1.3"
+         specific-use="sps-1.10"
+         article-type="research-article"
+         xml:lang="en">
+```
+
+O identificador é reconhecido automaticamente e a validação JATS 1.3 ocorre sem
+acesso à internet. Para executar também as regras SPS 1.10, abra um projeto com
+`framework = "SPS-1.10"` e mapeie no catálogo os identificadores:
+
+- `urn:o2xml:framework:sps:1.10:jats` para a gramática adotada pelo SPS 1.10; e
+- `urn:o2xml:framework:sps:1.10:schematron` para as regras Schematron SPS 1.10.
+
+Assim como no SPS 1.9, as etapas JATS 1.3 e SPS 1.10 são executadas e exibidas
+independentemente.
+
+## 8. Interpretar e navegar pelos problemas
 
 Cada linha do painel **Problemas** apresenta:
 
@@ -190,24 +215,28 @@ Clique no problema para navegar ao XML. Corrija um erro por vez, começando por
 problemas de boa formação; erros sintáticos podem impedir a execução das etapas
 JATS e SPS.
 
-## 8. Conferência final
+## 9. Conferência final
 
 Antes de entregar o documento, confirme:
 
 - [ ] o arquivo foi salvo com o nome esperado;
 - [ ] o contador do painel **Problemas** está em zero ou os avisos remanescentes
       foram justificados;
-- [ ] a etapa JATS correspondente ao `DOCTYPE` está aprovada;
-- [ ] a etapa SPS correta foi executada e está aprovada, quando exigida;
+- [ ] o resultado da etapa JATS correspondente ao `DOCTYPE` foi analisado e
+      eventuais incompatibilidades específicas do SPS foram justificadas;
+- [ ] a etapa SPS correta foi executada e seu resultado foi avaliado
+      separadamente do resultado JATS;
 - [ ] as figuras e materiais suplementares referenciados existem junto ao XML;
 - [ ] o documento corrigido foi reaberto e validado novamente; e
 - [ ] a cópia original foi preservada.
 
-## 9. Limitações importantes da versão 0.3.0
+## 10. Limitações importantes da versão 0.3.1
 
-- A validação automática embutida cobre a DTD JATS Publishing 1.1 reconhecida
-  pelo identificador declarado no documento.
+- A validação automática embutida cobre as DTDs JATS Publishing 1.1 e 1.3
+  reconhecidas pelo identificador declarado no documento.
 - `specific-use="sps-1.9"` não equivale a uma validação SPS.
+- Um erro JATS não bloqueia a etapa SPS; somente XML malformado impede as etapas
+  de framework.
 - Os recursos oficiais SPS precisam ser instalados e mapeados em um catálogo de
   projeto; as licenças e a procedência desses recursos devem ser respeitadas.
 - O O2XML mantém recursos remotos bloqueados por padrão. Essa proteção evita

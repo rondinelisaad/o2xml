@@ -128,6 +128,19 @@ override them.
 - **Security:** resources are resolved only through the offline XML Catalog
   broker; the parser helper retains network denial and resource limits.
 
+### NISO JATS 1.3 Journal Publishing DTD
+
+- **Source:** NLM/NCBI, `JATS-Publishing-1-3-MathML2-DTD.zip`.
+- **Upstream archive SHA-256:**
+  `7f0a960cf33f0d37849c298f39c778f49f9d9d4f6d8226ea415aef7a845c7cc2`.
+- **Purpose:** offline JATS 1.3 grammar validation for SPS 1.10-era documents,
+  including modular entity and MathML 2 resources.
+- **License/status:** public domain. The unmodified upstream files are bundled
+  under `app/src-tauri/resources/jats/1.3`; archive-only macOS metadata is not
+  distributed.
+- **Security:** resources are resolved only through the offline XML Catalog
+  broker; the parser helper retains network denial and resource limits.
+
 ### Packtools HTML Generator 4.16.9
 
 - **Source:** `scieloorg/packtools`, tag `4.16.9`, commit

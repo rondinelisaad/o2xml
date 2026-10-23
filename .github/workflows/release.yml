@@ -280,6 +280,7 @@ jobs:
             (Join-Path $portableRoot "O2XML.exe"),
             (Join-Path $portableRoot "xml-libxml2-helper.exe"),
             (Join-Path $resourceRoot "jats/1.1/JATS-journalpublishing1.dtd"),
+            (Join-Path $resourceRoot "jats/1.3/JATS-journalpublishing1-3.dtd"),
             (Join-Path $resourceRoot "packtools-html/4.16.9/catalog.xml")
           )
           foreach ($requiredFile in $requiredFiles) {

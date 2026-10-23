@@ -98,9 +98,9 @@ Current progress:
 
 - [x] Add a bounded, serializable framework registry with explicit grammar and
   Schematron rule stages for SPS 1.9/JATS 1.1 and SPS 1.10/JATS 1.3.
-- [x] Bundle the unmodified public-domain JATS 1.1 Publishing DTD for offline
-  standalone validation; keep SPS and other licensed/third-party framework
-  resources externally installed and never silently redistributed.
+- [x] Bundle the unmodified public-domain JATS 1.1 and JATS 1.3 Publishing DTDs
+  for offline standalone validation; keep SPS and other licensed/third-party
+  framework resources externally installed and never silently redistributed.
 - [x] Add a bounded JATS structural inspector with editorial labels, source
   positions, and synchronized desktop navigation.
 - [x] Add supervised RELAX NG XML validation through isolated libxml2 with the

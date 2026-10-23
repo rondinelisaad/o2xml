@@ -1,0 +1,4 @@
+# Preserve the official JATS 1.3 distribution byte-for-byte. Its upstream
+# modules contain historical CRLF endings and spacing that should not be
+# normalized or reviewed as application source diffs.
+app/src-tauri/resources/jats/1.3/** -text -diff

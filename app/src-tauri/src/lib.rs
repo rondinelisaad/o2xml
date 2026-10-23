@@ -627,16 +627,13 @@ async fn validate_builtin_jats(
     else {
         return Ok(Vec::new());
     };
-    const JATS_11_PUBLIC: &str =
-        "-//NLM//DTD JATS (Z39.96) Journal Publishing DTD v1.1 20151215//EN";
-    const JATS_11_SYSTEM: &str =
-        "https://jats.nlm.nih.gov/publishing/1.1/JATS-journalpublishing1.dtd";
-    if document_type.public_id.as_deref() != Some(JATS_11_PUBLIC)
-        && document_type.system_id.as_deref() != Some(JATS_11_SYSTEM)
-    {
+    let Some(bundled) = bundled_jats_dtd(
+        document_type.public_id.as_deref(),
+        document_type.system_id.as_deref(),
+    ) else {
         return Ok(Vec::new());
-    }
-    let catalog_path = bundled_resource(app, "resources/jats/1.1/catalog-jats-v1-1-no-base.xml")?;
+    };
+    let catalog_path = bundled_resource(app, bundled.catalog_resource)?;
     let root = catalog_path
         .parent()
         .ok_or_else(|| "built-in JATS catalog has no parent directory".to_owned())?;
@@ -646,7 +643,6 @@ async fn validate_builtin_jats(
         CatalogResolver::load(&catalog_path, policy).map_err(|error| error.to_string())?;
     let engine =
         Libxml2ProcessEngine::new(libxml2_helper_path()?).map_err(|error| error.to_string())?;
-    let system_id = document_type.system_id.as_deref().unwrap_or(JATS_11_SYSTEM);
     let report = engine
         .validate(ValidationRequest {
             source,
@@ -654,8 +650,8 @@ async fn validate_builtin_jats(
             file,
             catalog: &catalog,
             grammar: GrammarReference::Dtd {
-                system_id,
-                public_id: document_type.public_id.as_deref(),
+                system_id: bundled.canonical_system_id,
+                public_id: Some(bundled.public_id),
             },
         })
         .await
@@ -667,11 +663,51 @@ async fn validate_builtin_jats(
     };
     Ok(vec![FrameworkStagePayload {
         id: "jats-grammar".to_owned(),
-        label: "JATS 1.1".to_owned(),
+        label: bundled.label.to_owned(),
         engine: "libxml2",
         status,
         diagnostics: report.diagnostics,
     }])
+}
+
+#[derive(Clone, Copy)]
+struct BundledJatsDtd {
+    label: &'static str,
+    public_id: &'static str,
+    canonical_system_id: &'static str,
+    system_ids: &'static [&'static str],
+    catalog_resource: &'static str,
+}
+
+const BUNDLED_JATS_DTDS: [BundledJatsDtd; 2] = [
+    BundledJatsDtd {
+        label: "JATS 1.1",
+        public_id: "-//NLM//DTD JATS (Z39.96) Journal Publishing DTD v1.1 20151215//EN",
+        canonical_system_id: "https://jats.nlm.nih.gov/publishing/1.1/JATS-journalpublishing1.dtd",
+        system_ids: &[
+            "http://jats.nlm.nih.gov/publishing/1.1/JATS-journalpublishing1.dtd",
+            "https://jats.nlm.nih.gov/publishing/1.1/JATS-journalpublishing1.dtd",
+        ],
+        catalog_resource: "resources/jats/1.1/catalog-jats-v1-1-no-base.xml",
+    },
+    BundledJatsDtd {
+        label: "JATS 1.3",
+        public_id: "-//NLM//DTD JATS (Z39.96) Journal Publishing DTD v1.3 20210610//EN",
+        canonical_system_id:
+            "https://jats.nlm.nih.gov/publishing/1.3/JATS-journalpublishing1-3.dtd",
+        system_ids: &[
+            "http://jats.nlm.nih.gov/publishing/1.3/JATS-journalpublishing1-3.dtd",
+            "https://jats.nlm.nih.gov/publishing/1.3/JATS-journalpublishing1-3.dtd",
+        ],
+        catalog_resource: "resources/jats/1.3/catalog-jats-v1-3-no-base.xml",
+    },
+];
+
+fn bundled_jats_dtd(public_id: Option<&str>, system_id: Option<&str>) -> Option<BundledJatsDtd> {
+    BUNDLED_JATS_DTDS.iter().copied().find(|candidate| {
+        public_id == Some(candidate.public_id)
+            || system_id.is_some_and(|value| candidate.system_ids.contains(&value))
+    })
 }
 
 fn bundled_resource(app: &AppHandle, relative: &str) -> Result<PathBuf, String> {
@@ -2506,6 +2542,45 @@ pub fn run() {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn recognizes_bundled_jats_11_and_13_identifiers() {
+        let jats_11 = bundled_jats_dtd(
+            Some("-//NLM//DTD JATS (Z39.96) Journal Publishing DTD v1.1 20151215//EN"),
+            Some("http://jats.nlm.nih.gov/publishing/1.1/JATS-journalpublishing1.dtd"),
+        );
+        let jats_13 = bundled_jats_dtd(
+            Some("-//NLM//DTD JATS (Z39.96) Journal Publishing DTD v1.3 20210610//EN"),
+            Some("https://jats.nlm.nih.gov/publishing/1.3/JATS-journalpublishing1-3.dtd"),
+        );
+
+        assert_eq!(jats_11.map(|jats| jats.label), Some("JATS 1.1"));
+        assert_eq!(jats_13.map(|jats| jats.label), Some("JATS 1.3"));
+        assert!(bundled_jats_dtd(None, Some("https://example.org/article.dtd")).is_none());
+    }
+
+    #[test]
+    fn project_keeps_sps_stage_when_jats_stage_fails() -> Result<(), Box<dyn std::error::Error>> {
+        let root = fs::canonicalize(
+            PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../testdata/project"),
+        )?;
+        let manifest =
+            xml_project::parse_manifest(&fs::read_to_string(root.join("project.toml"))?)?;
+        let project = OpenedProject { root, manifest };
+        let source = r#"<article article-type="unsupported" dtd-version="1.3" specific-use="sps-1.10"><front><article-meta><title-group><article-title>Example</article-title></title-group></article-meta></front><body/></article>"#;
+        let stages = tauri::async_runtime::block_on(validate_project_framework(
+            &project,
+            source,
+            Revision(1),
+            Some("article.xml"),
+        ))?;
+
+        assert_eq!(stages.len(), 2);
+        assert_eq!(stages[0].id, "jats-grammar");
+        assert!(matches!(stages[0].status, FrameworkStageStatus::Failed));
+        assert_eq!(stages[1].id, "sps-rules");
+        Ok(())
+    }
 
     #[test]
     fn author_preview_loads_only_declared_confined_images() -> Result<(), Box<dyn std::error::Error>>

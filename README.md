@@ -25,9 +25,9 @@ desktop MVP with a Rust core and a Tauri/CodeMirror interface.
   content, and cross-document groups are supported.
 - Phase 3: in progress; the bounded framework registry models SPS 1.9/JATS 1.1
   and SPS 1.10/JATS 1.3 as separate grammar and rules stages. The public-domain
-  official JATS 1.1 Publishing DTD is bundled for automatic offline validation
-  of matching standalone documents; other JATS versions and SPS rule packs
-  remain explicitly installed project resources. A bounded
+  official JATS 1.1 and 1.3 Publishing DTDs are bundled for automatic offline
+  validation of matching standalone documents; SPS rule packs remain explicitly
+  installed project resources. A bounded
   JATS Inspector recognizes the editorial structure and provides navigable
   source positions in the desktop UI. RELAX NG XML validation runs through the
   isolated libxml2 helper and the same offline catalog broker used by DTD/XSD;
@@ -160,7 +160,7 @@ Windows, macOS Apple Silicon, and macOS Intel. See
 smoke tests, and publication requirements.
 
 The Portuguese user guide [Manual de validação de XML no O2XML
-0.3.0](docs/manual-validacao-xml-v0.3.0.md) explains the validation workflow,
+0.3.1](docs/manual-validacao-xml-v0.3.1.md) explains the validation workflow,
 diagnostic navigation, and the distinction between well-formed XML, JATS, and
 SPS, using a real JATS 1.1 article as an example.
 
