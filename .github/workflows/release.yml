@@ -336,7 +336,28 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          gh release upload "${{ needs.prepare-release.outputs.tag_name }}" `
-            "${{ steps.portable.outputs.archive }}" `
-            "${{ steps.portable.outputs.checksum }}" `
-            --clobber
+          $ErrorActionPreference = "Stop"
+          $repository = $env:GITHUB_REPOSITORY
+          $releaseId = "${{ needs.prepare-release.outputs.release_id }}"
+          $assets = gh api "repos/$repository/releases/$releaseId/assets?per_page=100" |
+            ConvertFrom-Json
+
+          foreach ($path in @(
+            "${{ steps.portable.outputs.archive }}",
+            "${{ steps.portable.outputs.checksum }}"
+          )) {
+            $assetName = [System.IO.Path]::GetFileName($path)
+            foreach ($existing in @($assets | Where-Object { $_.name -eq $assetName })) {
+              gh api --method DELETE `
+                "repos/$repository/releases/assets/$($existing.id)" `
+                --silent
+            }
+
+            $encodedName = [System.Uri]::EscapeDataString($assetName)
+            gh api --method POST `
+              --hostname uploads.github.com `
+              --header "Content-Type: application/octet-stream" `
+              "repos/$repository/releases/$releaseId/assets?name=$encodedName" `
+              --input $path `
+              --silent
+          }
