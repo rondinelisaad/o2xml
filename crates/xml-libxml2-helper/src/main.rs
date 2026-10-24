@@ -342,7 +342,10 @@ extern "C" {
     fn xmlXPathFreeObject(object: *mut XmlXPathObject);
     fn xmlXPathPopString(context: *mut XmlXPathParserContext) -> *mut u8;
     fn xmlXPathNewBoolean(value: c_int) -> *mut XmlXPathObject;
+    #[cfg(not(target_os = "windows"))]
     fn valuePush(context: *mut XmlXPathParserContext, value: *mut XmlXPathObject) -> c_int;
+    #[cfg(target_os = "windows")]
+    fn xmlXPathValuePush(context: *mut XmlXPathParserContext, value: *mut XmlXPathObject) -> c_int;
     fn xmlXPathCastToString(object: *mut XmlXPathObject) -> *mut u8;
     fn xmlGetNodePath(node: *const c_void) -> *mut u8;
     fn xmlGetLineNo(node: *const c_void) -> c_long;
@@ -449,9 +452,29 @@ unsafe fn return_xpath_boolean(context: *mut XmlXPathParserContext, value: bool)
         return;
     }
     let result = unsafe { xmlXPathNewBoolean(c_int::from(value)) };
-    if !result.is_null() && unsafe { valuePush(context, result) } < 0 {
+    if !result.is_null() && unsafe { push_xpath_value(context, result) } < 0 {
         unsafe { xmlXPathFreeObject(result) };
     }
+}
+
+#[cfg(not(target_os = "windows"))]
+unsafe fn push_xpath_value(
+    context: *mut XmlXPathParserContext,
+    value: *mut XmlXPathObject,
+) -> c_int {
+    unsafe { valuePush(context, value) }
+}
+
+#[cfg(target_os = "windows")]
+unsafe fn push_xpath_value(
+    context: *mut XmlXPathParserContext,
+    value: *mut XmlXPathObject,
+) -> c_int {
+    // libxml2 2.15 renamed the public symbol while retaining `valuePush` only
+    // as a source-level compatibility macro. Current vcpkg packages therefore
+    // export `xmlXPathValuePush`, whereas older system libraries still export
+    // `valuePush`.
+    unsafe { xmlXPathValuePush(context, value) }
 }
 
 unsafe fn register_exslt_regexp() -> Result<(), String> {
