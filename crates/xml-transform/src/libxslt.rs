@@ -329,14 +329,16 @@ fn resolve_resource(
     if let Some(resource) = catalog.resolve_external(Some(url), public_id)? {
         return Ok(resource);
     }
-    let normalized = if std::path::Path::new(url).is_absolute() {
-        url::Url::from_file_path(url)
+    if std::path::Path::new(url).is_absolute() {
+        let normalized = url::Url::from_file_path(url)
             .map_err(|()| TransformError::Protocol("invalid absolute resource path".into()))?
-            .to_string()
-    } else {
-        url.to_owned()
-    };
-    Ok(catalog.resolve_uri_or_direct(&normalized)?)
+            .to_string();
+        return Ok(catalog.resolve_uri_or_direct(&normalized)?);
+    }
+    if url::Url::parse(url).is_ok() {
+        return Ok(catalog.resolve_uri_or_direct(url)?);
+    }
+    Ok(catalog.resolve_reference(root, url)?)
 }
 
 async fn write_resource_reply(
@@ -367,4 +369,44 @@ async fn write_resource_reply(
         .await
         .map_err(TransformError::Write)?;
     stdin.flush().await.map_err(TransformError::Write)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::error::Error;
+    use xml_resource::ResourcePolicy;
+
+    #[test]
+    fn resolves_relative_stylesheet_resources_against_the_root() -> Result<(), Box<dyn Error>> {
+        let directory = tempfile::tempdir()?;
+        let root = directory.path();
+        fs::write(
+            root.join("catalog.xml"),
+            r#"<catalog xmlns="urn:oasis:names:tc:entity:xmlns:xml:catalog"></catalog>"#,
+        )?;
+        fs::write(root.join("root.xsl"), "<stylesheet/>")?;
+        fs::create_dir(root.join("modules"))?;
+        fs::write(root.join("modules/article.xsl"), "<stylesheet/>")?;
+
+        let policy = ResourcePolicy::offline([root.to_path_buf()])?;
+        let catalog = CatalogResolver::load(root.join("catalog.xml"), policy)?;
+        let root_uri = url::Url::from_file_path(root.join("root.xsl"))
+            .map_err(|()| "cannot convert root stylesheet path")?;
+        let root_resource = catalog.resolve_uri_or_direct(root_uri.as_str())?;
+
+        let resolved = resolve_resource(
+            &catalog,
+            root_uri.as_str(),
+            &root_resource,
+            "modules/article.xsl",
+            None,
+        )?;
+
+        assert_eq!(
+            resolved.path,
+            fs::canonicalize(root.join("modules/article.xsl"))?
+        );
+        Ok(())
+    }
 }

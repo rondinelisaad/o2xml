@@ -905,9 +905,11 @@ async function runAuthorMode(): Promise<void> {
       renderAuthorPreview(previewResult.preview);
       showAuthorPane("preview");
     } else {
-      authorEngine.textContent = previewResult.error
+      const previewMessage = previewResult.error
         ? t("author.previewUnavailable", { reason: previewResult.error })
         : t("author.description");
+      authorEngine.textContent = previewMessage;
+      authorEngine.title = previewMessage;
       showAuthorPane("structured");
     }
     editorHost.hidden = true;
@@ -926,6 +928,7 @@ function renderAuthorPreview(payload: AuthorPreviewPayload): void {
   const assets = new Map(payload.assets.map((asset) => [asset.source, asset.dataUri]));
   authorPreviewFrame.srcdoc = sanitizePreviewHtml(payload.html, payload.stylesheet, assets);
   authorEngine.textContent = authorPreviewEngineLabel(payload);
+  authorEngine.removeAttribute("title");
 }
 
 function authorPreviewEngineLabel(payload: AuthorPreviewPayload): string {
