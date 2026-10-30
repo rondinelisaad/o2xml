@@ -2,6 +2,9 @@ name: Build installers
 
 on:
   workflow_dispatch:
+  push:
+    tags:
+      - "o2xml-v*"
 
 permissions:
   contents: write
@@ -368,3 +371,45 @@ jobs:
               throw "Could not upload portable release asset: $assetName"
             }
           }
+
+  publish-release:
+    name: Verify artifacts and publish release
+    needs: [prepare-release, installers]
+    runs-on: ubuntu-22.04
+    permissions:
+      contents: write
+    steps:
+      - name: Verify all expected installers and publish
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          RELEASE_ID: ${{ needs.prepare-release.outputs.release_id }}
+          TAG_NAME: ${{ needs.prepare-release.outputs.tag_name }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          version="${TAG_NAME#o2xml-v}"
+          assets=$(gh api "repos/${GITHUB_REPOSITORY}/releases/${RELEASE_ID}/assets?per_page=100")
+          required=(
+            "O2XML-${version}-windows-x64-portable.zip"
+            "O2XML-${version}-windows-x64-portable.zip.sha256"
+            "O2XML_${version}_aarch64.app.tar.gz"
+            "O2XML_${version}_aarch64.dmg"
+            "O2XML_${version}_amd64.AppImage"
+            "O2XML_${version}_amd64.deb"
+            "O2XML_${version}_x64-setup.exe"
+            "O2XML_${version}_x64.app.tar.gz"
+            "O2XML_${version}_x64.dmg"
+            "O2XML_${version}_x64_en-US.msi"
+          )
+          for name in "${required[@]}"; do
+            count=$(printf '%s' "$assets" | jq --arg name "$name" '[.[] | select(.name == $name and .size > 0)] | length')
+            test "$count" -eq 1 || {
+              echo "Expected exactly one non-empty release asset named $name, found $count" >&2
+              exit 1
+            }
+          done
+          gh api --method PATCH \
+            "repos/${GITHUB_REPOSITORY}/releases/${RELEASE_ID}" \
+            -F draft=false \
+            -F prerelease=false \
+            --silent
