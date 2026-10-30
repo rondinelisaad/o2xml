@@ -257,6 +257,19 @@ jobs:
             --target "${{ matrix.target }}"
           node app/scripts/stage-sidecar.mjs "${{ matrix.target }}"
 
+      - name: Smoke test SciELO preview on Windows
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          cargo test `
+            --locked `
+            --package xml-libxml2-helper `
+            --test transform `
+            --target "${{ matrix.target }}" `
+            renders_bundled_packtools_scielo_preview_offline `
+            -- `
+            --exact
+
       - name: Build installers and create draft release
         uses: tauri-apps/tauri-action@1deb371b0cd8bd54025b384f1cd735e725c4060f # action-v1.0.0
         env:
