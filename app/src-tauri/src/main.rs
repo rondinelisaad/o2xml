@@ -1,7 +1,12 @@
-#[cfg(target_os = "macos")]
+#![cfg_attr(
+    all(target_os = "windows", not(debug_assertions)),
+    windows_subsystem = "windows"
+)]
+
+#[cfg(all(target_os = "macos", not(debug_assertions)))]
 const SAFE_RENDERING_MARKER: &str = "--o2xml-safe-rendering";
 
-#[cfg(target_os = "macos")]
+#[cfg(all(target_os = "macos", not(debug_assertions)))]
 const WEBKIT_SAFE_RENDERING_ARGUMENTS: [&str; 8] = [
     "-WebKitDebugUseGPUProcessForDOMRenderingEnabled",
     "NO",
@@ -13,7 +18,7 @@ const WEBKIT_SAFE_RENDERING_ARGUMENTS: [&str; 8] = [
     "NO",
 ];
 
-#[cfg(target_os = "macos")]
+#[cfg(all(target_os = "macos", not(debug_assertions)))]
 fn enable_safe_webkit_rendering() {
     use std::os::unix::process::CommandExt;
 
@@ -42,13 +47,13 @@ fn enable_safe_webkit_rendering() {
 }
 
 fn main() {
-    #[cfg(target_os = "macos")]
+    #[cfg(all(target_os = "macos", not(debug_assertions)))]
     enable_safe_webkit_rendering();
 
     o2xml_desktop_lib::run();
 }
 
-#[cfg(all(test, target_os = "macos"))]
+#[cfg(all(test, target_os = "macos", not(debug_assertions)))]
 mod tests {
     use super::*;
 

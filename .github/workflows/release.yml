@@ -76,6 +76,7 @@ jobs:
         run: |
           npm ci
           npm run test:i18n
+          npm run test:editor
           npm run test:startup
           npm run build
 

@@ -13,20 +13,23 @@ import {
   defaultHighlightStyle,
   foldGutter,
   foldKeymap,
+  HighlightStyle,
   indentOnInput,
   syntaxHighlighting,
   syntaxTree,
 } from "@codemirror/language";
 import { xml } from "@codemirror/lang-xml";
+import { tags } from "@lezer/highlight";
 import { searchKeymap } from "@codemirror/search";
 import { Compartment, EditorState, type Extension } from "@codemirror/state";
-import { oneDark } from "@codemirror/theme-one-dark";
+import { oneDarkTheme } from "@codemirror/theme-one-dark";
 import {
   EditorView,
   highlightActiveLine,
   highlightActiveLineGutter,
   keymap,
   lineNumbers,
+  type ViewUpdate,
 } from "@codemirror/view";
 import { invoke } from "@tauri-apps/api/core";
 import { getCurrentWebview } from "@tauri-apps/api/webview";
@@ -40,6 +43,7 @@ import {
   t,
   type MessageKey,
 } from "./i18n";
+import { linkedClosingTagChange } from "./editor-behavior";
 
 import type {
   AnalysisPayload,
@@ -88,7 +92,7 @@ app.innerHTML = `
       <button data-action="open">${t("menu.open")}</button>
       <button data-action="save">${t("menu.save")}</button>
       <button data-action="project">${t("menu.project")}</button>
-      <button data-action="format">${t("menu.prettyPrint")}</button>
+      <button data-action="format" title="${t("menu.prettyPrintTitle")}">${t("menu.prettyPrint")}</button>
       <button data-action="validate">${t("menu.validate")}</button>
       <select id="transform-scenario" class="transform-select" aria-label="${t("transform.scenario")}" disabled>
         <option>${t("transform.noScenarios")}</option>
@@ -126,9 +130,18 @@ app.innerHTML = `
           <div id="framework-stages" class="tree"><div class="empty">${t("sidebar.noFramework")}</div></div>
         </section>
       </aside>
+      <div id="sidebar-resizer" class="sidebar-resizer" title="${t("layout.resizeSidebar")}">
+        <button id="sidebar-toggle" type="button" aria-label="${t("layout.toggleSidebar")}">‹</button>
+      </div>
       <section class="editor-column">
         <div id="tabs" class="tabs"></div>
-        <div id="editor" class="editor"></div>
+        <div id="editor-surface" class="editor-surface">
+          <div id="editor" class="editor"></div>
+          <section id="split-pane" class="split-pane" hidden>
+            <header><strong id="split-title"></strong><button id="split-close" type="button" aria-label="${t("split.close")}">×</button></header>
+            <div id="split-editor" class="split-editor"></div>
+          </section>
+        </div>
         <div id="author-view" class="author-view" hidden>
           <div class="author-toolbar">
             <strong>${t("author.title")}</strong>
@@ -141,6 +154,7 @@ app.innerHTML = `
         </div>
       </section>
     </main>
+    <div id="bottom-resizer" class="bottom-resizer" title="${t("layout.resizeBottom")}"></div>
     <section class="bottom-panel">
       <div class="panel-tabs">
         <button class="active" data-panel="problems">${t("panel.problems")} <span id="problem-count">0</span></button>
@@ -181,6 +195,9 @@ app.innerHTML = `
       </div>
     </section>
   </div>
+  <div id="tab-context-menu" class="tab-context-menu" hidden>
+    <button id="close-all-tabs" type="button">${t("document.closeAll")}</button>
+  </div>
   <div id="diff-dialog" class="diff-dialog" hidden>
     <div class="diff-window" role="dialog" aria-modal="true" aria-labelledby="diff-title">
       <header class="diff-header">
@@ -200,7 +217,18 @@ app.innerHTML = `
 `;
 
 const editorHost = requiredElement<HTMLDivElement>("#editor");
+const editorSurface = requiredElement<HTMLDivElement>("#editor-surface");
 const tabsHost = requiredElement<HTMLDivElement>("#tabs");
+const shellHost = requiredElement<HTMLDivElement>(".shell");
+const sidebarResizer = requiredElement<HTMLDivElement>("#sidebar-resizer");
+const sidebarToggle = requiredElement<HTMLButtonElement>("#sidebar-toggle");
+const bottomResizer = requiredElement<HTMLDivElement>("#bottom-resizer");
+const splitPane = requiredElement<HTMLElement>("#split-pane");
+const splitEditorHost = requiredElement<HTMLDivElement>("#split-editor");
+const splitTitle = requiredElement<HTMLElement>("#split-title");
+const splitClose = requiredElement<HTMLButtonElement>("#split-close");
+const tabContextMenu = requiredElement<HTMLDivElement>("#tab-context-menu");
+const closeAllTabsButton = requiredElement<HTMLButtonElement>("#close-all-tabs");
 const outlineHost = requiredElement<HTMLDivElement>("#outline");
 const jatsInspectorHost = requiredElement<HTMLDivElement>("#jats-inspector");
 const frameworkStagesHost = requiredElement<HTMLDivElement>("#framework-stages");
@@ -243,9 +271,13 @@ const languageSelect = requiredElement<HTMLSelectElement>("#language");
 languageSelect.value = getLocale();
 
 const theme = new Compartment();
+const syntaxTheme = new Compartment();
+const editorZoom = new Compartment();
 let dark = window.matchMedia("(prefers-color-scheme: dark)").matches;
+let editorFontSize = 14;
 let documents: OpenDocument[] = [];
 let activeId: number | null = null;
+let splitDocumentId: number | null = null;
 let analysisTimer: number | undefined;
 let suppressChanges = false;
 let diffOtherPath: string | null = null;
@@ -254,10 +286,19 @@ let authorActive = false;
 let activeAuthor: AuthorPayload | null = null;
 let activeAuthorPreview: AuthorPreviewPayload | null = null;
 let externalCheckInProgress = false;
+let linkedTagDispatch = false;
+
+const storedFontSize = Number(window.localStorage.getItem("o2xml.editorFontSize"));
+if (Number.isFinite(storedFontSize)) editorFontSize = Math.min(28, Math.max(10, storedFontSize));
 
 const editor = new EditorView({
   parent: editorHost,
   state: createEditorState(""),
+});
+
+const splitEditor = new EditorView({
+  parent: splitEditorHost,
+  state: createReadOnlyEditorState(""),
 });
 
 function requiredElement<T extends Element>(selector: string): T {
@@ -277,7 +318,8 @@ function baseExtensions(): Extension[] {
     closeBrackets(),
     autocompletion({ override: [schemaCompletionSource] }),
     xml(),
-    syntaxHighlighting(defaultHighlightStyle),
+    syntaxHighlighting(defaultHighlightStyle, { fallback: true }),
+    syntaxTheme.of(syntaxHighlighting(xmlHighlightStyle(dark))),
     keymap.of([
       ...closeBracketsKeymap,
       ...defaultKeymap,
@@ -288,8 +330,13 @@ function baseExtensions(): Extension[] {
       indentWithTab,
     ]),
     EditorView.lineWrapping,
+    editorZoom.of(editorFontSizeExtension()),
+    EditorView.domEventHandlers({
+      wheel: (event) => handleEditorZoom(event),
+    }),
     EditorView.updateListener.of((update) => {
       if (!update.docChanged || suppressChanges) return;
+      if (synchronizeClosingTag(update)) return;
       const document = activeDocument();
       if (!document) return;
       document.viewState = update.state;
@@ -297,8 +344,55 @@ function baseExtensions(): Extension[] {
       renderTabs();
       scheduleAnalysis(document);
     }),
-    theme.of(dark ? oneDark : []),
+    theme.of(dark ? oneDarkTheme : []),
   ];
+}
+
+function readOnlyExtensions(): Extension[] {
+  return [
+    lineNumbers(),
+    foldGutter(),
+    xml(),
+    syntaxHighlighting(defaultHighlightStyle, { fallback: true }),
+    syntaxTheme.of(syntaxHighlighting(xmlHighlightStyle(dark))),
+    EditorView.lineWrapping,
+    EditorState.readOnly.of(true),
+    EditorView.editable.of(false),
+    editorZoom.of(editorFontSizeExtension()),
+    theme.of(dark ? oneDarkTheme : []),
+  ];
+}
+
+function xmlHighlightStyle(darkMode: boolean): HighlightStyle {
+  return HighlightStyle.define([
+    { tag: [tags.tagName, tags.angleBracket], color: darkMode ? "#61d095" : "#087f4f" },
+    { tag: tags.attributeName, color: darkMode ? "#ff9f43" : "#c45100" },
+    { tag: tags.attributeValue, color: darkMode ? "#ffd166" : "#8a4b00" },
+    { tag: tags.comment, color: darkMode ? "#8fa2b8" : "#66717f", fontStyle: "italic" },
+    { tag: [tags.processingInstruction, tags.meta], color: darkMode ? "#7dcfff" : "#1769aa" },
+  ]);
+}
+
+function editorFontSizeExtension(): Extension {
+  return EditorView.theme({ "&": { fontSize: `${editorFontSize}px` } });
+}
+
+function handleEditorZoom(event: WheelEvent): boolean {
+  if (!event.ctrlKey && !event.metaKey) return false;
+  event.preventDefault();
+  setEditorFontSize(editorFontSize + (event.deltaY < 0 ? 1 : -1));
+  return true;
+}
+
+function setEditorFontSize(value: number): void {
+  const next = Math.min(28, Math.max(10, value));
+  if (next === editorFontSize) return;
+  editorFontSize = next;
+  window.localStorage.setItem("o2xml.editorFontSize", String(next));
+  const effect = editorZoom.reconfigure(editorFontSizeExtension());
+  editor.dispatch({ effects: effect });
+  splitEditor.dispatch({ effects: effect });
+  setStatus(t("status.zoom", { percent: Math.round((next / 14) * 100) }));
 }
 
 type XmlSyntaxNode = ReturnType<typeof syntaxTree>["topNode"];
@@ -547,6 +641,23 @@ function createEditorState(text: string): EditorState {
   return EditorState.create({ doc: text, extensions: baseExtensions() });
 }
 
+function createReadOnlyEditorState(text: string): EditorState {
+  return EditorState.create({ doc: text, extensions: readOnlyExtensions() });
+}
+
+function synchronizeClosingTag(update: ViewUpdate): boolean {
+  if (linkedTagDispatch) return false;
+  const linkedChange = linkedClosingTagChange(update.startState, update.state, update.changes);
+  if (!linkedChange) return false;
+  linkedTagDispatch = true;
+  try {
+    update.view.dispatch({ changes: linkedChange });
+  } finally {
+    linkedTagDispatch = false;
+  }
+  return true;
+}
+
 function activeDocument(): OpenDocument | undefined {
   return documents.find((document) => document.id === activeId);
 }
@@ -556,6 +667,7 @@ function activateDocument(id: number): void {
   if (current) current.viewState = editor.state;
   const next = documents.find((document) => document.id === id);
   if (!next) return;
+  if (splitDocumentId === id) closeSplitPane();
   showSourceMode();
   activeId = id;
   suppressChanges = true;
@@ -578,11 +690,27 @@ function renderTabs(): void {
   const nodes = documents.map((item) => {
     const tab = window.document.createElement("div");
     tab.className = item.id === activeId ? "tab active" : "tab";
+    tab.draggable = true;
+    tab.dataset.documentId = String(item.id);
     tab.title = item.path ?? t("document.unsaved");
     const activate = window.document.createElement("button");
     activate.className = "tab-label";
     activate.textContent = `${item.name}${item.dirty ? " •" : ""}`;
     activate.addEventListener("click", () => activateDocument(item.id));
+    tab.addEventListener("dragstart", (event) => {
+      event.dataTransfer?.setData("application/x-o2xml-document", String(item.id));
+      if (event.dataTransfer) event.dataTransfer.effectAllowed = "move";
+    });
+    tab.addEventListener("dragover", (event) => event.preventDefault());
+    tab.addEventListener("drop", (event) => {
+      event.preventDefault();
+      const sourceId = Number(event.dataTransfer?.getData("application/x-o2xml-document"));
+      reorderDocument(sourceId, item.id);
+    });
+    tab.addEventListener("contextmenu", (event) => {
+      event.preventDefault();
+      showTabContextMenu(event.clientX, event.clientY);
+    });
     const close = window.document.createElement("button");
     close.className = "tab-close";
     close.type = "button";
@@ -594,6 +722,42 @@ function renderTabs(): void {
     return tab;
   });
   tabsHost.replaceChildren(...nodes);
+}
+
+function reorderDocument(sourceId: number, targetId: number): void {
+  if (!Number.isSafeInteger(sourceId) || sourceId === targetId) return;
+  const sourceIndex = documents.findIndex((document) => document.id === sourceId);
+  const targetIndex = documents.findIndex((document) => document.id === targetId);
+  if (sourceIndex < 0 || targetIndex < 0) return;
+  const [moved] = documents.splice(sourceIndex, 1);
+  if (!moved) return;
+  documents.splice(targetIndex, 0, moved);
+  renderTabs();
+}
+
+function showSplitDocument(id: number): void {
+  if (id === activeId) return;
+  const document = documents.find((candidate) => candidate.id === id);
+  if (!document) return;
+  splitDocumentId = id;
+  splitTitle.textContent = document.name;
+  splitTitle.title = document.path ?? document.name;
+  splitEditor.setState(createReadOnlyEditorState(document.viewState.doc.toString()));
+  splitPane.hidden = false;
+  editorSurface.classList.remove("tab-drop-target");
+  setStatus(t("split.ready", { name: document.name }));
+}
+
+function closeSplitPane(): void {
+  splitDocumentId = null;
+  splitPane.hidden = true;
+  splitTitle.textContent = "";
+}
+
+function showTabContextMenu(x: number, y: number): void {
+  tabContextMenu.hidden = false;
+  tabContextMenu.style.left = `${Math.min(x, window.innerWidth - 180)}px`;
+  tabContextMenu.style.top = `${Math.min(y, window.innerHeight - 50)}px`;
 }
 
 function setStatus(message: string, error = false): void {
@@ -1585,6 +1749,7 @@ async function closeDocument(id: number): Promise<void> {
   try {
     await invoke("close_document", { id });
     documents.splice(index, 1);
+    if (splitDocumentId === id) closeSplitPane();
     if (activeId === id) {
       const next = documents[Math.min(index, documents.length - 1)];
       activeId = null;
@@ -1596,6 +1761,26 @@ async function closeDocument(id: number): Promise<void> {
   } catch (error) {
     setStatus(String(error), true);
   }
+}
+
+async function closeAllDocuments(): Promise<void> {
+  tabContextMenu.hidden = true;
+  for (const document of [...documents]) {
+    if (document.dirty && !window.confirm(t("document.closeUnsaved", { name: document.name }))) continue;
+    try {
+      await invoke("close_document", { id: document.id });
+      const index = documents.findIndex((candidate) => candidate.id === document.id);
+      if (index >= 0) documents.splice(index, 1);
+      if (splitDocumentId === document.id) closeSplitPane();
+    } catch (error) {
+      setStatus(String(error), true);
+      break;
+    }
+  }
+  activeId = null;
+  if (documents[0]) activateDocument(documents[0].id);
+  else await createNew();
+  renderTabs();
 }
 
 async function checkExternalChange(): Promise<void> {
@@ -1829,7 +2014,74 @@ async function formatActive(): Promise<void> {
 function toggleTheme(): void {
   dark = !dark;
   document.documentElement.dataset.theme = dark ? "dark" : "light";
-  editor.dispatch({ effects: theme.reconfigure(dark ? oneDark : []) });
+  const themeEffect = theme.reconfigure(dark ? oneDarkTheme : []);
+  const syntaxEffect = syntaxTheme.reconfigure(syntaxHighlighting(xmlHighlightStyle(dark)));
+  editor.dispatch({ effects: [themeEffect, syntaxEffect] });
+  splitEditor.dispatch({ effects: [themeEffect, syntaxEffect] });
+}
+
+function setupLayoutControls(): void {
+  const savedSidebarValue = window.localStorage.getItem("o2xml.layout.sidebarWidth");
+  const savedBottomValue = window.localStorage.getItem("o2xml.layout.bottomHeight");
+  if (savedSidebarValue !== null) {
+    const savedSidebar = Number(savedSidebarValue);
+    if (Number.isFinite(savedSidebar) && savedSidebar >= 0) setSidebarWidth(savedSidebar);
+  }
+  if (savedBottomValue !== null) {
+    const savedBottom = Number(savedBottomValue);
+    if (Number.isFinite(savedBottom) && savedBottom >= 0) setBottomHeight(savedBottom);
+  }
+
+  sidebarToggle.addEventListener("click", (event) => {
+    event.stopPropagation();
+    const current = Number.parseFloat(getComputedStyle(shellHost).getPropertyValue("--sidebar-width"));
+    setSidebarWidth(current < 80 ? 255 : 0);
+  });
+  sidebarResizer.addEventListener("pointerdown", (event) => {
+    if (event.target === sidebarToggle) return;
+    beginResize(event, sidebarResizer, (pointer) => setSidebarWidth(pointer.clientX));
+  });
+  bottomResizer.addEventListener("pointerdown", (event) => {
+    beginResize(event, bottomResizer, (pointer) => setBottomHeight(window.innerHeight - pointer.clientY));
+  });
+  bottomResizer.addEventListener("dblclick", () => {
+    const current = Number.parseFloat(getComputedStyle(shellHost).getPropertyValue("--bottom-height"));
+    setBottomHeight(current < 50 ? 190 : 0);
+  });
+  document.querySelectorAll<HTMLElement>(".sidebar section > h2").forEach((heading) => {
+    heading.title = t("layout.togglePanel");
+    heading.addEventListener("click", () => heading.parentElement?.classList.toggle("collapsed"));
+  });
+}
+
+function beginResize(
+  event: PointerEvent,
+  handle: HTMLElement,
+  resize: (event: PointerEvent) => void,
+): void {
+  event.preventDefault();
+  handle.classList.add("dragging");
+  const move = (pointer: PointerEvent) => resize(pointer);
+  const finish = () => {
+    handle.classList.remove("dragging");
+    window.removeEventListener("pointermove", move);
+    window.removeEventListener("pointerup", finish);
+  };
+  window.addEventListener("pointermove", move);
+  window.addEventListener("pointerup", finish, { once: true });
+}
+
+function setSidebarWidth(value: number): void {
+  const width = value < 80 ? 0 : Math.min(520, Math.max(180, value));
+  shellHost.style.setProperty("--sidebar-width", `${width}px`);
+  shellHost.classList.toggle("sidebar-collapsed", width === 0);
+  window.localStorage.setItem("o2xml.layout.sidebarWidth", String(width));
+}
+
+function setBottomHeight(value: number): void {
+  const height = value < 55 ? 0 : Math.min(window.innerHeight * 0.65, Math.max(90, value));
+  shellHost.style.setProperty("--bottom-height", `${height}px`);
+  window.localStorage.setItem("o2xml.layout.bottomHeight", String(Math.round(height)));
 }
 
 function changeLanguage(value: string): void {
@@ -1843,6 +2095,24 @@ function changeLanguage(value: string): void {
 }
 
 document.documentElement.dataset.theme = dark ? "dark" : "light";
+setupLayoutControls();
+
+editorSurface.addEventListener("dragover", (event) => {
+  if (!event.dataTransfer?.types.includes("application/x-o2xml-document")) return;
+  event.preventDefault();
+  editorSurface.classList.add("tab-drop-target");
+});
+editorSurface.addEventListener("dragleave", () => editorSurface.classList.remove("tab-drop-target"));
+editorSurface.addEventListener("drop", (event) => {
+  event.preventDefault();
+  editorSurface.classList.remove("tab-drop-target");
+  showSplitDocument(Number(event.dataTransfer?.getData("application/x-o2xml-document")));
+});
+splitClose.addEventListener("click", closeSplitPane);
+closeAllTabsButton.addEventListener("click", () => void closeAllDocuments());
+window.addEventListener("pointerdown", (event) => {
+  if (!tabContextMenu.contains(event.target as Node)) tabContextMenu.hidden = true;
+});
 
 authorPreviewButton.addEventListener("click", () => showAuthorPane("preview"));
 authorStructuredButton.addEventListener("click", () => showAuthorPane("structured"));
@@ -1909,6 +2179,18 @@ window.addEventListener("keydown", (event) => {
     event.preventDefault();
     const document = activeDocument();
     if (document) void closeDocument(document.id);
+  }
+  if (modifier && (event.key === "+" || event.key === "=")) {
+    event.preventDefault();
+    setEditorFontSize(editorFontSize + 1);
+  }
+  if (modifier && event.key === "-") {
+    event.preventDefault();
+    setEditorFontSize(editorFontSize - 1);
+  }
+  if (modifier && event.key === "0") {
+    event.preventDefault();
+    setEditorFontSize(14);
   }
 });
 
