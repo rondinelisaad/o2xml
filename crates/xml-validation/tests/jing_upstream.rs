@@ -12,9 +12,9 @@ const UPSTREAM_CORPUS: &str = "mod/rng-schema/test/compacttest.xml";
 #[test]
 #[ignore = "requires an explicit Jing V20241231 checkout, real JAR, and Java runtime"]
 fn validates_the_official_compact_corpus_container_with_real_jing() -> Result<(), Box<dyn Error>> {
-    let upstream = required_path("O2XML_JING_UPSTREAM_ROOT")?;
-    let jing_jar = required_path("O2XML_JING_JAR")?;
-    let java = required_path("O2XML_JAVA")?;
+    let upstream = required_path("SCIXML_JING_UPSTREAM_ROOT", "O2XML_JING_UPSTREAM_ROOT")?;
+    let jing_jar = required_path("SCIXML_JING_JAR", "O2XML_JING_JAR")?;
+    let java = required_path("SCIXML_JAVA", "O2XML_JAVA")?;
     let version = fs::read_to_string(upstream.join("version.xml"))?;
     if !version.contains(&format!(">{UPSTREAM_VERSION}<")) {
         return Err(format!("expected Jing upstream version {UPSTREAM_VERSION}").into());
@@ -67,7 +67,9 @@ fn validates_the_official_compact_corpus_container_with_real_jing() -> Result<()
     Ok(())
 }
 
-fn required_path(name: &str) -> Result<PathBuf, Box<dyn Error>> {
-    let value = env::var_os(name).ok_or_else(|| format!("{name} is required"))?;
+fn required_path(name: &str, legacy: &str) -> Result<PathBuf, Box<dyn Error>> {
+    let value = env::var_os(name)
+        .or_else(|| env::var_os(legacy))
+        .ok_or_else(|| format!("{name} is required"))?;
     Ok(fs::canonicalize(PathBuf::from(value))?)
 }

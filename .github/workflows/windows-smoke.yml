@@ -33,7 +33,7 @@ jobs:
       - name: Install static libxml2 and libxslt
         shell: pwsh
         run: |
-          $overlayRoot = Join-Path $env:RUNNER_TEMP "o2xml-vcpkg-overlay"
+          $overlayRoot = Join-Path $env:RUNNER_TEMP "scixml-vcpkg-overlay"
           $overlayPort = Join-Path $overlayRoot "libxml2"
           Copy-Item `
             -Path (Join-Path $env:VCPKG_INSTALLATION_ROOT "ports\libxml2") `

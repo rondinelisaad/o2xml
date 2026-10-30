@@ -29,7 +29,7 @@ fn transforms_with_catalog_brokered_stylesheet_and_doctype() -> Result<(), Box<d
 
     let output = String::from_utf8(report.output)?;
     assert_eq!(report.revision, Revision(11));
-    assert!(output.contains("<h1>O2XML synthetic test article</h1>"));
+    assert!(output.contains("<h1>SciXML synthetic test article</h1>"));
     Ok(())
 }
 

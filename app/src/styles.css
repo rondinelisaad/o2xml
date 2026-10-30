@@ -62,7 +62,9 @@ button { color: inherit; font: inherit; }
   background: var(--panel);
 }
 
-.brand { margin-right: 14px; color: var(--accent); letter-spacing: .04em; }
+.brand { display: flex; flex: 0 0 auto; align-items: center; gap: 7px; margin-right: 14px; color: var(--accent); letter-spacing: .04em; }
+.brand img { width: 30px; height: 30px; object-fit: contain; }
+.startup-logo { width: 104px; height: 104px; object-fit: contain; border-radius: 18px; }
 .spacer { flex: 1; }
 .menubar button, .panel-tabs button, .tabs button {
   border: 0;

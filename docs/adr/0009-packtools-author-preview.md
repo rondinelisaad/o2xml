@@ -7,9 +7,9 @@ Accepted.
 ## Context
 
 SPSValidator v0.3.0 renders article previews through the Packtools 4.16.9
-`HTMLGenerator`. SPSValidator itself is GPL-3.0, while O2XML is distributed
+`HTMLGenerator`. SPSValidator itself is GPL-3.0, while SciXML is distributed
 under `MIT OR Apache-2.0`. Copying or linking the SPSValidator implementation
-into O2XML would therefore change the licensing obligations of the desktop
+into SciXML would therefore change the licensing obligations of the desktop
 application. Packtools is BSD-3-Clause and its HTML generator is the actual
 publication-preview engine used by that SPSValidator release.
 
@@ -18,7 +18,7 @@ filesystem-write, script, navigation, or arbitrary local-file capabilities.
 
 ## Decision
 
-O2XML independently integrates the Packtools 4.16.9 HTML generator XSLT 1.0
+SciXML independently integrates the Packtools 4.16.9 HTML generator XSLT 1.0
 and standalone CSS under the upstream BSD-3-Clause license. No SPSValidator
 source is copied or linked. The assets and upstream license are bundled under
 `resources/packtools-html/4.16.9`.

@@ -51,7 +51,7 @@ dependency or rendering engine.
 operations. This adds Hyper, Rustls, the platform certificate verifier, and the
 AWS-LC cryptographic provider, increasing build time and binary size. Compression,
 cookies, proxies, automatic redirects, authentication helpers, and HTTP/3 are
-not enabled by O2XML. TLS certificate and hostname checks are never bypassed.
+not enabled by SciXML. TLS certificate and hostname checks are never bypassed.
 Its WebDAV adapter also uses `zeroize` for transient Basic-auth passwords; no
 credential store or configuration serialization is provided.
 The BaseX REST reader reuses exactly this reviewed transport and dependency set.
@@ -99,7 +99,7 @@ optional, supervised ISO Schematron-to-SVRL pipeline. Static rule-set dependenci
 are catalog-resolved and rewritten into private staging before execution. A
 project-owned Java source launcher uses only JAXP APIs, forces Saxon, and applies
 the engine-level deny-all protocol and URI-resolver policy. The
-reviewed SaxonJ baseline is 13.0 (released 2026-05-29); O2XML accepts
+reviewed SaxonJ baseline is 13.0 (released 2026-05-29); SciXML accepts
 an explicit local JAR and trusted `pipeline-for-svrl.xsl` path rather than
 downloading either asset. The Xerces2-J XSD 1.1 distribution (Apache-2.0)
 remains a planned optional adapter. Engine binaries, notices,
@@ -152,7 +152,7 @@ override them.
   `app/src-tauri/resources/packtools-html/4.16.9/LICENSE` and its notice must
   accompany binary distributions.
 - **Bundled subset:** `root-html-2.0.xslt`, its `v2.0` XSLT/config resources,
-  and `scielo-article-standalone.css`. O2XML's catalog is an integration file;
+  and `scielo-article-standalone.css`. SciXML's catalog is an integration file;
   no SPSValidator GPL source is included.
 - **Security:** libxslt runs in the isolated helper; local reads require approval
   from the offline catalog broker, writes and network remain denied, parameters

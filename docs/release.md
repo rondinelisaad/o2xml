@@ -1,11 +1,13 @@
 # Release and installer workflow
 
-O2XML builds installers through the manually triggered **Build installers**
+SciXML builds installers through the manually triggered **Build installers**
 GitHub Actions workflow. Every run first executes the Rust and frontend quality
-gates. Successful runs create or update a **draft** GitHub release; they never
-publish it automatically. A single preparation job resolves the draft release
-ID before the platform matrix starts, so concurrent builders upload to the same
-release instead of racing to create duplicate drafts.
+gates. Successful runs create or update a **draft** GitHub release while the
+platform matrix is running. A final job verifies all expected non-empty assets
+and publishes the release only after every platform succeeds. A single
+preparation job resolves the draft release ID before the matrix starts, so
+concurrent builders upload to the same release instead of racing to create
+duplicates.
 
 ## Produced bundles
 
@@ -25,7 +27,7 @@ module; Windows therefore requires the supported SchXslt/Saxon adapter for
 Schematron, while DTD, XSD, RELAX NG, XPath, and XSLT 1.0 remain available in
 the native helper.
 
-The Windows portable ZIP contains `O2XML.exe`, the native helper, the bundled
+The Windows portable ZIP contains `SciXML.exe`, the native helper, the bundled
 JATS and Packtools resources, license files, dependency documentation, and a
 short usage guide. It does not write an installation record or require
 administrator privileges. Extract the complete directory before launching; the
@@ -43,8 +45,8 @@ should be Authenticode-signed.
 3. Push the release commit.
 4. Open **Actions → Build installers → Run workflow**, select the intended
    branch, and start the run.
-5. Download and test every artifact attached to the draft release before
-   publication.
+5. Confirm that the final verification job found every expected artifact and
+   published the release.
 
 The equivalent authenticated GitHub CLI command is:
 
@@ -52,7 +54,7 @@ The equivalent authenticated GitHub CLI command is:
 gh workflow run release.yml --ref main
 ```
 
-The release tag is derived by Tauri as `o2xml-v<version>`. Do not reuse an
+The release tag is derived by Tauri as `scixml-v<version>`. Do not reuse an
 existing published version.
 
 Published releases are immutable product snapshots. Never upload newly built
@@ -98,7 +100,7 @@ Test on a clean supported machine or VM for each produced architecture:
 - install, launch, and uninstall without elevated privileges beyond those the
   native installer normally requests;
 - extract the Windows portable ZIP into a clean directory, verify its SHA-256,
-  launch `O2XML.exe` without installation, and confirm no missing-resource or
+  launch `SciXML.exe` without installation, and confirm no missing-resource or
   missing-helper error is reported;
 - open, edit, save, format, and validate a representative XML document;
 - confirm the packaged libxml2 helper executes without an external package
@@ -108,7 +110,6 @@ Test on a clean supported machine or VM for each produced architecture:
 - check that local/remote resource policy remains deny-by-default; and
 - inspect the artifact and application logs for credentials or document content.
 
-Keep the GitHub release as a draft if any platform fails. Correct the source or
-workflow, increment the version when artifact identity could be ambiguous, and
-run the workflow again. Publishing the draft is a deliberate maintainer action,
-not an automated CI step.
+The workflow keeps the GitHub release as a draft if any platform or artifact
+verification fails. Correct the source or workflow, increment the version when
+artifact identity could be ambiguous, and run the workflow again.

@@ -1,5 +1,9 @@
 # Manual de validação de XML no O2XML 0.3.2
 
+> **Nota de identidade:** este manual descreve a versão histórica 0.3.2,
+> publicada como O2XML. A partir da versão 0.4.0, o aplicativo passa a se chamar
+> **SciXML**; o fluxo de validação descrito aqui permanece aplicável.
+
 Este manual descreve como abrir, validar e corrigir um documento XML na versão
 0.3.2 do O2XML. O exemplo utilizado é o artigo
 `0001-3765-aabc-98-03-e20251145.xml`, fornecido para teste.

@@ -4,13 +4,13 @@ on:
   workflow_dispatch:
   push:
     tags:
-      - "o2xml-v*"
+      - "scixml-v*"
 
 permissions:
   contents: write
 
 concurrency:
-  group: o2xml-release
+  group: scixml-release
   cancel-in-progress: false
 
 jobs:
@@ -100,9 +100,9 @@ jobs:
         shell: bash
         run: |
           version=$(jq -r '.version' app/src-tauri/tauri.conf.json)
-          tag="o2xml-v${version}"
-          name="O2XML v${version}"
-          body=$'Instaladores multiplataforma e pacote portátil do O2XML.\n\nEsta release permanece como rascunho até os smoke tests dos artefatos.'
+          tag="scixml-v${version}"
+          name="SciXML v${version}"
+          body=$'Instaladores multiplataforma e pacote portátil do SciXML.\n\nEsta release permanece como rascunho até os smoke tests dos artefatos.'
           releases=$(gh api "repos/${GITHUB_REPOSITORY}/releases?per_page=100")
           release_id=$(printf '%s' "$releases" | jq -r --arg tag "$tag" \
             '[.[] | select(.draft and .tag_name == $tag)] | sort_by(.id) | first | .id // empty')
@@ -191,7 +191,7 @@ jobs:
         if: runner.os == 'Windows'
         shell: pwsh
         run: |
-          $overlayRoot = Join-Path $env:RUNNER_TEMP "o2xml-vcpkg-overlay"
+          $overlayRoot = Join-Path $env:RUNNER_TEMP "scixml-vcpkg-overlay"
           $overlayPort = Join-Path $overlayRoot "libxml2"
           Copy-Item `
             -Path (Join-Path $env:VCPKG_INSTALLATION_ROOT "ports\libxml2") `
@@ -229,7 +229,7 @@ jobs:
         if: runner.os == 'Linux'
         shell: bash
         run: |
-          O2XML_STATIC_XML_LIBS=1 cargo build \
+          SCIXML_STATIC_XML_LIBS=1 cargo build \
             --locked \
             --release \
             --package xml-libxml2-helper \
@@ -298,7 +298,7 @@ jobs:
           }
 
           $releaseDirectory = Join-Path "target" "${{ matrix.target }}" "release"
-          $application = Join-Path $releaseDirectory "o2xml-desktop.exe"
+          $application = Join-Path $releaseDirectory "scixml-desktop.exe"
           $helper = Join-Path $releaseDirectory "xml-libxml2-helper.exe"
           if (-not (Test-Path $application -PathType Leaf)) {
             throw "Portable application executable was not produced: $application"
@@ -307,11 +307,11 @@ jobs:
             throw "Portable XML helper was not produced: $helper"
           }
 
-          $portableName = "O2XML-$version-windows-x64-portable"
+          $portableName = "SciXML-$version-windows-x64-portable"
           $portableRoot = Join-Path $env:RUNNER_TEMP $portableName
           $resourceRoot = Join-Path $portableRoot "resources"
           New-Item -ItemType Directory -Force -Path $resourceRoot | Out-Null
-          Copy-Item $application (Join-Path $portableRoot "O2XML.exe")
+          Copy-Item $application (Join-Path $portableRoot "SciXML.exe")
           Copy-Item $helper (Join-Path $portableRoot "xml-libxml2-helper.exe")
           Copy-Item "app/src-tauri/resources/jats" (Join-Path $resourceRoot "jats") -Recurse
           Copy-Item "app/src-tauri/resources/packtools-html" (Join-Path $resourceRoot "packtools-html") -Recurse
@@ -322,7 +322,7 @@ jobs:
           Copy-Item "DEPENDENCIES.md" $portableRoot
 
           $requiredFiles = @(
-            (Join-Path $portableRoot "O2XML.exe"),
+            (Join-Path $portableRoot "SciXML.exe"),
             (Join-Path $portableRoot "xml-libxml2-helper.exe"),
             (Join-Path $resourceRoot "jats/1.1/JATS-journalpublishing1.dtd"),
             (Join-Path $resourceRoot "jats/1.3/JATS-journalpublishing1-3.dtd"),
@@ -401,19 +401,19 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          version="${TAG_NAME#o2xml-v}"
+          version="${TAG_NAME#scixml-v}"
           assets=$(gh api "repos/${GITHUB_REPOSITORY}/releases/${RELEASE_ID}/assets?per_page=100")
           required=(
-            "O2XML-${version}-windows-x64-portable.zip"
-            "O2XML-${version}-windows-x64-portable.zip.sha256"
-            "O2XML_${version}_aarch64.app.tar.gz"
-            "O2XML_${version}_aarch64.dmg"
-            "O2XML_${version}_amd64.AppImage"
-            "O2XML_${version}_amd64.deb"
-            "O2XML_${version}_x64-setup.exe"
-            "O2XML_${version}_x64.app.tar.gz"
-            "O2XML_${version}_x64.dmg"
-            "O2XML_${version}_x64_en-US.msi"
+            "SciXML-${version}-windows-x64-portable.zip"
+            "SciXML-${version}-windows-x64-portable.zip.sha256"
+            "SciXML_${version}_aarch64.app.tar.gz"
+            "SciXML_${version}_aarch64.dmg"
+            "SciXML_${version}_amd64.AppImage"
+            "SciXML_${version}_amd64.deb"
+            "SciXML_${version}_x64-setup.exe"
+            "SciXML_${version}_x64.app.tar.gz"
+            "SciXML_${version}_x64.dmg"
+            "SciXML_${version}_x64_en-US.msi"
           )
           for name in "${required[@]}"; do
             count=$(printf '%s' "$assets" | jq --arg name "$name" '[.[] | select(.name == $name and .size > 0)] | length')

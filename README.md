@@ -1,6 +1,8 @@
-# O2XML
+# SciXML
 
-O2XML is an independent, open-source XML workbench focused on standards-based
+![SciXML logo](app/public/branding/scixml-logo.png)
+
+SciXML is an independent, open-source XML workbench focused on standards-based
 editing and scientific publishing workflows. Its first-class publishing targets
 are JATS and the SciELO Publishing Schema (SPS).
 
@@ -110,7 +112,7 @@ desktop MVP with a Rust core and a Tauri/CodeMirror interface.
 Prerequisites are the stable Rust toolchain, Node.js/npm, libxml2 2.9+,
 libxslt 1.1+, `pkg-config`, and the
 [Tauri platform prerequisites](https://v2.tauri.app/start/prerequisites/).
-Java, Saxon HE, SchXslt, and Jing are optional user-installed engines; O2XML
+Java, Saxon HE, SchXslt, and Jing are optional user-installed engines; SciXML
 never downloads or silently bundles them.
 
 ```sh
@@ -121,14 +123,14 @@ npm run tauri dev
 ```
 
 The desktop locates the helper in the workspace build output or beside the app
-executable. Packagers can set `O2XML_LIBXML2_HELPER` to an explicit executable
+executable. Packagers can set `SCIXML_LIBXML2_HELPER` to an explicit executable
 path. Release bundles stage the target-specific helper automatically.
 
 The bundled helper provides catalog-brokered XSLT 1.0 through libxslt. To opt
-into XSLT 3.0, set trusted host variables `O2XML_JAVA` and
-`O2XML_SAXON_JAR` to absolute local file paths. Conforming ISO Schematron also
-requires `O2XML_SCHXSLT_PIPELINE`. The framework panel identifies the selected engine.
-When they are absent, O2XML labels and uses the isolated libxml2 XPath 1.0
+into XSLT 3.0, set trusted host variables `SCIXML_JAVA` and
+`SCIXML_SAXON_JAR` to absolute local file paths. Conforming ISO Schematron also
+requires `SCIXML_SCHXSLT_PIPELINE`. The framework panel identifies the selected engine.
+When they are absent, SciXML labels and uses the isolated libxml2 XPath 1.0
 baseline; a partial configuration makes the stage unavailable instead of
 silently selecting a mixed setup.
 
@@ -142,8 +144,8 @@ cd app && npm run build
 ```
 
 The external Jing conformance gate is reproducible without committing its JAR:
-build upstream tag `V20241231` at its signed release commit, then set `O2XML_JING_UPSTREAM_ROOT`,
-`O2XML_JING_JAR`, and `O2XML_JAVA` and run the ignored `jing_upstream` test.
+build upstream tag `V20241231` at its signed release commit, then set `SCIXML_JING_UPSTREAM_ROOT`,
+`SCIXML_JING_JAR`, and `SCIXML_JAVA` and run the ignored `jing_upstream` test.
 See [docs/conformance.md](docs/conformance.md) for the exact contract and the
 recorded result.
 
@@ -159,7 +161,7 @@ Windows, macOS Apple Silicon, and macOS Intel. See
 [docs/release.md](docs/release.md) for local packaging, CI operation, signing,
 smoke tests, and publication requirements.
 
-The Portuguese user guide [Manual de validação de XML no O2XML
+The Portuguese user guide [Manual de validação de XML no SciXML
 0.3.2](docs/manual-validacao-xml-v0.3.2.md) explains the validation workflow,
 diagnostic navigation, and the distinction between well-formed XML, JATS, and
 SPS, using a real JATS 1.1 article as an example.

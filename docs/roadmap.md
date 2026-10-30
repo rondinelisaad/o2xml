@@ -112,7 +112,7 @@ Current progress:
 - [x] Run the upstream compact-syntax corpus from tag `V20241231` at signed
   commit `a6bc004` with a real locally built Jing JAR. The opt-in repository test
   revalidates the official corpus container and recursive RNC dependency through
-  O2XML; no upstream source or binary is redistributed.
+  SciXML; no upstream source or binary is redistributed.
 - [x] Add bounded SVRL parsing for failed assertions and successful reports,
   severity metadata, rule identity, and navigable diagnostic normalization.
 - [x] Add a catalog-brokered, process-isolated libxml2 Schematron baseline for

@@ -9,6 +9,8 @@ test("Tauri and Vite use the same loopback host", async () => {
 
 test("the desktop entrypoint provides startup feedback before loading the application", async () => {
   const index = await readFile(new URL("../index.html", import.meta.url), "utf8");
+  assert.match(index, /<title>SciXML<\/title>/);
+  assert.match(index, /branding\/scixml-logo\.png/);
   assert.match(index, /Carregando a aplicação/);
   assert.ok(index.indexOf("/src/bootstrap.ts") < index.indexOf("/src/main.ts"));
 });

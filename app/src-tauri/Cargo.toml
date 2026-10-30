@@ -1,11 +1,11 @@
 [package]
-name = "o2xml-desktop"
+name = "scixml-desktop"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
 
 [lib]
-name = "o2xml_desktop_lib"
+name = "scixml_desktop_lib"
 crate-type = ["staticlib", "cdylib", "rlib"]
 
 [build-dependencies]

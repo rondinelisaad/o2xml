@@ -18,8 +18,8 @@ SHA-256:
 - SPS 1.10 generated XSLT: `382b2cfc34be652c34afabaa251a43380d7c907fc0d18615ec9174b8f3ce95f4`
 
 The `.xsl` files were generated from those sources with the ISO Schematron
-compiler distributed by lxml. They are committed so installed O2XML builds can
-validate offline without Python, Java, or a runtime download. O2XML executes
+compiler distributed by lxml. They are committed so installed SciXML builds can
+validate offline without Python, Java, or a runtime download. SciXML executes
 the generated XSLT in the isolated libxslt helper with network and file writes
 disabled.
 

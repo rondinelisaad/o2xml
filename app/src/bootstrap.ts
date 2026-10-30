@@ -8,7 +8,7 @@ function showStartupFailure(reason: unknown): void {
   panel.className = "startup-status startup-error";
   panel.setAttribute("role", "alert");
   const title = document.createElement("strong");
-  title.textContent = "Não foi possível iniciar o O2XML";
+  title.textContent = "Não foi possível iniciar o SciXML";
   const message = document.createElement("span");
   message.textContent = detail || "Falha desconhecida durante a inicialização.";
   panel.append(title, message);

@@ -16,7 +16,7 @@ final class O2XmlSaxonBroker {
     private static final String SAXON_ALLOWED_PROTOCOLS =
             "http://saxon.sf.net/feature/allowedProtocols";
     private static final URIResolver DENY_EXTERNAL_RESOURCES = (href, base) -> {
-        throw new TransformerException("O2XML denied external resource resolution");
+        throw new TransformerException("SciXML denied external resource resolution");
     };
 
     private O2XmlSaxonBroker() {}

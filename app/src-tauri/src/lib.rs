@@ -1024,10 +1024,14 @@ async fn validate_schematron_stage(
 }
 
 fn schxslt_engine_from_environment() -> Result<Option<SchXsltProcessEngine>, String> {
-    const JAVA: &str = "O2XML_JAVA";
-    const SAXON: &str = "O2XML_SAXON_JAR";
-    const SCHXSLT: &str = "O2XML_SCHXSLT_PIPELINE";
-    let values = [env::var_os(JAVA), env::var_os(SAXON), env::var_os(SCHXSLT)];
+    const JAVA: &str = "SCIXML_JAVA";
+    const SAXON: &str = "SCIXML_SAXON_JAR";
+    const SCHXSLT: &str = "SCIXML_SCHXSLT_PIPELINE";
+    let values = [
+        branded_environment_value(JAVA, "O2XML_JAVA"),
+        branded_environment_value(SAXON, "O2XML_SAXON_JAR"),
+        branded_environment_value(SCHXSLT, "O2XML_SCHXSLT_PIPELINE"),
+    ];
     if values.iter().all(Option::is_none) {
         return Ok(None);
     }
@@ -1208,12 +1212,12 @@ async fn run_transformation_inner(
 }
 
 fn saxon_transform_engine_from_environment() -> Result<SaxonProcessEngine, String> {
-    const JAVA: &str = "O2XML_JAVA";
-    const SAXON: &str = "O2XML_SAXON_JAR";
-    let java =
-        env::var_os(JAVA).ok_or_else(|| format!("set {JAVA} to enable Saxon transformations"))?;
-    let saxon =
-        env::var_os(SAXON).ok_or_else(|| format!("set {SAXON} to enable Saxon transformations"))?;
+    const JAVA: &str = "SCIXML_JAVA";
+    const SAXON: &str = "SCIXML_SAXON_JAR";
+    let java = branded_environment_value(JAVA, "O2XML_JAVA")
+        .ok_or_else(|| format!("set {JAVA} to enable Saxon transformations"))?;
+    let saxon = branded_environment_value(SAXON, "O2XML_SAXON_JAR")
+        .ok_or_else(|| format!("set {SAXON} to enable Saxon transformations"))?;
     SaxonProcessEngine::new(java, saxon)
         .map_err(|error| format!("invalid Saxon transformation configuration: {error}"))
 }
@@ -1252,10 +1256,12 @@ async fn evaluate_xquery_inner(
             .ok_or_else(|| "document is not open".to_owned())?
             .snapshot()
     };
-    const JAVA: &str = "O2XML_JAVA";
-    const SAXON: &str = "O2XML_SAXON_JAR";
-    let java = env::var_os(JAVA).ok_or_else(|| format!("set {JAVA} to enable XQuery"))?;
-    let saxon = env::var_os(SAXON).ok_or_else(|| format!("set {SAXON} to enable XQuery"))?;
+    const JAVA: &str = "SCIXML_JAVA";
+    const SAXON: &str = "SCIXML_SAXON_JAR";
+    let java = branded_environment_value(JAVA, "O2XML_JAVA")
+        .ok_or_else(|| format!("set {JAVA} to enable XQuery"))?;
+    let saxon = branded_environment_value(SAXON, "O2XML_SAXON_JAR")
+        .ok_or_else(|| format!("set {SAXON} to enable XQuery"))?;
     let engine = SaxonXQueryEngine::new(java, saxon)
         .map_err(|error| format!("invalid Saxon XQuery configuration: {error}"))?;
     let source = snapshot.text();
@@ -2173,14 +2179,14 @@ async fn evaluate_xpath(
 }
 
 fn libxml2_helper_path() -> Result<PathBuf, String> {
-    const ENVIRONMENT_KEY: &str = "O2XML_LIBXML2_HELPER";
+    const ENVIRONMENT_KEY: &str = "SCIXML_LIBXML2_HELPER";
     let executable_name = if cfg!(windows) {
         "xml-libxml2-helper.exe"
     } else {
         "xml-libxml2-helper"
     };
     let mut candidates = Vec::new();
-    if let Some(path) = env::var_os(ENVIRONMENT_KEY) {
+    if let Some(path) = branded_environment_value(ENVIRONMENT_KEY, "O2XML_LIBXML2_HELPER") {
         candidates.push(PathBuf::from(path));
     }
     if let Ok(current) = env::current_exe() {
@@ -2199,6 +2205,10 @@ fn libxml2_helper_path() -> Result<PathBuf, String> {
         .ok_or_else(|| {
             format!("libxml2 helper is unavailable; build the workspace or set {ENVIRONMENT_KEY}")
         })
+}
+
+fn branded_environment_value(primary: &str, legacy: &str) -> Option<std::ffi::OsString> {
+    env::var_os(primary).or_else(|| env::var_os(legacy))
 }
 
 #[tauri::command]

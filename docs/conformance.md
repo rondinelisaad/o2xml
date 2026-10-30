@@ -23,20 +23,20 @@ cd /tmp/jing-trang-V20241231
 export JAVA_HOME=/path/to/a/jdk
 ./ant ant-jar
 
-cd /path/to/o2xml
-O2XML_JING_UPSTREAM_ROOT=/tmp/jing-trang-V20241231 \
-O2XML_JING_JAR=/tmp/jing-trang-V20241231/build/jing.jar \
-O2XML_JAVA="$JAVA_HOME/bin/java" \
+cd /path/to/scixml
+SCIXML_JING_UPSTREAM_ROOT=/tmp/jing-trang-V20241231 \
+SCIXML_JING_JAR=/tmp/jing-trang-V20241231/build/jing.jar \
+SCIXML_JAVA="$JAVA_HOME/bin/java" \
 cargo test -p xml-validation --test jing_upstream -- --ignored
 ```
 
-The O2XML test verifies the exact upstream version, resolves the recursive RNC
+The SciXML test verifies the exact upstream version, resolves the recursive RNC
 dependency through the offline catalog broker, rewrites the approved graph into
 private staging, and validates the official corpus container with the real JAR.
 The upstream 90-case compact conversion target was also run on 2026-10-18 and
 passed after a temporary test-harness-only modernization from the obsolete
 `saxon:node-set`/`saxon:output` extensions to their XSLT 2.0 equivalents. No
-upstream patch or binary is part of the O2XML tree.
+upstream patch or binary is part of the SciXML tree.
 
 The run exposed a broker bug where `element include` and `element external`
 were mistaken for dependency directives. The lexer now treats those words as

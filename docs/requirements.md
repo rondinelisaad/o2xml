@@ -2,7 +2,7 @@
 
 ## Product intent
 
-O2XML is a cross-platform desktop IDE for editing, validating, transforming,
+SciXML is a cross-platform desktop IDE for editing, validating, transforming,
 and analysing real XML documents. It is an independent implementation and must
 not copy proprietary source, assets, wording, UI identity, or behavior protected
 by another product's intellectual property.

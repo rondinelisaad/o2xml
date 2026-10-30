@@ -14,7 +14,7 @@ use super::{RemotePolicyError, RemoteResourcePolicy};
 const DNS_TIMEOUT: Duration = Duration::from_secs(5);
 const CONNECT_TIMEOUT: Duration = Duration::from_secs(5);
 const REQUEST_TIMEOUT: Duration = Duration::from_secs(20);
-const USER_AGENT: &str = "O2XML/0.1 remote-resource";
+const USER_AGENT: &str = "SciXML/0.4 remote-resource";
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct RemoteResource {

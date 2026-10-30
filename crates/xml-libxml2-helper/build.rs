@@ -1,5 +1,6 @@
 fn main() {
     println!("cargo:rerun-if-env-changed=LIBXML2_NO_PKG_CONFIG");
+    println!("cargo:rerun-if-env-changed=SCIXML_STATIC_XML_LIBS");
     println!("cargo:rerun-if-env-changed=O2XML_STATIC_XML_LIBS");
     println!("cargo:rerun-if-changed=src/validity_callbacks.c");
 
@@ -25,7 +26,9 @@ fn configure_native_libraries() -> Vec<std::path::PathBuf> {
 
 #[cfg(not(all(target_os = "windows", target_env = "msvc")))]
 fn configure_native_libraries() -> Vec<std::path::PathBuf> {
-    let static_link = std::env::var_os("O2XML_STATIC_XML_LIBS").is_some();
+    let static_link = std::env::var_os("SCIXML_STATIC_XML_LIBS")
+        .or_else(|| std::env::var_os("O2XML_STATIC_XML_LIBS"))
+        .is_some();
     let mut include_paths = probe_pkg_config("libxml-2.0", "2.9.0", static_link);
     include_paths.extend(probe_pkg_config("libxslt", "1.1.0", static_link));
     include_paths

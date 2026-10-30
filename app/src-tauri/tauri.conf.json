@@ -1,8 +1,8 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
-  "productName": "O2XML",
-  "version": "0.3.6",
-  "identifier": "org.scielo.o2xml",
+  "productName": "SciXML",
+  "version": "0.4.0",
+  "identifier": "org.scielo.scixml",
   "build": {
     "beforeDevCommand": "npm run dev",
     "devUrl": "http://127.0.0.1:1420",
@@ -15,7 +15,7 @@
     },
     "windows": [
       {
-        "title": "O2XML",
+        "title": "SciXML",
         "width": 1440,
         "height": 900,
         "minWidth": 900,

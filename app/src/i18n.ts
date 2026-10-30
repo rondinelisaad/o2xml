@@ -338,7 +338,7 @@ const en: Messages = {
 };
 
 const catalogs: Record<Locale, Messages> = { "pt-BR": ptBR, en };
-const storageKey = "o2xml.locale";
+const storageKey = "scixml.locale";
 let currentLocale: Locale = "pt-BR";
 
 export function isLocale(value: string | null): value is Locale {

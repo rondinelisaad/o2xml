@@ -1,9 +1,9 @@
-O2XML PARA WINDOWS — VERSÃO PORTÁTIL
+SCIXML PARA WINDOWS — VERSÃO PORTÁTIL
 ====================================
 
 1. Extraia todo o conteúdo do arquivo ZIP para uma pasta local.
-2. Mantenha O2XML.exe, xml-libxml2-helper.exe e a pasta resources juntos.
-3. Execute O2XML.exe. Não é necessário instalar nem usar privilégios de
+2. Mantenha SciXML.exe, xml-libxml2-helper.exe e a pasta resources juntos.
+3. Execute SciXML.exe. Não é necessário instalar nem usar privilégios de
    administrador.
 
 Requisitos
@@ -27,5 +27,5 @@ Segurança e integridade
 Licença
 -------
 
-O O2XML é disponibilizado sob licença MIT ou Apache-2.0, à escolha do usuário.
+O SciXML é disponibilizado sob licença MIT ou Apache-2.0, à escolha do usuário.
 Consulte LICENSE-MIT, LICENSE-APACHE e DEPENDENCIES.md incluídos neste pacote.

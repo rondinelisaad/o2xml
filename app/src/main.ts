@@ -87,7 +87,7 @@ document.documentElement.lang = getLocale();
 app.innerHTML = `
   <div class="shell">
     <header class="menubar">
-      <strong class="brand">O2XML</strong>
+      <div class="brand"><img src="/branding/scixml-icon.png" alt="" /><strong>SciXML</strong></div>
       <button data-action="new">${t("menu.new")}</button>
       <button data-action="open">${t("menu.open")}</button>
       <button data-action="save">${t("menu.save")}</button>
@@ -288,7 +288,9 @@ let activeAuthorPreview: AuthorPreviewPayload | null = null;
 let externalCheckInProgress = false;
 let linkedTagDispatch = false;
 
-const storedFontSize = Number(window.localStorage.getItem("o2xml.editorFontSize"));
+const storedFontSize = Number(
+  window.localStorage.getItem("scixml.editorFontSize") ?? window.localStorage.getItem("o2xml.editorFontSize"),
+);
 if (Number.isFinite(storedFontSize)) editorFontSize = Math.min(28, Math.max(10, storedFontSize));
 
 const editor = new EditorView({
@@ -388,7 +390,7 @@ function setEditorFontSize(value: number): void {
   const next = Math.min(28, Math.max(10, value));
   if (next === editorFontSize) return;
   editorFontSize = next;
-  window.localStorage.setItem("o2xml.editorFontSize", String(next));
+  window.localStorage.setItem("scixml.editorFontSize", String(next));
   const effect = editorZoom.reconfigure(editorFontSizeExtension());
   editor.dispatch({ effects: effect });
   splitEditor.dispatch({ effects: effect });
@@ -698,13 +700,13 @@ function renderTabs(): void {
     activate.textContent = `${item.name}${item.dirty ? " •" : ""}`;
     activate.addEventListener("click", () => activateDocument(item.id));
     tab.addEventListener("dragstart", (event) => {
-      event.dataTransfer?.setData("application/x-o2xml-document", String(item.id));
+      event.dataTransfer?.setData("application/x-scixml-document", String(item.id));
       if (event.dataTransfer) event.dataTransfer.effectAllowed = "move";
     });
     tab.addEventListener("dragover", (event) => event.preventDefault());
     tab.addEventListener("drop", (event) => {
       event.preventDefault();
-      const sourceId = Number(event.dataTransfer?.getData("application/x-o2xml-document"));
+      const sourceId = Number(event.dataTransfer?.getData("application/x-scixml-document"));
       reorderDocument(sourceId, item.id);
     });
     tab.addEventListener("contextmenu", (event) => {
@@ -1835,7 +1837,7 @@ async function saveFile(): Promise<void> {
 }
 
 async function openProject(): Promise<void> {
-  const selected = await open({ multiple: false, filters: [{ name: "O2XML project", extensions: ["toml"] }] });
+  const selected = await open({ multiple: false, filters: [{ name: "SciXML project", extensions: ["toml"] }] });
   if (!selected) return;
   try {
     const project = await invoke<ProjectPayload>("open_project", { path: selected });
@@ -2021,8 +2023,12 @@ function toggleTheme(): void {
 }
 
 function setupLayoutControls(): void {
-  const savedSidebarValue = window.localStorage.getItem("o2xml.layout.sidebarWidth");
-  const savedBottomValue = window.localStorage.getItem("o2xml.layout.bottomHeight");
+  const savedSidebarValue =
+    window.localStorage.getItem("scixml.layout.sidebarWidth") ??
+    window.localStorage.getItem("o2xml.layout.sidebarWidth");
+  const savedBottomValue =
+    window.localStorage.getItem("scixml.layout.bottomHeight") ??
+    window.localStorage.getItem("o2xml.layout.bottomHeight");
   if (savedSidebarValue !== null) {
     const savedSidebar = Number(savedSidebarValue);
     if (Number.isFinite(savedSidebar) && savedSidebar >= 0) setSidebarWidth(savedSidebar);
@@ -2075,13 +2081,13 @@ function setSidebarWidth(value: number): void {
   const width = value < 80 ? 0 : Math.min(520, Math.max(180, value));
   shellHost.style.setProperty("--sidebar-width", `${width}px`);
   shellHost.classList.toggle("sidebar-collapsed", width === 0);
-  window.localStorage.setItem("o2xml.layout.sidebarWidth", String(width));
+  window.localStorage.setItem("scixml.layout.sidebarWidth", String(width));
 }
 
 function setBottomHeight(value: number): void {
   const height = value < 55 ? 0 : Math.min(window.innerHeight * 0.65, Math.max(90, value));
   shellHost.style.setProperty("--bottom-height", `${height}px`);
-  window.localStorage.setItem("o2xml.layout.bottomHeight", String(Math.round(height)));
+  window.localStorage.setItem("scixml.layout.bottomHeight", String(Math.round(height)));
 }
 
 function changeLanguage(value: string): void {
@@ -2098,7 +2104,7 @@ document.documentElement.dataset.theme = dark ? "dark" : "light";
 setupLayoutControls();
 
 editorSurface.addEventListener("dragover", (event) => {
-  if (!event.dataTransfer?.types.includes("application/x-o2xml-document")) return;
+  if (!event.dataTransfer?.types.includes("application/x-scixml-document")) return;
   event.preventDefault();
   editorSurface.classList.add("tab-drop-target");
 });
@@ -2106,7 +2112,7 @@ editorSurface.addEventListener("dragleave", () => editorSurface.classList.remove
 editorSurface.addEventListener("drop", (event) => {
   event.preventDefault();
   editorSurface.classList.remove("tab-drop-target");
-  showSplitDocument(Number(event.dataTransfer?.getData("application/x-o2xml-document")));
+  showSplitDocument(Number(event.dataTransfer?.getData("application/x-scixml-document")));
 });
 splitClose.addEventListener("click", closeSplitPane);
 closeAllTabsButton.addEventListener("click", () => void closeAllDocuments());

@@ -93,7 +93,7 @@ claim that a version is current.
 
 - The upstream SciELO Publishing Schema repository says its non-normative content
   is CC BY-NC 4.0. Bundling those assets in a permissively licensed distribution
-  requires an explicit legal/redistribution decision. O2XML initially stores only
+  requires an explicit legal/redistribution decision. SciXML initially stores only
   framework metadata and installs user-supplied or separately distributable packs.
 - SPS/JATS mappings are versioned policy. Current SciELO project evidence maps
   SPS 1.9 to JATS 1.1, SPS 1.10 to JATS 1.3, and discusses SPS 1.11/JATS 1.4.
