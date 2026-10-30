@@ -1,0 +1,63 @@
+name: Windows XML smoke tests
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - main
+    paths:
+      - ".github/workflows/windows-smoke.yml"
+      - "Cargo.lock"
+      - "Cargo.toml"
+      - "crates/xml-libxml2-helper/**"
+      - "crates/xml-resource/**"
+      - "crates/xml-transform/**"
+      - "app/src-tauri/resources/packtools-html/**"
+
+permissions:
+  contents: read
+
+jobs:
+  packtools-preview:
+    name: Packtools preview
+    runs-on: windows-2022
+    steps:
+      - name: Checkout
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@b725eda525362e7cf34af9a7243cac1e3f01a7ec
+        with:
+          toolchain: stable
+
+      - name: Install static libxml2 and libxslt
+        shell: pwsh
+        run: |
+          $overlayRoot = Join-Path $env:RUNNER_TEMP "o2xml-vcpkg-overlay"
+          $overlayPort = Join-Path $overlayRoot "libxml2"
+          Copy-Item `
+            -Path (Join-Path $env:VCPKG_INSTALLATION_ROOT "ports\libxml2") `
+            -Destination $overlayPort `
+            -Recurse
+
+          $portfile = Join-Path $overlayPort "portfile.cmake"
+          $contents = Get-Content $portfile -Raw
+          $needle = "        -DLIBXML2_WITH_SCHEMAS=ON"
+          if (-not $contents.Contains($needle)) {
+            throw "Unable to enable Schematron in the vcpkg libxml2 port"
+          }
+          $contents = $contents.Replace(
+            $needle,
+            "$needle`n        -DLIBXML2_WITH_SCHEMATRON=ON"
+          )
+          Set-Content -Path $portfile -Value $contents -NoNewline
+
+          & "$env:VCPKG_INSTALLATION_ROOT\vcpkg.exe" install `
+            "libxml2:x64-windows-static-md" `
+            "libxslt:x64-windows-static-md" `
+            "--overlay-ports=$overlayRoot"
+          "VCPKG_ROOT=$env:VCPKG_INSTALLATION_ROOT" | Out-File -Append -FilePath $env:GITHUB_ENV
+          "VCPKGRS_TRIPLET=x64-windows-static-md" | Out-File -Append -FilePath $env:GITHUB_ENV
+
+      - name: Run native Packtools transformation tests
+        run: cargo test --locked --package xml-libxml2-helper --test transform
