@@ -6,7 +6,13 @@
     <title>O2XML</title>
   </head>
   <body>
-    <div id="app"></div>
+    <div id="app">
+      <main class="startup-status" role="status" aria-live="polite">
+        <strong>O2XML</strong>
+        <span>Carregando a aplicação…</span>
+      </main>
+    </div>
+    <script type="module" src="/src/bootstrap.ts"></script>
     <script type="module" src="/src/main.ts"></script>
   </body>
 </html>

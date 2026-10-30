@@ -73,6 +73,7 @@ jobs:
         run: |
           npm ci
           npm run test:i18n
+          npm run test:startup
           npm run build
 
   prepare-release:

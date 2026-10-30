@@ -1926,4 +1926,5 @@ void getCurrentWebview().onDragDropEvent((event) => {
   console.debug("native drag-and-drop is unavailable", error);
 });
 
+app.dataset.initialized = "true";
 void createNew();
