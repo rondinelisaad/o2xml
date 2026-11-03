@@ -85,7 +85,7 @@ claim that a version is current.
 | XML Catalog 1.1 | project resolver | Yes | Apache-2.0 OR MIT | HIGH | 2 |
 | Schema completion | common model + adapters | Mixed | mixed/project | HIGH | 2 |
 | JATS framework | NLM schemas + project manifest | Mixed | verify per asset | MEDIUM | 3 |
-| SPS 1.9/1.10 framework | Packtools 4.16.9 Schematron compiled to XSLT 1.0 | Mixed | BSD-2-Clause | MEDIUM | 3 |
+| SPS 1.9/1.10 framework | Packtools 4.18.3 value rules + legacy Schematron compiled to XSLT 1.0 | Mixed | BSD-2-Clause | MEDIUM | 3 |
 | Plugin host | Wasmtime 48 LTS Component Model / supervised process | Yes/mixed | Apache-2.0 WITH LLVM-exception / mixed | HIGH | 5 |
 | Benchmarks | Criterion | Yes | Apache-2.0 OR MIT | LOW | 1+ |
 

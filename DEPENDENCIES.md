@@ -161,15 +161,20 @@ override them.
   canonicalized below the XML directory, signature-checked, bounded, base64-
   encoded, and admitted only through an exact generated-source map.
 
-### Packtools SPS Schematron 4.16.9
+### Packtools SPS validation rules 4.18.3
 
-- **Source:** `scieloorg/packtools`, tag `4.16.9`, using
-  `scielo-style-1.9.sch`, `scielo-style-1.10.sch`, and `common.sch`.
+- **Source:** `scieloorg/packtools`, tag `4.18.3`, commit
+  `72e536e3a3a0869a61f5658d5a8d3317e36081fb`, using the legacy
+  `scielo-style-1.9.sch`, `scielo-style-1.10.sch`, and `common.sch` plus the
+  pinned `article_type_rules.json`, `author_notes_rules.json`, and
+  `fn_rules.json` value lists.
 - **Purpose:** automatic, offline SPS 1.9 and SPS 1.10 validation when the JATS
   root declares the corresponding `specific-use` value.
 - **License:** BSD-2-Clause. The notice is distributed at
   `app/src-tauri/resources/sps/licenses/PACKTOOLS-BSD-2-CLAUSE.txt`.
 - **Generated assets:** ISO Schematron was compiled to committed XSLT 1.0 at
-  build preparation time; installed validation needs neither Python nor Java.
+  build preparation time. Packtools 4.18.3 ships those Schematrons unchanged,
+  so SciXML reconciles three obsolete value-list findings against its pinned
+  JSON rules. Installed validation needs neither Python nor Java.
 - **Security:** the XSLT is served only by the offline catalog broker and runs
   in the isolated helper with filesystem writes and network access denied.

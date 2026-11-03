@@ -1,4 +1,5 @@
 mod audit;
+mod packtools_compat;
 
 use std::{
     collections::{BTreeMap, BTreeSet, HashMap},
@@ -734,7 +735,24 @@ async fn validate_builtin_sps(
         .map_err(|error| error.to_string())?;
     let svrl = String::from_utf8(transformed.output)
         .map_err(|_| "SPS validator produced non-UTF-8 SVRL".to_owned())?;
-    let report = parse_svrl(&svrl).map_err(|error| error.to_string())?;
+    let mut report = parse_svrl(&svrl).map_err(|error| error.to_string())?;
+    if version == "1.10" {
+        match packtools_compat::reconcile_sps_1_10(&mut report) {
+            Ok(suppressed) if suppressed > 0 => tracing::info!(
+                action = "validation.sps_packtools_compatibility",
+                result = "success",
+                packtools_version = "4.18.3",
+                suppressed,
+            ),
+            Ok(_) => {}
+            Err(error) => tracing::warn!(
+                action = "validation.sps_packtools_compatibility",
+                result = "failure",
+                packtools_version = "4.18.3",
+                error = %error,
+            ),
+        }
+    }
     let locations = match resolve_svrl_locations(source, revision, &report).await {
         Ok(locations) => locations,
         Err(error) => {
@@ -759,7 +777,7 @@ async fn validate_builtin_sps(
     Ok(FrameworkStagePayload {
         id: "sps-rules".to_owned(),
         label,
-        engine: "packtools-schematron-libxslt",
+        engine: "packtools-4.18.3-rules+schematron",
         status,
         diagnostics,
     })
