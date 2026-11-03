@@ -14,6 +14,7 @@ tracing.workspace = true
 url.workspace = true
 xml-resource = { path = "../xml-resource" }
 xml-schema = { path = "../xml-schema" }
+xml-process = { path = "../xml-process" }
 
 [lints]
 workspace = true

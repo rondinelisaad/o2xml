@@ -95,7 +95,8 @@ impl SaxonProcessEngine {
         let source = stage_input(".xml", request.source.as_bytes())?;
         let stylesheet = stage_input(".xsl", request.stylesheet.as_bytes())?;
         let output = stage_output(".out")?;
-        let mut child = Command::new(&self.java_executable)
+        let mut command = Command::new(&self.java_executable);
+        command
             .env_clear()
             .arg("-Djava.awt.headless=true")
             .arg("-Djava.net.useSystemProxies=false")
@@ -108,9 +109,9 @@ impl SaxonProcessEngine {
             .stdin(Stdio::null())
             .stdout(Stdio::null())
             .stderr(Stdio::piped())
-            .kill_on_drop(true)
-            .spawn()
-            .map_err(TransformError::Spawn)?;
+            .kill_on_drop(true);
+        xml_process::hide_console(&mut command);
+        let mut child = command.spawn().map_err(TransformError::Spawn)?;
         let stderr = child.stderr.take().ok_or(TransformError::MissingStderr)?;
         let reader = tokio::spawn(capture_bounded_stderr(stderr));
         let status = match timeout(self.deadline, child.wait()).await {

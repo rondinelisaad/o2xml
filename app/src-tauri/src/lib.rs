@@ -2235,6 +2235,7 @@ async fn complete_dtd(
     parent: String,
     preceding_children: Vec<String>,
     present_attributes: Vec<String>,
+    app: AppHandle,
     state: State<'_, AppState>,
 ) -> Result<DtdCompletionPayload, String> {
     const MAX_CONTEXT_NAMES: usize = 4_096;
@@ -2264,32 +2265,57 @@ async fn complete_dtd(
             .project
             .lock()
             .map_err(|_| "project store is unavailable".to_owned())?
-            .clone()
-            .ok_or_else(|| "open a project before requesting DTD completion".to_owned())?;
-        if document_path
-            .as_ref()
-            .is_some_and(|path| !path.starts_with(&project.root))
-        {
-            return Err("document is outside the active project".to_owned());
-        }
-        let catalog_setting = project
-            .manifest
-            .xml
-            .catalog
-            .as_deref()
-            .ok_or_else(|| "active project has no XML catalog".to_owned())?;
-        let catalog_path = normalized_path(&project.root.join(catalog_setting))?;
-        if !catalog_path.starts_with(&project.root) {
-            return Err("project catalog is outside the project root".to_owned());
-        }
+            .clone();
         let source = snapshot.text();
         let document_type = xml_syntax::document_type(&source)
             .map_err(|error| error.to_string())?
             .ok_or_else(|| "document has no DOCTYPE association".to_owned())?;
-        let system_id = document_type
-            .system_id
-            .ok_or_else(|| "DOCTYPE has no external system identifier".to_owned())?;
-        let cache_key = (system_id.clone(), document_type.public_id.clone());
+        let (catalog_path, catalog_root, system_id, public_id) = if let Some(project) = project {
+            if document_path
+                .as_ref()
+                .is_some_and(|path| !path.starts_with(&project.root))
+            {
+                return Err("document is outside the active project".to_owned());
+            }
+            let catalog_setting = project
+                .manifest
+                .xml
+                .catalog
+                .as_deref()
+                .ok_or_else(|| "active project has no XML catalog".to_owned())?;
+            let catalog_path = normalized_path(&project.root.join(catalog_setting))?;
+            if !catalog_path.starts_with(&project.root) {
+                return Err("project catalog is outside the project root".to_owned());
+            }
+            let system_id = document_type
+                .system_id
+                .clone()
+                .ok_or_else(|| "DOCTYPE has no external system identifier".to_owned())?;
+            (
+                catalog_path,
+                project.root,
+                system_id,
+                document_type.public_id.clone(),
+            )
+        } else {
+            let bundled = bundled_jats_dtd(
+                document_type.public_id.as_deref(),
+                document_type.system_id.as_deref(),
+            )
+            .ok_or_else(|| "open a project with an XML Catalog to complete this DTD".to_owned())?;
+            let catalog_path = bundled_resource(&app, bundled.catalog_resource)?;
+            let catalog_root = catalog_path
+                .parent()
+                .ok_or_else(|| "built-in JATS catalog has no parent directory".to_owned())?
+                .to_path_buf();
+            (
+                catalog_path,
+                catalog_root,
+                bundled.canonical_system_id.to_owned(),
+                Some(bundled.public_id.to_owned()),
+            )
+        };
+        let cache_key = (system_id.clone(), public_id.clone());
         let cached = state
             .dtd_indexes
             .lock()
@@ -2299,8 +2325,8 @@ async fn complete_dtd(
         let index = if let Some(index) = cached {
             index
         } else {
-            let policy = ResourcePolicy::offline([project.root.clone()])
-                .map_err(|error| error.to_string())?;
+            let policy =
+                ResourcePolicy::offline([catalog_root]).map_err(|error| error.to_string())?;
             let catalog =
                 CatalogResolver::load(&catalog_path, policy).map_err(|error| error.to_string())?;
             let engine = Libxml2DtdIndexEngine::new(libxml2_helper_path()?)
@@ -2309,7 +2335,7 @@ async fn complete_dtd(
                 .compile(DtdIndexRequest {
                     catalog: &catalog,
                     system_id: &system_id,
-                    public_id: document_type.public_id.as_deref(),
+                    public_id: public_id.as_deref(),
                 })
                 .await
                 .map_err(|error| error.to_string())?;

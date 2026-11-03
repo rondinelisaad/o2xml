@@ -487,6 +487,7 @@ impl SandboxedProcessEngine {
             .stdout(Stdio::piped())
             .stderr(Stdio::piped())
             .kill_on_drop(true);
+        xml_process::hide_console(&mut command);
         let mut child = command
             .spawn()
             .map_err(|error| PluginError::Launch(error.to_string()))?;

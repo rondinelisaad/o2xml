@@ -144,7 +144,8 @@ impl SchXsltProcessEngine {
     }
 
     async fn invoke(&self, broker: &Path, arguments: &[String]) -> Result<bool, SchXsltError> {
-        let mut child = Command::new(&self.java_executable)
+        let mut command = Command::new(&self.java_executable);
+        command
             .env_clear()
             .arg("-Djava.awt.headless=true")
             .arg("-Djava.net.useSystemProxies=false")
@@ -155,9 +156,9 @@ impl SchXsltProcessEngine {
             .stdin(Stdio::null())
             .stdout(Stdio::null())
             .stderr(Stdio::piped())
-            .kill_on_drop(true)
-            .spawn()
-            .map_err(SchXsltError::Spawn)?;
+            .kill_on_drop(true);
+        xml_process::hide_console(&mut command);
+        let mut child = command.spawn().map_err(SchXsltError::Spawn)?;
         let stderr = child.stderr.take().ok_or(SchXsltError::MissingStderr)?;
         let reader = tokio::spawn(capture_bounded_stderr(stderr));
         let status = match timeout(self.deadline, child.wait()).await {

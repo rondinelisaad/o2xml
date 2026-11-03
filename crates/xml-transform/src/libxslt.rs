@@ -77,14 +77,15 @@ impl LibxsltProcessEngine {
         let root = request
             .catalog
             .resolve_uri_or_direct(request.stylesheet_uri)?;
-        let mut child = Command::new(&self.executable)
+        let mut command = Command::new(&self.executable);
+        command
             .env_clear()
             .stdin(Stdio::piped())
             .stdout(Stdio::piped())
             .stderr(Stdio::piped())
-            .kill_on_drop(true)
-            .spawn()
-            .map_err(TransformError::Spawn)?;
+            .kill_on_drop(true);
+        xml_process::hide_console(&mut command);
+        let mut child = command.spawn().map_err(TransformError::Spawn)?;
         let mut stdin = child.stdin.take().ok_or(TransformError::MissingStdin)?;
         let stdout = child.stdout.take().ok_or(TransformError::MissingStdout)?;
         let stderr = child.stderr.take().ok_or(TransformError::MissingStderr)?;

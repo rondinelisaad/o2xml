@@ -303,6 +303,9 @@ const splitEditor = new EditorView({
   state: createReadOnlyEditorState(""),
 });
 
+installEditorZoom(editor);
+installEditorZoom(splitEditor);
+
 function requiredElement<T extends Element>(selector: string): T {
   const element = document.querySelector<T>(selector);
   if (!element) throw new Error(`required element not found: ${selector}`);
@@ -323,6 +326,13 @@ function baseExtensions(): Extension[] {
     syntaxHighlighting(defaultHighlightStyle, { fallback: true }),
     syntaxTheme.of(syntaxHighlighting(xmlHighlightStyle(dark))),
     keymap.of([
+      {
+        key: "Mod-Shift-f",
+        run: () => {
+          void formatActive();
+          return true;
+        },
+      },
       ...closeBracketsKeymap,
       ...defaultKeymap,
       ...searchKeymap,
@@ -333,9 +343,6 @@ function baseExtensions(): Extension[] {
     ]),
     EditorView.lineWrapping,
     editorZoom.of(editorFontSizeExtension()),
-    EditorView.domEventHandlers({
-      wheel: (event) => handleEditorZoom(event),
-    }),
     EditorView.updateListener.of((update) => {
       if (!update.docChanged || suppressChanges) return;
       if (synchronizeClosingTag(update)) return;
@@ -384,6 +391,16 @@ function handleEditorZoom(event: WheelEvent): boolean {
   event.preventDefault();
   setEditorFontSize(editorFontSize + (event.deltaY < 0 ? 1 : -1));
   return true;
+}
+
+function installEditorZoom(view: EditorView): void {
+  view.dom.addEventListener(
+    "wheel",
+    (event) => {
+      handleEditorZoom(event);
+    },
+    { capture: true, passive: false },
+  );
 }
 
 function setEditorFontSize(value: number): void {
@@ -556,9 +573,9 @@ async function schemaCompletionSource(
   if (tag) {
     const name = tagName(tag, context.state);
     const nameNode = tag.getChild("TagName");
-    const valueNode = nearestNode(resolved, new Set(["AttributeValue"]));
-    if (name && valueNode) {
-      const attribute = nearestNode(valueNode, new Set(["Attribute"]));
+    const attribute = nearestNode(resolved, new Set(["Attribute"]));
+    const valueNode = attribute?.getChild("AttributeValue") ?? null;
+    if (name && attribute && valueNode && context.pos >= valueNode.from && context.pos <= valueNode.to) {
       const attributeNameNode = attribute?.getChild("AttributeName");
       const attributeName = attributeNameNode
         ? context.state.doc.sliceString(attributeNameNode.from, attributeNameNode.to)
@@ -569,11 +586,13 @@ async function schemaCompletionSource(
       );
       const specification = result?.attributes.find((item) => item.name === attributeName);
       if (!specification || specification.values.length === 0) return null;
+      const rawValue = context.state.doc.sliceString(valueNode.from, valueNode.to);
+      const quoted = rawValue.startsWith('"') || rawValue.startsWith("'");
       return {
-        from: valueNode.from,
-        to: valueNode.to,
+        from: valueNode.from + (quoted ? 1 : 0),
+        to: valueNode.to - (quoted && rawValue.length > 1 ? 1 : 0),
         options: specification.values.map((value) => ({
-          label: `"${value}"`,
+          label: value,
           type: "constant",
         })),
       };
@@ -738,7 +757,11 @@ function reorderDocument(sourceId: number, targetId: number): void {
 }
 
 function showSplitDocument(id: number): void {
-  if (id === activeId) return;
+  if (id === activeId) {
+    const base = documents.find((candidate) => candidate.id !== id);
+    if (!base) return;
+    activateDocument(base.id);
+  }
   const document = documents.find((candidate) => candidate.id === id);
   if (!document) return;
   splitDocumentId = id;

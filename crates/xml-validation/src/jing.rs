@@ -126,6 +126,7 @@ impl JingProcessEngine {
             .stdout(Stdio::null())
             .stderr(Stdio::piped())
             .kill_on_drop(true);
+        xml_process::hide_console(&mut command);
         let mut child = command.spawn().map_err(ValidationError::Spawn)?;
         let stderr = child.stderr.take().ok_or(ValidationError::MissingStderr)?;
         let reader = tokio::spawn(read_bounded(stderr, self.max_stderr_bytes));

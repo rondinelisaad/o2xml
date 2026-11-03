@@ -182,6 +182,7 @@ impl Libxml2XPathEngine {
             .stdout(Stdio::piped())
             .stderr(Stdio::piped())
             .kill_on_drop(true);
+        xml_process::hide_console(&mut command);
         let mut child = command.spawn().map_err(XPathError::Spawn)?;
         let mut stdin = child.stdin.take().ok_or(XPathError::MissingPipe)?;
         let stdout = child.stdout.take().ok_or(XPathError::MissingPipe)?;

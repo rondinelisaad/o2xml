@@ -10,6 +10,37 @@ function nearest(node: SyntaxNode, name: string): SyntaxNode | null {
   return null;
 }
 
+function editedOpeningTagName(
+  state: EditorState,
+  from: number,
+  to: number,
+): SyntaxNode | null {
+  const tree = syntaxTree(state);
+  const positions = new Set([
+    Math.max(0, from - 1),
+    Math.min(state.doc.length, from),
+    Math.min(state.doc.length, to),
+  ]);
+  for (const position of positions) {
+    for (const bias of [-1, 1] as const) {
+      const resolved = tree.resolveInner(position, bias);
+      const openTag = nearest(resolved, "OpenTag");
+      const nameNode = resolved.name === "TagName"
+        ? resolved
+        : openTag?.getChild("TagName") ?? null;
+      if (
+        nameNode
+        && nameNode.parent?.name === "OpenTag"
+        && from <= nameNode.to
+        && to >= nameNode.from
+      ) {
+        return nameNode;
+      }
+    }
+  }
+  return null;
+}
+
 export function linkedClosingTagChange(
   startState: EditorState,
   nextState: EditorState,
@@ -18,9 +49,8 @@ export function linkedClosingTagChange(
   let linkedChange: ChangeSpec | null = null;
   changes.iterChanges((fromA, toA) => {
     if (linkedChange) return;
-    const resolved = syntaxTree(startState).resolveInner(fromA, 1);
-    const nameNode = nearest(resolved, "TagName");
-    if (!nameNode || nameNode.parent?.name !== "OpenTag" || toA < nameNode.from || fromA > nameNode.to) return;
+    const nameNode = editedOpeningTagName(startState, fromA, toA);
+    if (!nameNode) return;
     const element = nearest(nameNode, "Element");
     const closeName = element?.getChild("CloseTag")?.getChild("TagName");
     if (!closeName) return;

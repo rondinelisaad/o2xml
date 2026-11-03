@@ -17,6 +17,7 @@ url.workspace = true
 xml-document = { path = "../xml-document" }
 xml-domain = { path = "../xml-domain" }
 xml-resource = { path = "../xml-resource" }
+xml-process = { path = "../xml-process" }
 
 [lints]
 workspace = true

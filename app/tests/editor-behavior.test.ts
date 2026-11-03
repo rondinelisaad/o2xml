@@ -17,6 +17,15 @@ test("renames the matching closing tag with the opening tag", () => {
   assert.equal(rename("<title>Example</title>", 1, 6, "article-title"), "<article-title>Example</article-title>");
 });
 
+test("renames the closing tag when text is appended at the opening-name boundary", () => {
+  assert.equal(rename("<sec>Example</sec>", 4, 4, "tion"), "<section>Example</section>");
+});
+
+test("renames the closing tag across incremental edits", () => {
+  const first = rename("<sec>Example</sec>", 4, 4, "t");
+  assert.equal(rename(first, 5, 5, "ion"), "<section>Example</section>");
+});
+
 test("does not rewrite an unrelated closing-tag edit", () => {
   assert.equal(rename("<title>Example</title>", 16, 21, "heading"), "<title>Example</heading>");
 });
