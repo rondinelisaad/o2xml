@@ -147,6 +147,7 @@ app.innerHTML = `
             <strong>${t("author.title")}</strong>
             <button id="author-preview-button" type="button">${t("author.scieloPreview")}</button>
             <button id="author-structured-button" type="button">${t("author.structuredEditing")}</button>
+            <select id="author-preview-language" aria-label="${t("author.previewLanguage")}" hidden></select>
             <span id="author-engine">${t("author.description")}</span>
           </div>
           <div id="author-document" class="author-document" aria-live="polite"></div>
@@ -198,6 +199,17 @@ app.innerHTML = `
   <div id="tab-context-menu" class="tab-context-menu" hidden>
     <button id="close-all-tabs" type="button">${t("document.closeAll")}</button>
   </div>
+  <dialog id="unsaved-dialog" class="unsaved-dialog">
+    <form method="dialog">
+      <h2>${t("document.saveTitle")}</h2>
+      <p id="unsaved-message"></p>
+      <div class="unsaved-actions">
+        <button value="cancel">${t("common.cancel")}</button>
+        <button value="discard">${t("document.discard")}</button>
+        <button value="save" class="primary">${t("common.save")}</button>
+      </div>
+    </form>
+  </dialog>
   <div id="diff-dialog" class="diff-dialog" hidden>
     <div class="diff-window" role="dialog" aria-modal="true" aria-labelledby="diff-title">
       <header class="diff-header">
@@ -229,6 +241,8 @@ const splitTitle = requiredElement<HTMLElement>("#split-title");
 const splitClose = requiredElement<HTMLButtonElement>("#split-close");
 const tabContextMenu = requiredElement<HTMLDivElement>("#tab-context-menu");
 const closeAllTabsButton = requiredElement<HTMLButtonElement>("#close-all-tabs");
+const unsavedDialog = requiredElement<HTMLDialogElement>("#unsaved-dialog");
+const unsavedMessage = requiredElement<HTMLParagraphElement>("#unsaved-message");
 const outlineHost = requiredElement<HTMLDivElement>("#outline");
 const jatsInspectorHost = requiredElement<HTMLDivElement>("#jats-inspector");
 const frameworkStagesHost = requiredElement<HTMLDivElement>("#framework-stages");
@@ -253,6 +267,7 @@ const authorDocumentHost = requiredElement<HTMLDivElement>("#author-document");
 const authorPreviewFrame = requiredElement<HTMLIFrameElement>("#author-preview");
 const authorPreviewButton = requiredElement<HTMLButtonElement>("#author-preview-button");
 const authorStructuredButton = requiredElement<HTMLButtonElement>("#author-structured-button");
+const authorPreviewLanguage = requiredElement<HTMLSelectElement>("#author-preview-language");
 const authorEngine = requiredElement<HTMLSpanElement>("#author-engine");
 const authorButton = requiredElement<HTMLButtonElement>("[data-action='author']");
 const transformScenario = requiredElement<HTMLSelectElement>("#transform-scenario");
@@ -1053,6 +1068,8 @@ function showSourceMode(): void {
   activeAuthor = null;
   activeAuthorPreview = null;
   authorPreviewFrame.srcdoc = "";
+  authorPreviewLanguage.hidden = true;
+  authorPreviewLanguage.replaceChildren();
   authorView.hidden = true;
   editorHost.hidden = false;
   authorButton.textContent = t("menu.authorMode");
@@ -1115,7 +1132,13 @@ async function runAuthorMode(): Promise<void> {
 
 function renderAuthorPreview(payload: AuthorPreviewPayload): void {
   const assets = new Map(payload.assets.map((asset) => [asset.source, asset.dataUri]));
-  authorPreviewFrame.srcdoc = sanitizePreviewHtml(payload.html, payload.stylesheet, assets);
+  const views = payload.views.length > 0 ? payload.views : [{ language: "", html: payload.html }];
+  const previousLanguage = authorPreviewLanguage.value;
+  authorPreviewLanguage.replaceChildren(...views.map((view) => new Option(view.language, view.language)));
+  authorPreviewLanguage.hidden = views.length < 2;
+  const selected = views.find((view) => view.language === previousLanguage) ?? views[0];
+  if (selected) authorPreviewLanguage.value = selected.language;
+  if (selected) authorPreviewFrame.srcdoc = sanitizePreviewHtml(selected.html, payload.stylesheet, assets);
   authorEngine.textContent = authorPreviewEngineLabel(payload);
   authorEngine.removeAttribute("title");
 }
@@ -1742,6 +1765,45 @@ async function createNew(): Promise<void> {
   }
 }
 
+type UnsavedDecision = "save" | "discard" | "cancel";
+
+function requestUnsavedDecision(document: OpenDocument): Promise<UnsavedDecision> {
+  unsavedMessage.textContent = t("document.closeUnsaved", { name: document.name });
+  return new Promise((resolve) => {
+    const onClose = (): void => {
+      unsavedDialog.removeEventListener("close", onClose);
+      const result = unsavedDialog.returnValue;
+      resolve(result === "save" || result === "discard" ? result : "cancel");
+    };
+    unsavedDialog.addEventListener("close", onClose);
+    unsavedDialog.showModal();
+  });
+}
+
+async function approveDocumentClose(document: OpenDocument): Promise<boolean> {
+  if (!document.dirty) return true;
+  const decision = await requestUnsavedDecision(document);
+  if (decision === "cancel") return false;
+  if (decision === "discard") return true;
+  activateDocument(document.id);
+  return saveActiveDocument();
+}
+
+function showEmptyWorkspace(): void {
+  activeId = null;
+  closeSplitPane();
+  showSourceMode();
+  suppressChanges = true;
+  editor.setState(createEditorState(""));
+  suppressChanges = false;
+  renderTabs();
+  outlineHost.replaceChildren();
+  jatsInspectorHost.replaceChildren();
+  frameworkStagesHost.replaceChildren();
+  renderProblems([]);
+  setStatus(t("status.ready"));
+}
+
 async function openPaths(paths: string[]): Promise<void> {
   const supported = /\.(?:xml|xsd|xsl|xslt|rng|sch|dtd)$/iu;
   const uniquePaths = [...new Set(paths.filter((path) => supported.test(path)))];
@@ -1770,7 +1832,7 @@ async function closeDocument(id: number): Promise<void> {
   if (index < 0) return;
   const document = documents[index];
   if (!document) return;
-  if (document.dirty && !window.confirm(t("document.closeUnsaved", { name: document.name }))) return;
+  if (!(await approveDocumentClose(document))) return;
   try {
     await invoke("close_document", { id });
     documents.splice(index, 1);
@@ -1779,7 +1841,7 @@ async function closeDocument(id: number): Promise<void> {
       const next = documents[Math.min(index, documents.length - 1)];
       activeId = null;
       if (next) activateDocument(next.id);
-      else await createNew();
+      else showEmptyWorkspace();
     } else {
       renderTabs();
     }
@@ -1791,7 +1853,7 @@ async function closeDocument(id: number): Promise<void> {
 async function closeAllDocuments(): Promise<void> {
   tabContextMenu.hidden = true;
   for (const document of [...documents]) {
-    if (document.dirty && !window.confirm(t("document.closeUnsaved", { name: document.name }))) continue;
+    if (!(await approveDocumentClose(document))) return;
     try {
       await invoke("close_document", { id: document.id });
       const index = documents.findIndex((candidate) => candidate.id === document.id);
@@ -1804,7 +1866,7 @@ async function closeAllDocuments(): Promise<void> {
   }
   activeId = null;
   if (documents[0]) activateDocument(documents[0].id);
-  else await createNew();
+  else showEmptyWorkspace();
   renderTabs();
 }
 
@@ -1843,20 +1905,26 @@ async function checkExternalChange(): Promise<void> {
   }
 }
 
-async function saveFile(): Promise<void> {
+async function saveActiveDocument(): Promise<boolean> {
   const document = activeDocument();
-  if (!document) return;
-  if (document.dirty && !(await synchronize(document))) return;
+  if (!document) return false;
+  if (document.dirty && !(await synchronize(document))) return false;
   const target = document.path ?? await save({ defaultPath: document.name, filters: [{ name: "XML", extensions: ["xml"] }] });
-  if (!target) return;
+  if (!target) return false;
   try {
     const payload = await invoke<DocumentPayload>("save_document", { id: document.id, path: target });
     Object.assign(document, payload, { viewState: editor.state });
     renderTabs();
     setStatus(t("status.saved"));
+    return true;
   } catch (error) {
     setStatus(String(error), true);
+    return false;
   }
+}
+
+async function saveFile(): Promise<void> {
+  await saveActiveDocument();
 }
 
 async function openProject(): Promise<void> {
@@ -1972,11 +2040,13 @@ function sanitizePreviewHtml(
     "h1", "h2", "h3", "h4", "h5", "h6", "p", "div", "span", "strong", "em",
     "b", "i", "u", "sup", "sub", "blockquote", "pre", "code", "br", "hr", "ul",
     "ol", "li", "dl", "dt", "dd", "table", "caption", "thead", "tbody", "tfoot",
-    "tr", "th", "td", "a", "img",
+    "tr", "th", "td", "a", "img", "math", "mrow", "mi", "mn", "mo",
+    "mtext", "ms", "mspace", "msup", "msub", "msubsup", "mfrac", "msqrt",
+    "mroot", "mfenced", "mtable", "mtr", "mtd", "semantics", "annotation",
   ]);
   const droppedWithContent = new Set([
     "script", "style", "link", "meta", "base", "iframe", "object", "embed", "applet",
-    "form", "input", "button", "select", "textarea", "option", "svg", "math", "audio",
+    "form", "input", "select", "textarea", "option", "svg", "audio",
     "video", "source", "track", "picture", "canvas",
   ]);
   const allowedAttributes = new Set([
@@ -1986,39 +2056,55 @@ function sanitizePreviewHtml(
   if (elements.length > 50_000) throw new Error(t("transform.previewElementLimit"));
   for (const element of elements) {
     if (!element.isConnected) continue;
-    const name = element.localName.toLowerCase();
+    let current = element;
+    let name = current.localName.toLowerCase();
+    const modalTarget = current.getAttribute("data-target");
+    const closesModal = current.getAttribute("data-dismiss") === "modal";
+    if ((modalTarget?.startsWith("#") || closesModal) && name !== "a") {
+      const link = parsed.createElement("a");
+      link.href = modalTarget?.startsWith("#") ? modalTarget : "#";
+      link.className = current.getAttribute("class") ?? "";
+      link.title = current.getAttribute("title") ?? "";
+      link.append(...current.childNodes);
+      current.replaceWith(link);
+      current = link;
+      name = "a";
+    } else if (name === "a" && modalTarget?.startsWith("#")) {
+      current.setAttribute("href", modalTarget);
+    }
     if (!allowedElements.has(name)) {
-      if (droppedWithContent.has(name)) element.remove();
-      else element.replaceWith(...element.childNodes);
+      if (droppedWithContent.has(name)) current.remove();
+      else current.replaceWith(...current.childNodes);
       continue;
     }
     if (name === "img") {
-      const sourceValue = element.getAttribute("src");
+      const sourceValue = current.getAttribute("src");
       const dataUri = sourceValue === null ? undefined : imageAssets.get(sourceValue);
       if (!dataUri) {
-        element.remove();
+        const alt = current.getAttribute("alt")?.trim();
+        current.replaceWith(alt ? parsed.createTextNode(alt) : "");
         continue;
       }
-      element.setAttribute("src", dataUri);
+      current.setAttribute("src", dataUri);
     }
-    for (const attribute of [...element.attributes]) {
+    for (const attribute of [...current.attributes]) {
       const attributeName = attribute.name.toLowerCase();
       if (name === "img" && attributeName === "src") continue;
       if (name === "img" && (attributeName === "width" || attributeName === "height")) {
         if (/^[1-9][0-9]{0,4}$/.test(attribute.value)) continue;
-        element.removeAttribute(attribute.name);
+        current.removeAttribute(attribute.name);
         continue;
       }
       if (attributeName === "href" && name === "a" && attribute.value.startsWith("#")) {
         continue;
       }
       if (!allowedAttributes.has(attributeName)) {
-        element.removeAttribute(attribute.name);
+        current.removeAttribute(attribute.name);
       }
     }
   }
   const policy = "default-src 'none'; base-uri 'none'; form-action 'none'; navigate-to 'none'; style-src 'unsafe-inline'; img-src data:";
-  const fallback = "body{font:14px system-ui,sans-serif;margin:20px;color:#20242a}img{max-width:100%;height:auto}table{border-collapse:collapse}th,td{border:1px solid #bbb;padding:4px 6px}pre,code{font-family:ui-monospace,monospace;white-space:pre-wrap}";
+  const fallback = `body{font:14px system-ui,sans-serif;margin:20px;color:#20242a}img{max-width:100%;height:auto}table{border-collapse:collapse}th,td{border:1px solid #bbb;padding:4px 6px}pre,code{font-family:ui-monospace,monospace;white-space:pre-wrap}.collapse,.tab-pane{display:block!important}.modal{display:none!important;position:fixed!important;inset:0!important;z-index:1000!important;overflow:auto!important;padding:24px!important;background:rgb(0 0 0/.55)!important}.modal:target{display:block!important}.modal-dialog{max-width:960px!important;margin:20px auto!important}.modal-content{border-radius:6px!important;padding:16px!important;background:#fff!important;color:#20242a!important;box-shadow:0 16px 48px rgb(0 0 0/.35)!important}.modal-header .close{float:right!important;font-size:24px!important;text-decoration:none!important}.ModalTables .modal-body:after{display:none!important}math{font-family:serif;font-size:1.08em}`;
   const style = `${stylesheet}\n${fallback}`.replace(/<\/style/giu, "<\\/style");
   return `<!doctype html><html><head><meta http-equiv="Content-Security-Policy" content="${policy}"><style>${style}</style></head><body>${parsed.body.innerHTML}</body></html>`;
 }
@@ -2145,6 +2231,9 @@ window.addEventListener("pointerdown", (event) => {
 
 authorPreviewButton.addEventListener("click", () => showAuthorPane("preview"));
 authorStructuredButton.addEventListener("click", () => showAuthorPane("structured"));
+authorPreviewLanguage.addEventListener("change", () => {
+  if (activeAuthorPreview) renderAuthorPreview(activeAuthorPreview);
+});
 
 requiredElement<HTMLElement>(".menubar").addEventListener("click", (event) => {
   const action = (event.target as HTMLElement).closest<HTMLButtonElement>("button")?.dataset.action;
@@ -2241,4 +2330,4 @@ void getCurrentWebview().onDragDropEvent((event) => {
 });
 
 app.dataset.initialized = "true";
-void createNew();
+showEmptyWorkspace();

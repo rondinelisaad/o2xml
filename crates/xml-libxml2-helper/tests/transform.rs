@@ -90,7 +90,7 @@ fn renders_bundled_packtools_scielo_preview_offline() -> Result<(), Box<dyn Erro
     let stylesheet = url::Url::from_file_path(resources.join("root-html-2.0.xslt"))
         .map_err(|()| "invalid Packtools stylesheet path")?;
     let source = r#"<!DOCTYPE article PUBLIC "-//NLM//DTD JATS (Z39.96) Journal Publishing DTD v1.1 20151215//EN" "http://jats.nlm.nih.gov/publishing/1.1/JATS-journalpublishing1.dtd">
-<article xmlns:xlink="http://www.w3.org/1999/xlink" article-type="research-article" xml:lang="pt" dtd-version="1.1"><front><journal-meta><journal-title-group><journal-title>Revista Teste</journal-title><abbrev-journal-title abbrev-type="publisher">Rev. Teste</abbrev-journal-title></journal-title-group><issn pub-type="epub">1234-5678</issn><publisher><publisher-name>SciELO</publisher-name></publisher></journal-meta><article-meta><article-id pub-id-type="doi">10.1234/test</article-id><title-group><article-title>Título de teste</article-title></title-group><contrib-group><contrib contrib-type="author"><name><surname>Silva</surname><given-names>Maria</given-names></name></contrib></contrib-group><pub-date publication-format="electronic" date-type="pub"><year>2026</year></pub-date><volume>1</volume><elocation-id>e1</elocation-id><abstract><title>Resumo</title><p>Conteúdo do resumo.</p></abstract></article-meta></front><body><sec><title>Introdução</title><p>Texto do artigo.</p></sec></body><back><ref-list><title>Referências</title></ref-list></back></article>"#;
+<article xmlns:xlink="http://www.w3.org/1999/xlink" xmlns:mml="http://www.w3.org/1998/Math/MathML" article-type="research-article" xml:lang="pt" dtd-version="1.1"><front><journal-meta><journal-title-group><journal-title>Revista Teste</journal-title><abbrev-journal-title abbrev-type="publisher">Rev. Teste</abbrev-journal-title></journal-title-group><issn pub-type="epub">1234-5678</issn><publisher><publisher-name>SciELO</publisher-name></publisher></journal-meta><article-meta><article-id pub-id-type="doi">10.1234/test</article-id><title-group><article-title>Título de teste</article-title></title-group><contrib-group><contrib contrib-type="author"><name><surname>Silva</surname><given-names>Maria</given-names></name><xref ref-type="aff" rid="aff1">1</xref></contrib></contrib-group><aff id="aff1"><label>1</label>Instituto de Testes</aff><pub-date publication-format="electronic" date-type="pub"><year>2026</year></pub-date><volume>1</volume><elocation-id>e1</elocation-id><permissions><license license-type="open-access"><license-p>Licença aberta de teste.</license-p></license></permissions><abstract><title>Resumo</title><p>Conteúdo do resumo.</p></abstract></article-meta></front><body><sec><title>Introdução</title><p>Texto do artigo.</p><disp-formula><mml:math><mml:mrow><mml:mi>x</mml:mi><mml:mo>+</mml:mo><mml:mn>1</mml:mn></mml:mrow></mml:math></disp-formula><table-wrap id="t1"><label>Tabela 1</label><caption><title>Resultados</title></caption><table><tbody><tr><td>42</td></tr></tbody></table></table-wrap></sec></body><back><ref-list><title>Referências</title></ref-list></back></article>"#;
     let parameters = BTreeMap::from([
         ("article_lang".to_owned(), "pt".to_owned()),
         ("is_translation".to_owned(), "False".to_owned()),
@@ -112,6 +112,12 @@ fn renders_bundled_packtools_scielo_preview_offline() -> Result<(), Box<dyn Erro
     assert!(output.contains("Título de teste"));
     assert!(output.contains("Conteúdo do resumo."));
     assert!(output.contains("Texto do artigo."));
+    assert!(output.contains("Maria"));
+    assert!(output.contains("data-aff-display=\"aff1\""));
+    assert!(output.contains("Licença aberta de teste."));
+    assert!(output.contains("Resultados"));
+    assert!(output.contains("42"));
+    assert!(output.contains("<math>"));
     assert!(output.contains("id=\"standalonearticle\""));
     Ok(())
 }

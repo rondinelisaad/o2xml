@@ -194,6 +194,14 @@ struct AuthorPreviewPayload {
     stylesheet: String,
     assets: Vec<AuthorPreviewAsset>,
     assets_skipped: usize,
+    views: Vec<AuthorPreviewView>,
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct AuthorPreviewView {
+    language: String,
+    html: String,
 }
 
 #[derive(Debug, Serialize)]
@@ -1745,7 +1753,7 @@ async fn preview_author_inner(
     if source.len() > MAX_AUTHOR_PREVIEW_SOURCE_BYTES {
         return Err("SciELO preview source exceeds the 32 MiB safety limit".to_owned());
     }
-    let language = jats_article_language(&source)?;
+    let languages = jats_preview_languages(&source)?;
     let catalog_path = bundled_resource(app, "resources/packtools-html/4.16.9/catalog.xml")?;
     let resource_root = catalog_path
         .parent()
@@ -1763,27 +1771,33 @@ async fn preview_author_inner(
         .map_err(|error| error.to_string())?;
     let catalog =
         CatalogResolver::load(&catalog_path, policy).map_err(|error| error.to_string())?;
-    let parameters = BTreeMap::from([
-        ("article_lang".to_owned(), language),
-        ("is_translation".to_owned(), "False".to_owned()),
-        ("styles_css_path".to_owned(), String::new()),
-        ("print_styles_css_path".to_owned(), String::new()),
-        ("js_path".to_owned(), String::new()),
-        ("output_style".to_owned(), String::new()),
-        ("math_js".to_owned(), String::new()),
-    ]);
     let engine =
         LibxsltProcessEngine::new(libxml2_helper_path()?).map_err(|error| error.to_string())?;
-    let report = engine
-        .transform(LibxsltRequest {
-            source: &source,
-            revision: snapshot.revision(),
-            catalog: &catalog,
-            stylesheet_uri: stylesheet_uri.as_str(),
-            parameters: Some(&parameters),
-        })
-        .await
-        .map_err(|error| error.to_string())?;
+    let mut views = Vec::with_capacity(languages.len());
+    for language in languages {
+        let parameters = BTreeMap::from([
+            ("article_lang".to_owned(), language.clone()),
+            ("is_translation".to_owned(), "False".to_owned()),
+            ("styles_css_path".to_owned(), String::new()),
+            ("print_styles_css_path".to_owned(), String::new()),
+            ("js_path".to_owned(), String::new()),
+            ("output_style".to_owned(), String::new()),
+            ("math_js".to_owned(), String::new()),
+        ]);
+        let report = engine
+            .transform(LibxsltRequest {
+                source: &source,
+                revision: snapshot.revision(),
+                catalog: &catalog,
+                stylesheet_uri: stylesheet_uri.as_str(),
+                parameters: Some(&parameters),
+            })
+            .await
+            .map_err(|error| error.to_string())?;
+        let html = String::from_utf8(report.output)
+            .map_err(|_| "Packtools preview output is not UTF-8".to_owned())?;
+        views.push(AuthorPreviewView { language, html });
+    }
     {
         let documents = state
             .documents
@@ -1792,24 +1806,74 @@ async fn preview_author_inner(
         let current = documents
             .get(&id)
             .ok_or_else(|| "document is not open".to_owned())?;
-        if current.revision() != report.revision {
+        if current.revision() != snapshot.revision() {
             return Err("document changed while the SciELO preview was being built".to_owned());
         }
     }
-    let html = String::from_utf8(report.output)
-        .map_err(|_| "Packtools preview output is not UTF-8".to_owned())?;
+    let html = views
+        .first()
+        .map(|view| view.html.clone())
+        .ok_or_else(|| "SciELO preview has no language view".to_owned())?;
     let stylesheet = fs::read_to_string(css_path)
         .map_err(|error| format!("cannot read Packtools preview stylesheet: {error}"))?;
     let (assets, assets_skipped) =
         collect_author_preview_assets(&source, document_path.as_deref())?;
     Ok(AuthorPreviewPayload {
-        revision: report.revision,
+        revision: snapshot.revision(),
         engine: "Packtools HTMLGenerator 4.16.9",
         html,
         stylesheet,
         assets,
         assets_skipped,
+        views,
     })
+}
+
+fn jats_preview_languages(source: &str) -> Result<Vec<String>, String> {
+    const MAX_TRANSLATIONS: usize = 8;
+    let root = jats_article_language(source)?;
+    let mut languages = vec![root];
+    let mut reader = Reader::from_str(source);
+    loop {
+        match reader.read_event() {
+            Ok(Event::Start(element) | Event::Empty(element))
+                if element.local_name().as_ref() == b"sub-article" =>
+            {
+                let mut is_translation = false;
+                let mut language = None;
+                for attribute in element.attributes() {
+                    let attribute = attribute.map_err(|error| {
+                        format!("cannot read JATS sub-article attributes: {error}")
+                    })?;
+                    let value = attribute
+                        .decoded_and_normalized_value(XmlVersion::Implicit1_0, reader.decoder())
+                        .map_err(|error| format!("cannot read JATS sub-article value: {error}"))?
+                        .into_owned();
+                    if attribute.key.as_ref() == b"article-type" && value == "translation" {
+                        is_translation = true;
+                    } else if attribute.key.as_ref() == b"xml:lang" {
+                        language = Some(value);
+                    }
+                }
+                if is_translation {
+                    if let Some(language) = language.filter(|value| {
+                        (2..=16).contains(&value.len())
+                            && value.bytes().all(|byte| {
+                                byte.is_ascii_alphanumeric() || matches!(byte, b'-' | b'_')
+                            })
+                    }) {
+                        if !languages.contains(&language) && languages.len() <= MAX_TRANSLATIONS {
+                            languages.push(language);
+                        }
+                    }
+                }
+            }
+            Ok(Event::Eof) => break,
+            Ok(_) => {}
+            Err(error) => return Err(format!("cannot inspect JATS translations: {error}")),
+        }
+    }
+    Ok(languages)
 }
 
 fn jats_article_language(source: &str) -> Result<String, String> {
@@ -2773,6 +2837,13 @@ mod tests {
             detected_sps_version(r#"<article specific-use="other"/>"#)?,
             None
         );
+        Ok(())
+    }
+
+    #[test]
+    fn author_preview_exposes_translation_languages() -> Result<(), String> {
+        let source = r#"<article xml:lang="en"><front/><body/><sub-article article-type="translation" xml:lang="pt"><front-stub/><body/></sub-article><sub-article article-type="translation" xml:lang="es"><front-stub/><body/></sub-article><sub-article article-type="reviewer-report" xml:lang="fr"/></article>"#;
+        assert_eq!(jats_preview_languages(source)?, vec!["en", "pt", "es"]);
         Ok(())
     }
 

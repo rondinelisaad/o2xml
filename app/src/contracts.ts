@@ -216,7 +216,10 @@ export interface AuthorPreviewPayload {
   stylesheet: string;
   assets: AuthorPreviewAsset[];
   assetsSkipped: number;
+  views: AuthorPreviewView[];
 }
+
+export interface AuthorPreviewView { language: string; html: string; }
 
 export interface AuthorPreviewAsset {
   source: string;

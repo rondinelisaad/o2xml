@@ -14,3 +14,9 @@ test("the desktop entrypoint provides startup feedback before loading the applic
   assert.match(index, /Carregando a aplicação/);
   assert.ok(index.indexOf("/src/bootstrap.ts") < index.indexOf("/src/main.ts"));
 });
+
+test("the application starts with an empty workspace instead of creating an untitled XML", async () => {
+  const source = await readFile(new URL("../src/main.ts", import.meta.url), "utf8");
+  assert.match(source, /app\.dataset\.initialized = "true";\s*showEmptyWorkspace\(\);/);
+  assert.doesNotMatch(source, /app\.dataset\.initialized = "true";\s*void createNew\(\);/);
+});
