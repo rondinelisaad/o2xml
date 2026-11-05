@@ -5,6 +5,7 @@ import {
   closeBrackets,
   closeBracketsKeymap,
   completionKeymap,
+  startCompletion,
   type CompletionContext,
   type CompletionResult,
 } from "@codemirror/autocomplete";
@@ -45,6 +46,12 @@ import {
   type MessageKey,
 } from "./i18n";
 import { linkedClosingTagChange } from "./editor-behavior";
+import {
+  attributeApplication,
+  attributeTextContext,
+  isAttributeCompletionPosition,
+  otherAttributeNames,
+} from "./editor-completion";
 import { detachedDocumentRequest, isOutsideWindowDrop } from "./windowing";
 
 import type {
@@ -366,6 +373,10 @@ function baseExtensions(): Extension[] {
     EditorView.updateListener.of((update) => {
       if (!update.docChanged || suppressChanges) return;
       if (synchronizeClosingTag(update)) return;
+      const cursor = update.state.selection.main.head;
+      if (isAttributeCompletionPosition(update.state.doc.toString(), cursor)) {
+        window.queueMicrotask(() => startCompletion(update.view));
+      }
       const document = activeDocument();
       if (!document) return;
       document.viewState = update.state;
@@ -468,11 +479,21 @@ function directChildNames(element: XmlSyntaxNode, before: number, state: EditorS
   return names;
 }
 
-function attributeNames(tag: XmlSyntaxNode, state: EditorState): string[] {
-  return tag.getChildren("Attribute").flatMap((attribute) => {
+function attributeNames(
+  tag: XmlSyntaxNode,
+  state: EditorState,
+  editing: XmlSyntaxNode | null = null,
+): string[] {
+  const attributes = tag.getChildren("Attribute").flatMap((attribute) => {
     const name = attribute.getChild("AttributeName");
-    return name ? [state.doc.sliceString(name.from, name.to)] : [];
+    return name
+      ? [{ name: state.doc.sliceString(name.from, name.to), from: attribute.from, to: attribute.to }]
+      : [];
   });
+  return otherAttributeNames(
+    attributes,
+    editing ? { from: editing.from, to: editing.to } : null,
+  );
 }
 
 function namespaceBindings(scope: XmlSyntaxNode, state: EditorState): Map<string, string> {
@@ -539,7 +560,8 @@ async function requestSchemaCompletion(
   precedingChildren: string[],
   presentAttributes: string[],
   state: EditorState,
-  scope: XmlSyntaxNode,
+  scope: XmlSyntaxNode | null,
+  reportErrors = false,
 ): Promise<DtdCompletionPayload | null> {
   if (!(await synchronize(document))) return null;
   try {
@@ -547,7 +569,7 @@ async function requestSchemaCompletion(
     const hasXsdAssociation = source.includes("http://www.w3.org/2001/XMLSchema-instance")
       && /(?:schemaLocation|noNamespaceSchemaLocation)\s*=/.test(source);
     if (hasXsdAssociation) {
-      const bindings = namespaceBindings(scope, state);
+      const bindings = scope ? namespaceBindings(scope, state) : new Map<string, string>();
       const result = await invoke<XsdCompletionPayload>("complete_xsd", {
         id: document.id,
         context: {
@@ -575,7 +597,8 @@ async function requestSchemaCompletion(
       presentAttributes,
     });
     return document.id === activeId && result.revision === document.revision ? result : null;
-  } catch {
+  } catch (error) {
+    if (reportErrors) setStatus(String(error), true);
     return null;
   }
 }
@@ -589,6 +612,54 @@ async function schemaCompletionSource(
   const resolved = tree.resolveInner(Math.max(0, context.pos - 1), 1);
   const tag = nearestNode(resolved, new Set(["OpenTag", "SelfClosingTag"]));
   const word = context.matchBefore(/[:\-.\w\u00b7-\uffff]*/u);
+  const source = context.state.doc.toString();
+  const textualAttribute = attributeTextContext(source, context.pos);
+
+  if (textualAttribute && source.includes("<!DOCTYPE")) {
+    const result = await requestSchemaCompletion(
+      document,
+      textualAttribute.elementName,
+      [],
+      textualAttribute.presentAttributes,
+      context.state,
+      tag,
+      context.explicit,
+    );
+    if (!result) return null;
+    if (textualAttribute.value) {
+      const specification = result.attributes.find(
+        (attribute) => attribute.name === textualAttribute.value?.attributeName,
+      );
+      if (!specification || specification.values.length === 0) return null;
+      return {
+        from: textualAttribute.value.from,
+        to: textualAttribute.value.to,
+        options: specification.values.map((value) => ({ label: value, type: "constant" })),
+      };
+    }
+    if (textualAttribute.editingName) {
+      return {
+        from: textualAttribute.editingName.from,
+        to: textualAttribute.editingName.to,
+        validFor: /^[:\-.\w\u00b7-\uffff]*$/u,
+        options: result.attributes.map((attribute) => ({
+          label: attribute.name,
+          type: "property",
+          detail: attribute.required ? "required" : attribute.fixed ? "fixed" : undefined,
+          apply: (view, _completion, from, to) => {
+            const application = attributeApplication(attribute.name, attribute.defaultValue);
+            const selectionFrom = from + application.valueFromOffset;
+            const selectionTo = from + application.valueToOffset;
+            view.dispatch({
+              changes: { from, to, insert: application.insert },
+              selection: { anchor: selectionFrom, head: selectionTo },
+            });
+            if (attribute.values.length > 0) startCompletion(view);
+          },
+        })),
+      };
+    }
+  }
 
   if (tag) {
     const name = tagName(tag, context.state);
@@ -602,7 +673,7 @@ async function schemaCompletionSource(
         : "";
       const present = attributeNames(tag, context.state).filter((item) => item !== attributeName);
       const result = await requestSchemaCompletion(
-        document, name, [], present, context.state, tag,
+        document, name, [], present, context.state, tag, context.explicit,
       );
       const specification = result?.attributes.find((item) => item.name === attributeName);
       if (!specification || specification.values.length === 0) return null;
@@ -618,22 +689,40 @@ async function schemaCompletionSource(
       };
     }
     if (name && nameNode && nameNode.to < context.pos && word) {
+      const editingName = attribute?.getChild("AttributeName") ?? null;
+      const editingAttribute = editingName
+        && context.pos >= editingName.from
+        && context.pos <= editingName.to
+        ? attribute
+        : null;
       const result = await requestSchemaCompletion(
         document,
         name,
         [],
-        attributeNames(tag, context.state),
+        attributeNames(tag, context.state, editingAttribute),
         context.state,
         tag,
+        context.explicit,
       );
       if (!result) return null;
       return {
-        from: word.from,
+        from: editingName && editingAttribute ? editingName.from : word.from,
+        to: editingName && editingAttribute ? editingName.to : context.pos,
+        validFor: /^[:\-.\w\u00b7-\uffff]*$/u,
         options: result.attributes.map((attribute) => ({
           label: attribute.name,
           type: "property",
           detail: attribute.required ? "required" : attribute.fixed ? "fixed" : undefined,
-          apply: `${attribute.name}="${attribute.defaultValue ?? ""}"`,
+          apply: (view, _completion, from, to) => {
+            const application = attributeApplication(attribute.name, attribute.defaultValue);
+            const selectionFrom = from + application.valueFromOffset;
+            const selectionTo = from + application.valueToOffset;
+            view.dispatch({
+              changes: { from, to, insert: application.insert },
+              selection: { anchor: selectionFrom, head: selectionTo },
+            });
+            if (attribute.values.length > 0) startCompletion(view);
+          },
         })),
       };
     }
@@ -670,6 +759,7 @@ async function schemaCompletionSource(
     [],
     context.state,
     element,
+    context.explicit,
   );
   if (!result) return null;
   return {

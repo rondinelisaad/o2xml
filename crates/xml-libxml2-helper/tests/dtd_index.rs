@@ -32,6 +32,10 @@ fn fixture() -> PathBuf {
     PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/completion.dtd")
 }
 
+fn bundled_jats_1_3_root() -> PathBuf {
+    PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../app/src-tauri/resources/jats/1.3")
+}
+
 fn runtime() -> Result<tokio::runtime::Runtime, std::io::Error> {
     tokio::runtime::Builder::new_current_thread()
         .enable_io()
@@ -171,5 +175,47 @@ fn extracts_dtd_declarations_for_the_safe_compiler() -> Result<(), Box<dyn Error
     assert!(attributes.iter().any(|attribute| {
         attribute.name == name("xml:lang") && attribute.use_kind == AttributeUse::Optional
     }));
+    Ok(())
+}
+
+#[test]
+fn completes_sps_1_10_attribute_names_and_values_from_jats_1_3() -> Result<(), Box<dyn Error>> {
+    let root = bundled_jats_1_3_root();
+    let policy = ResourcePolicy::offline([root.clone()])?;
+    let catalog = CatalogResolver::load(root.join("catalog-jats-v1-3-no-base.xml"), policy)?;
+    let engine = Libxml2DtdIndexEngine::new(env!("CARGO_BIN_EXE_xml-libxml2-helper"))?;
+    let report = runtime()?.block_on(engine.compile(DtdIndexRequest {
+        catalog: &catalog,
+        system_id: "https://jats.nlm.nih.gov/publishing/1.3/JATS-journalpublishing1-3.dtd",
+        public_id: Some("-//NLM//DTD JATS (Z39.96) Journal Publishing DTD v1.3 20210610//EN"),
+    }))?;
+
+    let fn_attributes = report
+        .index
+        .complete_attributes(&name("fn"), &BTreeSet::new())?;
+    let fn_type = fn_attributes
+        .iter()
+        .find(|attribute| attribute.name == name("fn-type"))
+        .ok_or("JATS 1.3 did not offer fn-type for fn")?;
+    assert!(fn_type
+        .allowed_values
+        .iter()
+        .any(|value| value == "coi-statement"));
+    assert!(!fn_type
+        .allowed_values
+        .iter()
+        .any(|value| value == "data-availability"));
+
+    let sub_article_attributes = report
+        .index
+        .complete_attributes(&name("sub-article"), &BTreeSet::new())?;
+    let article_type = sub_article_attributes
+        .iter()
+        .find(|attribute| attribute.name == name("article-type"))
+        .ok_or("JATS 1.3 did not offer article-type for sub-article")?;
+    assert!(!article_type
+        .allowed_values
+        .iter()
+        .any(|value| value == "reviewer-report"));
     Ok(())
 }

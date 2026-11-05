@@ -154,8 +154,19 @@ impl Libxml2DtdIndexEngine {
         let broker = match timeout(self.deadline, interaction).await {
             Ok(Ok(result)) => result,
             Ok(Err(error)) => {
-                stderr_task.abort();
-                let _ = child.kill().await;
+                drop(stdin);
+                if timeout(self.deadline, child.wait()).await.is_err() {
+                    let _ = child.kill().await;
+                }
+                let (stderr, truncated) = stderr_task.await.map_err(DtdIndexError::Task)??;
+                if truncated {
+                    return Err(DtdIndexError::OutputTooLarge);
+                }
+                if !stderr.is_empty() {
+                    return Err(DtdIndexError::Helper(
+                        String::from_utf8_lossy(&stderr).trim().to_owned(),
+                    ));
+                }
                 return Err(error);
             }
             Err(_) => {
@@ -429,6 +440,8 @@ pub enum DtdIndexError {
     OutputTooLarge,
     #[error("DTD helper rejected the grammar")]
     Rejected,
+    #[error("DTD helper failed: {0}")]
+    Helper(String),
     #[error("invalid DTD helper protocol: {0}")]
     Protocol(String),
 }
@@ -451,6 +464,7 @@ impl DtdIndexError {
             Self::Timeout(_) => "timeout",
             Self::OutputTooLarge => "output_too_large",
             Self::Rejected => "rejected",
+            Self::Helper(_) => "helper",
             Self::Protocol(_) => "protocol",
         }
     }

@@ -733,6 +733,32 @@ fn detected_sps_version(source: &str) -> Result<Option<&'static str>, String> {
     }
 }
 
+fn extend_sps_1_10_completion(source: &str, element: &str, attributes: &mut [DtdAttributePayload]) {
+    if !source.contains("specific-use=\"sps-1.10\"") && !source.contains("specific-use='sps-1.10'")
+    {
+        return;
+    }
+    let additions: &[(&str, &[&str])] = match element {
+        "fn" => &[("fn-type", &["coi-statement", "data-availability"])],
+        "sub-article" => &[("article-type", &["reviewer-report"])],
+        _ => &[],
+    };
+    for (attribute_name, values) in additions {
+        let Some(attribute) = attributes
+            .iter_mut()
+            .find(|attribute| attribute.name == *attribute_name)
+        else {
+            continue;
+        };
+        for value in *values {
+            if !attribute.values.iter().any(|current| current == value) {
+                attribute.values.push((*value).to_owned());
+            }
+        }
+        attribute.values.sort();
+    }
+}
+
 async fn validate_builtin_sps(
     app: &AppHandle,
     source: &str,
@@ -2519,7 +2545,7 @@ async fn complete_dtd(
         let child_completion = index
             .complete_children(&parent, &children)
             .map_err(|error| error.to_string())?;
-        let attributes = index
+        let mut attributes = index
             .complete_attributes(&parent, &present)
             .map_err(|error| error.to_string())?
             .into_iter()
@@ -2537,7 +2563,8 @@ async fn complete_dtd(
                     fixed,
                 }
             })
-            .collect();
+            .collect::<Vec<_>>();
+        extend_sps_1_10_completion(&source, &parent.local_name, &mut attributes);
         Ok(DtdCompletionPayload {
             revision,
             children: child_completion
@@ -2936,6 +2963,48 @@ mod tests {
             None
         );
         Ok(())
+    }
+
+    #[test]
+    fn adds_sps_1_10_values_to_jats_attribute_completion() {
+        let mut fn_attributes = vec![DtdAttributePayload {
+            name: "fn-type".to_owned(),
+            required: false,
+            values: vec!["abbr".to_owned(), "coi-statement".to_owned()],
+            default_value: None,
+            fixed: false,
+        }];
+        extend_sps_1_10_completion(
+            r#"<article specific-use="sps-1.10"><fn fn-type=""/></article>"#,
+            "fn",
+            &mut fn_attributes,
+        );
+        assert!(fn_attributes[0]
+            .values
+            .iter()
+            .any(|value| value == "data-availability"));
+        assert_eq!(
+            fn_attributes[0]
+                .values
+                .iter()
+                .filter(|value| value.as_str() == "coi-statement")
+                .count(),
+            1
+        );
+
+        let mut sub_article_attributes = vec![DtdAttributePayload {
+            name: "article-type".to_owned(),
+            required: false,
+            values: Vec::new(),
+            default_value: None,
+            fixed: false,
+        }];
+        extend_sps_1_10_completion(
+            r#"<article specific-use="sps-1.10"/>"#,
+            "sub-article",
+            &mut sub_article_attributes,
+        );
+        assert_eq!(sub_article_attributes[0].values, ["reviewer-report"]);
     }
 
     #[test]

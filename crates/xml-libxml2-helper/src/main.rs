@@ -1627,7 +1627,7 @@ unsafe fn collect_mixed_names(
     depth: usize,
     names: &mut BTreeSet<ExpandedName>,
 ) -> Result<(), String> {
-    if content.is_null() || depth > 128 {
+    if content.is_null() || depth > 1_024 {
         return if content.is_null() {
             Ok(())
         } else {
@@ -1656,20 +1656,22 @@ unsafe fn extract_particle(
     if content.is_null() {
         return Err("DTD content particle is null".into());
     }
-    if depth > 128 {
+    if depth > 1_024 {
         return Err("DTD content particle exceeds the depth limit".into());
     }
     let node = unsafe { &*content };
     let particle = match node.content_type {
         2 => DtdParticle::Element(unsafe { expanded_lexical_name(node.name, node.prefix) }?),
-        3 => DtdParticle::Sequence(vec![
-            unsafe { extract_particle(node.first, depth + 1) }?,
-            unsafe { extract_particle(node.second, depth + 1) }?,
-        ]),
-        4 => DtdParticle::Choice(vec![
-            unsafe { extract_particle(node.first, depth + 1) }?,
-            unsafe { extract_particle(node.second, depth + 1) }?,
-        ]),
+        3 => {
+            let first = unsafe { extract_particle(node.first, depth + 1) }?;
+            let second = unsafe { extract_particle(node.second, depth + 1) }?;
+            DtdParticle::Sequence(flatten_particles(first, second, true))
+        }
+        4 => {
+            let first = unsafe { extract_particle(node.first, depth + 1) }?;
+            let second = unsafe { extract_particle(node.second, depth + 1) }?;
+            DtdParticle::Choice(flatten_particles(first, second, false))
+        }
         1 => return Err("PCDATA is only valid in a mixed DTD declaration".into()),
         value => return Err(format!("unsupported libxml2 DTD content type {value}")),
     };
@@ -1680,6 +1682,23 @@ unsafe fn extract_particle(
         4 => Ok(DtdParticle::OneOrMore(Box::new(particle))),
         value => Err(format!("unsupported libxml2 DTD occurrence {value}")),
     }
+}
+
+fn flatten_particles(first: DtdParticle, second: DtdParticle, sequence: bool) -> Vec<DtdParticle> {
+    let mut particles = Vec::new();
+    match (sequence, first) {
+        (true, DtdParticle::Sequence(items)) | (false, DtdParticle::Choice(items)) => {
+            particles.extend(items);
+        }
+        (_, particle) => particles.push(particle),
+    }
+    match (sequence, second) {
+        (true, DtdParticle::Sequence(items)) | (false, DtdParticle::Choice(items)) => {
+            particles.extend(items);
+        }
+        (_, particle) => particles.push(particle),
+    }
+    particles
 }
 
 unsafe fn extract_attributes(

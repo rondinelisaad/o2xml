@@ -73,7 +73,17 @@ pub fn compile_dtd(
                     wildcard_transitions: BTreeMap::new(),
                 })
             }
-            DtdContent::Children(particle) => ContentModel::Automaton(compile_particle(&particle)?),
+            DtdContent::Children(particle) => {
+                // The DTD index powers editor completion only. Very large JATS
+                // expressions can make full DFA determinization prohibitively
+                // expensive, so retain their allowed child names without
+                // weakening the separate libxml2 DTD validation pipeline.
+                if particle_node_count_exceeds(&particle, 32) {
+                    ContentModel::Automaton(permissive_particle_automaton(&particle))
+                } else {
+                    ContentModel::Automaton(compile_particle(&particle)?)
+                }
+            }
         };
         index.insert(ElementDeclaration {
             name: declaration.name,
@@ -82,6 +92,51 @@ pub fn compile_dtd(
         })?;
     }
     Ok(index)
+}
+
+fn permissive_particle_automaton(root: &DtdParticle) -> ContentAutomaton {
+    let mut pending = vec![root];
+    let mut transitions = BTreeMap::new();
+    while let Some(particle) = pending.pop() {
+        match particle {
+            DtdParticle::Element(name) => {
+                transitions.insert(name.clone(), 0);
+            }
+            DtdParticle::Sequence(items) | DtdParticle::Choice(items) => {
+                pending.extend(items);
+            }
+            DtdParticle::Optional(inner)
+            | DtdParticle::ZeroOrMore(inner)
+            | DtdParticle::OneOrMore(inner) => pending.push(inner),
+        }
+    }
+    ContentAutomaton {
+        start_state: 0,
+        accepting_states: BTreeSet::from([0]),
+        transitions: BTreeMap::from([(0, transitions)]),
+        wildcard_transitions: BTreeMap::new(),
+    }
+}
+
+fn particle_node_count_exceeds(root: &DtdParticle, limit: usize) -> bool {
+    let mut pending = vec![root];
+    let mut count = 0_usize;
+    while let Some(particle) = pending.pop() {
+        count = count.saturating_add(1);
+        if count > limit {
+            return true;
+        }
+        match particle {
+            DtdParticle::Sequence(items) | DtdParticle::Choice(items) => {
+                pending.extend(items);
+            }
+            DtdParticle::Optional(inner)
+            | DtdParticle::ZeroOrMore(inner)
+            | DtdParticle::OneOrMore(inner) => pending.push(inner),
+            DtdParticle::Element(_) => {}
+        }
+    }
+    false
 }
 
 fn compile_particle(
@@ -234,6 +289,25 @@ mod tests {
                 value_constraint: None,
             }])
         );
+        Ok(())
+    }
+
+    #[test]
+    fn bounds_large_content_models_while_preserving_child_suggestions(
+    ) -> Result<(), DtdCompileError> {
+        let children = (0..33)
+            .map(|index| DtdParticle::Element(name(&format!("child-{index:02}"))))
+            .collect();
+        let index = compile_dtd([declaration(
+            "article",
+            DtdContent::Children(DtdParticle::Sequence(children)),
+        )])?;
+        let completion = index.complete_children(&name("article"), &[])?;
+        assert_eq!(completion.children.len(), 33);
+        assert!(completion.children.contains(&name("child-00")));
+        assert!(completion.children.contains(&name("child-32")));
+        assert!(completion.can_close);
+        assert!(!completion.accepts_any);
         Ok(())
     }
 }
