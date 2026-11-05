@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { readFile } from "node:fs/promises";
 import test from "node:test";
 
 import { xml } from "@codemirror/lang-xml";
@@ -32,4 +33,10 @@ test("does not rewrite an unrelated closing-tag edit", () => {
 
 test("preserves an already mismatched closing tag", () => {
   assert.equal(rename("<title>Example</heading>", 1, 6, "article-title"), "<article-title>Example</heading>");
+});
+
+test("does not let the application stylesheet override the dynamic editor zoom", async () => {
+  const stylesheet = await readFile(new URL("../src/styles.css", import.meta.url), "utf8");
+  const editorRule = stylesheet.match(/\.cm-editor\s*\{([^}]*)\}/u)?.[1] ?? "";
+  assert.doesNotMatch(editorRule, /font-size\s*:/u);
 });
