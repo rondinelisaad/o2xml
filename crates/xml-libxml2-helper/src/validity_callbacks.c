@@ -136,6 +136,17 @@ static int o2xml_validate_element_tree(xmlValidCtxtPtr context, xmlDocPtr docume
     return valid;
 }
 
+static void o2xml_clear_validation_identifiers(xmlDocPtr document) {
+    if (document->ids != NULL) {
+        xmlFreeIDTable((xmlIDTablePtr)document->ids);
+        document->ids = NULL;
+    }
+    if (document->refs != NULL) {
+        xmlFreeRefTable((xmlRefTablePtr)document->refs);
+        document->refs = NULL;
+    }
+}
+
 int o2xmlValidateDtdWithLocations(xmlDocPtr document, xmlDtdPtr dtd) {
     xmlValidCtxtPtr silent_context = NULL;
     xmlValidCtxtPtr detailed_context = NULL;
@@ -155,6 +166,11 @@ int o2xmlValidateDtdWithLocations(xmlDocPtr document, xmlDtdPtr dtd) {
     silent_context->warning = o2xml_ignore_validity_message;
     valid = xmlValidateDtd(silent_context, document, dtd);
     xmlFreeValidCtxt(silent_context);
+
+    /* xmlValidateDtd populates the document ID/IDREF tables. The detailed
+       location pass validates those attributes again, so clear the transient
+       registrations first or every legitimate ID looks duplicated. */
+    o2xml_clear_validation_identifiers(document);
 
     previous_external_subset = document->extSubset;
     previous_dtd_document = dtd->doc;

@@ -59,6 +59,36 @@ fn validates_dtd_xsd_relax_ng_schematron_and_brokered_dependencies() -> Result<(
             public_id: None,
         },
     }))?;
+    let referenced_ids = runtime.block_on(engine.validate(ValidationRequest {
+        source: concat!(
+            "<article>",
+            "<xref rid=\"aff1\"/><xref rid=\"aff2\"/>",
+            "<aff id=\"aff1\">One</aff><aff id=\"aff2\">Two</aff>",
+            "</article>",
+        ),
+        revision: Revision(10),
+        file: Some("referenced-ids.xml"),
+        catalog: &catalog,
+        grammar: GrammarReference::Dtd {
+            system_id: "https://example.org/ids.dtd",
+            public_id: None,
+        },
+    }))?;
+    let duplicate_ids = runtime.block_on(engine.validate(ValidationRequest {
+        source: concat!(
+            "<article>",
+            "<xref rid=\"aff1\"/>",
+            "<aff id=\"aff1\">One</aff><aff id=\"aff1\">Duplicate</aff>",
+            "</article>",
+        ),
+        revision: Revision(11),
+        file: Some("duplicate-ids.xml"),
+        catalog: &catalog,
+        grammar: GrammarReference::Dtd {
+            system_id: "https://example.org/ids.dtd",
+            public_id: None,
+        },
+    }))?;
     let xsd_report = runtime.block_on(engine.validate(ValidationRequest {
         source: "<article/>",
         revision: Revision(3),
@@ -118,6 +148,19 @@ fn validates_dtd_xsd_relax_ng_schematron_and_brokered_dependencies() -> Result<(
     assert_eq!(dtd_report.approved_grammar_resources, 2);
     assert!(!invalid_dtd.diagnostics.is_empty());
     assert!(declared_dtd.diagnostics.is_empty());
+    assert!(
+        referenced_ids.diagnostics.is_empty(),
+        "ID references must not be reported as duplicate definitions: {:?}",
+        referenced_ids.diagnostics
+    );
+    assert!(
+        duplicate_ids
+            .diagnostics
+            .iter()
+            .any(|diagnostic| diagnostic.message.contains("already defined")),
+        "a genuinely duplicated ID must still be reported: {:?}",
+        duplicate_ids.diagnostics
+    );
     assert!(xsd_report.diagnostics.is_empty());
     assert!(composite_report.diagnostics.is_empty());
     assert_eq!(composite_report.approved_grammar_resources, 2);

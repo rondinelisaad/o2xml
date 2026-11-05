@@ -1,0 +1,5 @@
+<!ELEMENT article (xref+, aff+)>
+<!ELEMENT xref EMPTY>
+<!ATTLIST xref rid IDREF #REQUIRED>
+<!ELEMENT aff (#PCDATA)>
+<!ATTLIST aff id ID #REQUIRED>
