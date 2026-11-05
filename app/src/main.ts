@@ -2043,35 +2043,36 @@ function sanitizePreviewHtml(
     "tr", "th", "td", "a", "img", "math", "mrow", "mi", "mn", "mo",
     "mtext", "ms", "mspace", "msup", "msub", "msubsup", "mfrac", "msqrt",
     "mroot", "mfenced", "mtable", "mtr", "mtd", "semantics", "annotation",
+    "details", "summary",
   ]);
   const droppedWithContent = new Set([
     "script", "style", "link", "meta", "base", "iframe", "object", "embed", "applet",
-    "form", "input", "select", "textarea", "option", "svg", "audio",
+    "form", "input", "button", "select", "textarea", "option", "svg", "audio",
     "video", "source", "track", "picture", "canvas",
   ]);
   const allowedAttributes = new Set([
     "class", "id", "title", "lang", "dir", "colspan", "rowspan", "scope", "alt",
   ]);
+  for (const trigger of [...parsed.querySelectorAll<HTMLElement>("[data-target^='#']")]) {
+    const targetId = trigger.getAttribute("data-target")?.slice(1);
+    const modal = targetId ? parsed.getElementById(targetId) : null;
+    if (!modal) continue;
+    const disclosure = parsed.createElement("details");
+    disclosure.className = "preview-disclosure";
+    const summary = parsed.createElement("summary");
+    summary.append(...trigger.childNodes);
+    const panel = parsed.createElement("div");
+    panel.className = "preview-disclosure-panel";
+    panel.append(...[...modal.childNodes].map((child) => child.cloneNode(true)));
+    disclosure.append(summary, panel);
+    trigger.replaceWith(disclosure);
+  }
   const elements = [...parsed.querySelectorAll("*")];
   if (elements.length > 50_000) throw new Error(t("transform.previewElementLimit"));
   for (const element of elements) {
     if (!element.isConnected) continue;
     let current = element;
     let name = current.localName.toLowerCase();
-    const modalTarget = current.getAttribute("data-target");
-    const closesModal = current.getAttribute("data-dismiss") === "modal";
-    if ((modalTarget?.startsWith("#") || closesModal) && name !== "a") {
-      const link = parsed.createElement("a");
-      link.href = modalTarget?.startsWith("#") ? modalTarget : "#";
-      link.className = current.getAttribute("class") ?? "";
-      link.title = current.getAttribute("title") ?? "";
-      link.append(...current.childNodes);
-      current.replaceWith(link);
-      current = link;
-      name = "a";
-    } else if (name === "a" && modalTarget?.startsWith("#")) {
-      current.setAttribute("href", modalTarget);
-    }
     if (!allowedElements.has(name)) {
       if (droppedWithContent.has(name)) current.remove();
       else current.replaceWith(...current.childNodes);
@@ -2104,7 +2105,7 @@ function sanitizePreviewHtml(
     }
   }
   const policy = "default-src 'none'; base-uri 'none'; form-action 'none'; navigate-to 'none'; style-src 'unsafe-inline'; img-src data:";
-  const fallback = `body{font:14px system-ui,sans-serif;margin:20px;color:#20242a}img{max-width:100%;height:auto}table{border-collapse:collapse}th,td{border:1px solid #bbb;padding:4px 6px}pre,code{font-family:ui-monospace,monospace;white-space:pre-wrap}.collapse,.tab-pane{display:block!important}.modal{display:none!important;position:fixed!important;inset:0!important;z-index:1000!important;overflow:auto!important;padding:24px!important;background:rgb(0 0 0/.55)!important}.modal:target{display:block!important}.modal-dialog{max-width:960px!important;margin:20px auto!important}.modal-content{border-radius:6px!important;padding:16px!important;background:#fff!important;color:#20242a!important;box-shadow:0 16px 48px rgb(0 0 0/.35)!important}.modal-header .close{float:right!important;font-size:24px!important;text-decoration:none!important}.ModalTables .modal-body:after{display:none!important}math{font-family:serif;font-size:1.08em}`;
+  const fallback = `body{font:14px system-ui,sans-serif;margin:20px;color:#20242a}img{max-width:100%;height:auto}table{border-collapse:collapse}th,td{border:1px solid #bbb;padding:4px 6px}pre,code{font-family:ui-monospace,monospace;white-space:pre-wrap}.collapse,.tab-pane{display:block!important}.modal{display:none!important}.preview-disclosure{display:inline-block;margin:2px 5px;vertical-align:top}.preview-disclosure>summary{cursor:pointer;color:#1677b8;list-style:none}.preview-disclosure>summary::-webkit-details-marker{display:none}.preview-disclosure[open]{display:block;margin:10px 0}.preview-disclosure-panel{margin:8px 0;padding:16px;border:1px solid #ccd3da;border-radius:6px;background:#fff;color:#20242a;box-shadow:0 8px 24px rgb(0 0 0/.12)}.preview-disclosure-panel .modal{display:block!important;position:static!important;padding:0!important;background:transparent!important}.preview-disclosure-panel .modal-dialog{max-width:none!important;margin:0!important}.preview-disclosure-panel .modal-content{padding:0!important;background:#fff!important;color:#20242a!important;box-shadow:none!important}.ModalTables .modal-body:after{display:none!important}math{font-family:serif;font-size:1.08em}`;
   const style = `${stylesheet}\n${fallback}`.replace(/<\/style/giu, "<\\/style");
   return `<!doctype html><html><head><meta http-equiv="Content-Security-Policy" content="${policy}"><style>${style}</style></head><body>${parsed.body.innerHTML}</body></html>`;
 }
