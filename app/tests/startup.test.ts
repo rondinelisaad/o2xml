@@ -17,6 +17,7 @@ test("the desktop entrypoint provides startup feedback before loading the applic
 
 test("the application starts with an empty workspace instead of creating an untitled XML", async () => {
   const source = await readFile(new URL("../src/main.ts", import.meta.url), "utf8");
-  assert.match(source, /app\.dataset\.initialized = "true";\s*showEmptyWorkspace\(\);/);
+  assert.match(source, /async function initializeWorkspace\(\): Promise<void> \{\s*showEmptyWorkspace\(\);/);
+  assert.match(source, /app\.dataset\.initialized = "true";\s*void initializeWorkspace\(\);/);
   assert.doesNotMatch(source, /app\.dataset\.initialized = "true";\s*void createNew\(\);/);
 });

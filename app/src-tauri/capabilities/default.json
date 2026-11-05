@@ -2,9 +2,10 @@
   "$schema": "../gen/schemas/desktop-schema.json",
   "identifier": "default",
   "description": "Minimal desktop capability for SciXML",
-  "windows": ["main"],
+  "windows": ["main", "document-*"],
   "permissions": [
     "core:default",
+    "core:webview:allow-create-webview-window",
     "dialog:allow-open",
     "dialog:allow-save"
   ]

@@ -33,6 +33,7 @@ import {
 } from "@codemirror/view";
 import { invoke } from "@tauri-apps/api/core";
 import { getCurrentWebview } from "@tauri-apps/api/webview";
+import { getCurrentWebviewWindow, WebviewWindow } from "@tauri-apps/api/webviewWindow";
 import { open, save } from "@tauri-apps/plugin-dialog";
 
 import {
@@ -44,6 +45,7 @@ import {
   type MessageKey,
 } from "./i18n";
 import { linkedClosingTagChange } from "./editor-behavior";
+import { detachedDocumentRequest, isOutsideWindowDrop } from "./windowing";
 
 import type {
   AnalysisPayload,
@@ -197,6 +199,7 @@ app.innerHTML = `
     </section>
   </div>
   <div id="tab-context-menu" class="tab-context-menu" hidden>
+    <button id="detach-tab" type="button">${t("document.detach")}</button>
     <button id="close-all-tabs" type="button">${t("document.closeAll")}</button>
   </div>
   <dialog id="unsaved-dialog" class="unsaved-dialog">
@@ -240,6 +243,7 @@ const splitEditorHost = requiredElement<HTMLDivElement>("#split-editor");
 const splitTitle = requiredElement<HTMLElement>("#split-title");
 const splitClose = requiredElement<HTMLButtonElement>("#split-close");
 const tabContextMenu = requiredElement<HTMLDivElement>("#tab-context-menu");
+const detachTabButton = requiredElement<HTMLButtonElement>("#detach-tab");
 const closeAllTabsButton = requiredElement<HTMLButtonElement>("#close-all-tabs");
 const unsavedDialog = requiredElement<HTMLDialogElement>("#unsaved-dialog");
 const unsavedMessage = requiredElement<HTMLParagraphElement>("#unsaved-message");
@@ -302,6 +306,7 @@ let activeAuthor: AuthorPayload | null = null;
 let activeAuthorPreview: AuthorPreviewPayload | null = null;
 let externalCheckInProgress = false;
 let linkedTagDispatch = false;
+let tabContextDocumentId: number | null = null;
 
 const storedFontSize = Number(
   window.localStorage.getItem("scixml.editorFontSize") ?? window.localStorage.getItem("o2xml.editorFontSize"),
@@ -737,6 +742,15 @@ function renderTabs(): void {
       event.dataTransfer?.setData("application/x-scixml-document", String(item.id));
       if (event.dataTransfer) event.dataTransfer.effectAllowed = "move";
     });
+    tab.addEventListener("dragend", (event) => {
+      const outside = isOutsideWindowDrop(event, {
+        screenX: window.screenX,
+        screenY: window.screenY,
+        outerWidth: window.outerWidth,
+        outerHeight: window.outerHeight,
+      });
+      if (outside) void detachDocument(item.id);
+    });
     tab.addEventListener("dragover", (event) => event.preventDefault());
     tab.addEventListener("drop", (event) => {
       event.preventDefault();
@@ -745,7 +759,7 @@ function renderTabs(): void {
     });
     tab.addEventListener("contextmenu", (event) => {
       event.preventDefault();
-      showTabContextMenu(event.clientX, event.clientY);
+      showTabContextMenu(event.clientX, event.clientY, item.id);
     });
     const close = window.document.createElement("button");
     close.className = "tab-close";
@@ -794,10 +808,64 @@ function closeSplitPane(): void {
   splitTitle.textContent = "";
 }
 
-function showTabContextMenu(x: number, y: number): void {
+function showTabContextMenu(x: number, y: number, documentId: number): void {
+  tabContextDocumentId = documentId;
   tabContextMenu.hidden = false;
   tabContextMenu.style.left = `${Math.min(x, window.innerWidth - 180)}px`;
-  tabContextMenu.style.top = `${Math.min(y, window.innerHeight - 50)}px`;
+  tabContextMenu.style.top = `${Math.min(y, window.innerHeight - 90)}px`;
+}
+
+function removeLocalDocument(id: number): void {
+  const index = documents.findIndex((document) => document.id === id);
+  if (index < 0) return;
+  if (activeId === id) documents[index]!.viewState = editor.state;
+  documents.splice(index, 1);
+  if (splitDocumentId === id) closeSplitPane();
+  if (activeId === id) {
+    activeId = null;
+    const next = documents[Math.min(index, documents.length - 1)];
+    if (next) activateDocument(next.id);
+    else showEmptyWorkspace();
+  } else {
+    renderTabs();
+  }
+}
+
+async function detachDocument(id: number): Promise<void> {
+  tabContextMenu.hidden = true;
+  tabContextDocumentId = null;
+  const document = documents.find((candidate) => candidate.id === id);
+  if (!document) return;
+  if (activeId !== id) activateDocument(id);
+  if (document.dirty && !(await synchronize(document))) return;
+
+  const label = `document-${id}-${crypto.randomUUID()}`;
+  const readyEvent = `scixml-${label}-ready`;
+  const source = getCurrentWebviewWindow();
+  const parameters = new URLSearchParams({
+    detachedDocument: String(id),
+    sourceWindow: source.label,
+    readyEvent,
+  });
+  const stopReadyListener = await source.once<{ documentId: number }>(readyEvent, (event) => {
+    if (event.payload.documentId !== id) return;
+    removeLocalDocument(id);
+    setStatus(t("status.detached", { name: document.name }));
+  });
+  const detached = new WebviewWindow(label, {
+    url: `/?${parameters.toString()}`,
+    title: `${document.name} — SciXML`,
+    width: Math.max(900, Math.round(window.outerWidth * 0.8)),
+    height: Math.max(600, Math.round(window.outerHeight * 0.8)),
+    minWidth: 900,
+    minHeight: 600,
+    center: true,
+    focus: true,
+  });
+  detached.once("tauri://error", (event) => {
+    stopReadyListener();
+    setStatus(t("status.detachFailed", { reason: String(event.payload) }), true);
+  });
 }
 
 function setStatus(message: string, error = false): void {
@@ -2225,9 +2293,15 @@ editorSurface.addEventListener("drop", (event) => {
   showSplitDocument(Number(event.dataTransfer?.getData("application/x-scixml-document")));
 });
 splitClose.addEventListener("click", closeSplitPane);
+detachTabButton.addEventListener("click", () => {
+  if (tabContextDocumentId !== null) void detachDocument(tabContextDocumentId);
+});
 closeAllTabsButton.addEventListener("click", () => void closeAllDocuments());
 window.addEventListener("pointerdown", (event) => {
-  if (!tabContextMenu.contains(event.target as Node)) tabContextMenu.hidden = true;
+  if (!tabContextMenu.contains(event.target as Node)) {
+    tabContextMenu.hidden = true;
+    tabContextDocumentId = null;
+  }
 });
 
 authorPreviewButton.addEventListener("click", () => showAuthorPane("preview"));
@@ -2330,5 +2404,22 @@ void getCurrentWebview().onDragDropEvent((event) => {
   console.debug("native drag-and-drop is unavailable", error);
 });
 
+async function initializeWorkspace(): Promise<void> {
+  showEmptyWorkspace();
+  const request = detachedDocumentRequest(window.location.search);
+  if (!request) return;
+  try {
+    const payload = await invoke<DocumentPayload>("get_document", { id: request.documentId });
+    addDocument(payload);
+    window.document.title = `${payload.name} — SciXML`;
+    await getCurrentWebviewWindow().emitTo(request.sourceLabel, request.readyEvent, {
+      documentId: request.documentId,
+    });
+    setStatus(t("status.detachedReady", { name: payload.name }));
+  } catch (error) {
+    setStatus(t("status.detachFailed", { reason: String(error) }), true);
+  }
+}
+
 app.dataset.initialized = "true";
-showEmptyWorkspace();
+void initializeWorkspace();

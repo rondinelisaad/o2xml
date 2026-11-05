@@ -6,6 +6,7 @@ import { xml } from "@codemirror/lang-xml";
 import { EditorState } from "@codemirror/state";
 
 import { linkedClosingTagChange } from "../src/editor-behavior.ts";
+import { detachedDocumentRequest, isOutsideWindowDrop } from "../src/windowing.ts";
 
 function rename(source: string, from: number, to: number, insert: string): string {
   const start = EditorState.create({ doc: source, extensions: [xml()] });
@@ -39,4 +40,19 @@ test("does not let the application stylesheet override the dynamic editor zoom",
   const stylesheet = await readFile(new URL("../src/styles.css", import.meta.url), "utf8");
   const editorRule = stylesheet.match(/\.cm-editor\s*\{([^}]*)\}/u)?.[1] ?? "";
   assert.doesNotMatch(editorRule, /font-size\s*:/u);
+});
+
+test("accepts only bounded identifiers for a detached document window", () => {
+  assert.deepEqual(
+    detachedDocumentRequest("?detachedDocument=42&sourceWindow=main&readyEvent=scixml-document-42-token-ready"),
+    { documentId: 42, sourceLabel: "main", readyEvent: "scixml-document-42-token-ready" },
+  );
+  assert.equal(detachedDocumentRequest("?detachedDocument=../../etc&sourceWindow=main&readyEvent=bad"), null);
+});
+
+test("detaches a tab only when the drag finishes outside the source window", () => {
+  const bounds = { screenX: 100, screenY: 100, outerWidth: 1000, outerHeight: 700 };
+  assert.equal(isOutsideWindowDrop({ screenX: 500, screenY: 400 }, bounds), false);
+  assert.equal(isOutsideWindowDrop({ screenX: 1200, screenY: 400 }, bounds), true);
+  assert.equal(isOutsideWindowDrop({ screenX: 0, screenY: 0 }, bounds), false);
 });

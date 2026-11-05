@@ -365,6 +365,26 @@ fn open_document(path: String, state: State<'_, AppState>) -> Result<DocumentPay
 }
 
 #[tauri::command]
+fn get_document(id: u64, state: State<'_, AppState>) -> Result<DocumentPayload, String> {
+    let result = state
+        .documents
+        .lock()
+        .map_err(|_| "document store is unavailable".to_owned())?
+        .get(&id)
+        .map(|document| document_payload(id, document))
+        .ok_or_else(|| "document is not open".to_owned());
+    audit::event(
+        "document.window_access",
+        if result.is_ok() { "success" } else { "failure" },
+        "document",
+        id,
+        result.as_ref().ok().map(|payload| payload.revision),
+        None,
+    );
+    result
+}
+
+#[tauri::command]
 fn close_document(id: u64, state: State<'_, AppState>) -> Result<(), String> {
     let removed = state
         .documents
@@ -2774,6 +2794,7 @@ pub fn run() {
         .invoke_handler(tauri::generate_handler![
             new_document,
             open_document,
+            get_document,
             close_document,
             check_external_change,
             acknowledge_external_change,
