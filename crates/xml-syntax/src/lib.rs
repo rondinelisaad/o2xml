@@ -398,6 +398,7 @@ pub fn pretty_print(source: &str, indent_size: usize) -> Result<String, FormatEr
     loop {
         match reader.read_event() {
             Ok(Event::Eof) => break,
+            Ok(Event::Text(text)) if is_existing_indentation(text.as_ref()) => {}
             Ok(event) => writer
                 .write_event(event.into_owned())
                 .map_err(|error| FormatError::Write(error.to_string()))?,
@@ -410,6 +411,11 @@ pub fn pretty_print(source: &str, indent_size: usize) -> Result<String, FormatEr
         }
     }
     Ok(String::from_utf8(writer.into_inner())?)
+}
+
+fn is_existing_indentation(text: &[u8]) -> bool {
+    text.iter().all(u8::is_ascii_whitespace)
+        && text.iter().any(|byte| matches!(byte, b'\n' | b'\r'))
 }
 
 #[cfg(test)]
@@ -497,6 +503,50 @@ mod tests {
     #[test]
     fn formatter_rejects_malformed_input() {
         assert!(pretty_print("<a>", 2).is_err());
+    }
+
+    #[test]
+    fn formatter_recalculates_existing_indentation() -> Result<(), FormatError> {
+        let source = r#"<?xml version="1.0" encoding="UTF-8"?>
+<article>
+  <front>
+    <title-group>
+<article-title>Teste de indentação</article-title>
+    </title-group>
+  </front>
+  <body>
+    <sec id="s1">
+      <title>Seção</title>
+      <p>Texto.</p>
+ </sec>
+  </body>
+</article>"#;
+        let expected = r#"<?xml version="1.0" encoding="UTF-8"?>
+<article>
+  <front>
+    <title-group>
+      <article-title>Teste de indentação</article-title>
+    </title-group>
+  </front>
+  <body>
+    <sec id="s1">
+      <title>Seção</title>
+      <p>Texto.</p>
+    </sec>
+  </body>
+</article>"#;
+
+        let formatted = pretty_print(source, 2)?;
+        assert_eq!(formatted, expected);
+        assert_eq!(pretty_print(&formatted, 2)?, expected);
+        Ok(())
+    }
+
+    #[test]
+    fn formatter_preserves_meaningful_space_in_mixed_content() -> Result<(), FormatError> {
+        let formatted = pretty_print("<p><bold>A</bold> <italic>B</italic></p>", 2)?;
+        assert!(formatted.contains("</bold> <italic>"));
+        Ok(())
     }
 
     #[test]
