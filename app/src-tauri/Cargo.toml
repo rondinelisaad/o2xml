@@ -31,6 +31,7 @@ xml-domain = { path = "../../crates/xml-domain" }
 xml-framework = { path = "../../crates/xml-framework" }
 xml-grid = { path = "../../crates/xml-grid" }
 xml-jats = { path = "../../crates/xml-jats" }
+xml-packtools = { path = "../../crates/xml-packtools" }
 xml-project = { path = "../../crates/xml-project" }
 xml-resource = { path = "../../crates/xml-resource" }
 xml-schema = { path = "../../crates/xml-schema" }

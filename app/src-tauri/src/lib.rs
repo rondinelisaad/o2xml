@@ -1,5 +1,4 @@
 mod audit;
-mod packtools_compat;
 
 use std::{
     collections::{BTreeMap, BTreeSet, HashMap},
@@ -26,6 +25,7 @@ use xml_dtd::{DtdIndexEngine, DtdIndexRequest, Libxml2DtdIndexEngine};
 use xml_framework::{FrameworkRegistry, ValidationLanguage};
 use xml_grid::XmlGrid;
 use xml_jats::JatsInspection;
+use xml_packtools::PacktoolsProcessEngine;
 use xml_project::{ProjectManifest, TransformEngine, TransformMediaType};
 use xml_resource::{CatalogResolver, ResourcePolicy};
 use xml_schema::{AttributeUse, ExpandedName, SchemaIndex, ValueConstraint};
@@ -740,6 +740,9 @@ async fn validate_builtin_sps(
     file: Option<&str>,
     version: &'static str,
 ) -> Result<FrameworkStagePayload, String> {
+    if version == "1.10" {
+        return Ok(validate_packtools_sps_1_10(source, revision, file).await);
+    }
     let catalog_path = bundled_resource(app, "resources/sps/catalog.xml")?;
     let root = catalog_path
         .parent()
@@ -763,24 +766,7 @@ async fn validate_builtin_sps(
         .map_err(|error| error.to_string())?;
     let svrl = String::from_utf8(transformed.output)
         .map_err(|_| "SPS validator produced non-UTF-8 SVRL".to_owned())?;
-    let mut report = parse_svrl(&svrl).map_err(|error| error.to_string())?;
-    if version == "1.10" {
-        match packtools_compat::reconcile_sps_1_10(&mut report) {
-            Ok(suppressed) if suppressed > 0 => tracing::info!(
-                action = "validation.sps_packtools_compatibility",
-                result = "success",
-                packtools_version = "4.18.3",
-                suppressed,
-            ),
-            Ok(_) => {}
-            Err(error) => tracing::warn!(
-                action = "validation.sps_packtools_compatibility",
-                result = "failure",
-                packtools_version = "4.18.3",
-                error = %error,
-            ),
-        }
-    }
+    let report = parse_svrl(&svrl).map_err(|error| error.to_string())?;
     let locations = match resolve_svrl_locations(source, revision, &report).await {
         Ok(locations) => locations,
         Err(error) => {
@@ -805,10 +791,67 @@ async fn validate_builtin_sps(
     Ok(FrameworkStagePayload {
         id: "sps-rules".to_owned(),
         label,
-        engine: "packtools-4.18.3-rules+schematron",
+        engine: "schematron-xslt1",
         status,
         diagnostics,
     })
+}
+
+async fn validate_packtools_sps_1_10(
+    source: &str,
+    revision: Revision,
+    file: Option<&str>,
+) -> FrameworkStagePayload {
+    let label = "SPS 1.10".to_owned();
+    let result = async {
+        let engine = PacktoolsProcessEngine::new(packtools_helper_path()?)
+            .map_err(|error| error.to_string())?;
+        engine
+            .validate(source, revision, file, "pt_BR")
+            .await
+            .map_err(|error| error.to_string())
+    }
+    .await;
+    match result {
+        Ok(report) => {
+            let status = if report
+                .diagnostics
+                .iter()
+                .any(|diagnostic| diagnostic.severity == Severity::Error)
+            {
+                FrameworkStageStatus::Failed
+            } else {
+                FrameworkStageStatus::Passed
+            };
+            FrameworkStagePayload {
+                id: "sps-rules".to_owned(),
+                label,
+                engine: "packtools-4.18.3",
+                status,
+                diagnostics: report.diagnostics,
+            }
+        }
+        Err(error) => {
+            tracing::error!(
+                audit = true,
+                action = "job.packtools_validate",
+                result = "failure",
+                resource = "article",
+                engine = "packtools-4.18.3",
+                revision = revision.0,
+                error_class = "unavailable",
+            );
+            FrameworkStagePayload {
+                id: "sps-rules".to_owned(),
+                label,
+                engine: "packtools-4.18.3",
+                status: FrameworkStageStatus::Unavailable,
+                diagnostics: vec![framework_stage_error(
+                    source, revision, file, "SPS 1.10", &error,
+                )],
+            }
+        }
+    }
 }
 
 async fn resolve_svrl_locations(
@@ -2306,6 +2349,40 @@ fn libxml2_helper_path() -> Result<PathBuf, String> {
         .find(|candidate| candidate.is_file())
         .ok_or_else(|| {
             format!("libxml2 helper is unavailable; build the workspace or set {ENVIRONMENT_KEY}")
+        })
+}
+
+fn packtools_helper_path() -> Result<PathBuf, String> {
+    const ENVIRONMENT_KEY: &str = "SCIXML_PACKTOOLS_HELPER";
+    let executable_name = if cfg!(windows) {
+        "scixml-packtools-validator.exe"
+    } else {
+        "scixml-packtools-validator"
+    };
+    let mut candidates = Vec::new();
+    if let Some(path) = env::var_os(ENVIRONMENT_KEY) {
+        candidates.push(PathBuf::from(path));
+    }
+    if let Ok(current) = env::current_exe() {
+        if let Some(directory) = current.parent() {
+            candidates.push(directory.join(executable_name));
+            candidates.push(directory.join("../Resources").join(executable_name));
+        }
+    }
+    let workspace = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../..");
+    candidates.push(
+        workspace
+            .join("target/packtools-sidecar")
+            .join(executable_name),
+    );
+
+    candidates
+        .into_iter()
+        .find(|candidate| candidate.is_file())
+        .ok_or_else(|| {
+            format!(
+                "Packtools 4.18.3 validator is unavailable; build the sidecar or set {ENVIRONMENT_KEY}"
+            )
         })
 }
 

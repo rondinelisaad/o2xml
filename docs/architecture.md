@@ -55,6 +55,7 @@ crate per acronym:
 | `xml-libxml2-helper` | isolated unsafe FFI for DTD validation/index extraction, XSD 1.0, and XPath 1.0 |
 | `xml-framework` | versioned JATS/SPS/TEI/DocBook manifests and rule composition |
 | `xml-jats` | bounded JATS recognition and navigable editorial structure |
+| `xml-packtools` | supervised, bounded adapter for the frozen Packtools 4.18.3 SPS 1.10 validator |
 | `xml-grid` | bounded projection and transactional scalar-text edits for repeated sibling structures |
 | `xml-author` | source-mapped structured view and transactional plain-text run edits |
 | `xml-schematron` | bounded SVRL normalization and diagnostic mapping |

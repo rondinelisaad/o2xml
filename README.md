@@ -103,13 +103,14 @@ desktop MVP with a Rust core and a Tauri/CodeMirror interface.
   capability. The user can switch back to structured editing at any time. CDATA and
   entity-reference runs remain visible but read-only; structural editing and
   track changes are not yet claimed.
-  SPS validation is not presented as complete while its rule pack and real
-  external-engine conformance corpora are not installed. JATS and SPS results
-  remain visibly separate.
+  SPS 1.10 now runs the full Packtools 4.18.3 validation pipeline from a frozen,
+  offline, supervised sidecar. JATS and SPS results remain visibly separate;
+  SPS still runs when JATS reports grammar errors.
 
 ## Build and run
 
-Prerequisites are the stable Rust toolchain, Node.js/npm, libxml2 2.9+,
+Prerequisites are the stable Rust toolchain, Node.js/npm, Python 3.11+ for
+building the Packtools sidecar, libxml2 2.9+,
 libxslt 1.1+, `pkg-config`, and the
 [Tauri platform prerequisites](https://v2.tauri.app/start/prerequisites/).
 Java, Saxon HE, SchXslt, and Jing are optional user-installed engines; SciXML
@@ -117,14 +118,20 @@ never downloads or silently bundles them.
 
 ```sh
 cargo build -p xml-libxml2-helper
+python3 -m venv .packtools-build-venv
+.packtools-build-venv/bin/python -m pip install \
+  -r tools/packtools-validator/requirements-build.txt
+.packtools-build-venv/bin/python tools/packtools-validator/build_sidecar.py
+node app/scripts/stage-packtools-sidecar.mjs "$(rustc --print host-tuple)"
 cd app
 npm install
 npm run tauri dev
 ```
 
 The desktop locates the helper in the workspace build output or beside the app
-executable. Packagers can set `SCIXML_LIBXML2_HELPER` to an explicit executable
-path. Release bundles stage the target-specific helper automatically.
+executable. Packagers can set `SCIXML_LIBXML2_HELPER` or
+`SCIXML_PACKTOOLS_HELPER` to explicit trusted executable paths. Release bundles
+stage both target-specific helpers automatically.
 
 The bundled helper provides catalog-brokered XSLT 1.0 through libxslt. To opt
 into XSLT 3.0, set trusted host variables `SCIXML_JAVA` and

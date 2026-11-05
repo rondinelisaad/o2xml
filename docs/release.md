@@ -19,7 +19,10 @@ duplicates.
 | macOS | Intel | application bundle and DMG |
 
 The isolated `xml-libxml2-helper` is compiled for the same target as the desktop
-application and embedded as a Tauri sidecar. Linux and macOS CI builds request
+application and embedded as a Tauri sidecar. The Packtools 4.18.3 SPS validator
+is frozen with Python 3.12/PyInstaller as a second target-native sidecar, so the
+installed application does not depend on a system Python installation. Linux
+and macOS CI builds request
 static libxml2/libxslt linkage so that Homebrew or runner-specific library paths
 do not leak into the distributed helper. Windows uses the `static-md` vcpkg
 triplet. The official vcpkg libxml2 port does not enable its legacy Schematron
@@ -27,9 +30,11 @@ module; Windows therefore requires the supported SchXslt/Saxon adapter for
 Schematron, while DTD, XSD, RELAX NG, XPath, and XSLT 1.0 remain available in
 the native helper.
 
-The Windows portable ZIP contains `SciXML.exe`, the native helper, the bundled
-JATS and Packtools resources, license files, dependency documentation, and a
-short usage guide. It does not write an installation record or require
+The Windows portable ZIP contains `SciXML.exe`, the native XML helper, the
+Packtools validation helper, the bundled JATS and Packtools resources, license
+files (including generated Python-sidecar notices), dependency documentation,
+and a short usage guide. It does not write an
+installation record or require
 administrator privileges. Extract the complete directory before launching; the
 two executables and `resources` directory must remain together. A SHA-256 file
 is uploaded beside the archive so downloads can be verified independently.
@@ -70,6 +75,11 @@ Build and stage the native helper before invoking Tauri:
 ```sh
 cargo build --locked --release --package xml-libxml2-helper
 node app/scripts/stage-sidecar.mjs "$(rustc --print host-tuple)"
+python3 -m venv .packtools-build-venv
+.packtools-build-venv/bin/python -m pip install \
+  -r tools/packtools-validator/requirements-build.txt
+.packtools-build-venv/bin/python tools/packtools-validator/build_sidecar.py
+node app/scripts/stage-packtools-sidecar.mjs "$(rustc --print host-tuple)"
 cd app
 npm ci
 npm run tauri -- build --bundles app

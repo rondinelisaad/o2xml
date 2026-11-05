@@ -28,10 +28,11 @@ claim that a version is current.
    resource broker. A supervised Jing V20241231 adapter handles RNC after a
    native broker resolves and rewrites bounded `include`/`external` graphs into
    private staging.
-10. **Schematron:** the bundled SPS 1.9/1.10 rules are precompiled from the
-    Packtools ISO Schematron sources to XSLT 1.0 and run offline in the isolated
-    libxslt helper. The optional supervised SchXslt/Saxon adapter remains the
-    path for arbitrary project rules. Static includes/imports are
+10. **Schematron:** the bundled SPS 1.9 rules are precompiled from the Packtools
+    ISO Schematron source to XSLT 1.0 and run offline in the isolated libxslt
+    helper. SPS 1.10 uses the full Packtools 4.18.3 Python validation pipeline
+    in a frozen supervised sidecar. The optional SchXslt/Saxon adapter remains
+    the path for arbitrary project rules. Static includes/imports are
     catalog-brokered into private staging; Quick Fix remains disabled.
 11. **XPath:** libxml2 for 1.0; Saxon HE for non-schema-aware 3.1.
 12. **XSLT:** isolated, catalog-brokered libxslt for 1.0; supervised Saxon HE for
@@ -52,9 +53,10 @@ claim that a version is current.
 18. **Plugins:** Wasmtime 48 LTS Component Model with an initial no-import
     profile, plus supervised processes with declared capabilities. No stable
     native Rust ABI promise.
-19. **Non-Rust dependencies:** OS webview; Node only for frontend builds; Java
-    runtime for Saxon/Jing/Xerces adapters; libxml2/libxslt for native validation
-    and XSLT. End users should not need Node.
+19. **Non-Rust dependencies:** OS webview; Node and Python 3.11+ only for builds;
+    Java runtime for optional Saxon/Jing/Xerces adapters; libxml2/libxslt for
+    native validation and XSLT. Packtools and its Python runtime are frozen into
+    installers, so end users need neither Node nor Python.
 20. **Not realistic in MVP:** standards-complete DTD/XSD/RNG/Schematron,
     schema-aware completion, catalogs, XPath/XSLT/XQuery, SPS packs, Author Mode,
     Grid, semantic merge, plugins, remote services, and verified 500 MB support.
@@ -85,7 +87,7 @@ claim that a version is current.
 | XML Catalog 1.1 | project resolver | Yes | Apache-2.0 OR MIT | HIGH | 2 |
 | Schema completion | common model + adapters | Mixed | mixed/project | HIGH | 2 |
 | JATS framework | NLM schemas + project manifest | Mixed | verify per asset | MEDIUM | 3 |
-| SPS 1.9/1.10 framework | Packtools 4.18.3 value rules + legacy Schematron compiled to XSLT 1.0 | Mixed | BSD-2-Clause | MEDIUM | 3 |
+| SPS 1.9/1.10 framework | SPS 1.9 Schematron + frozen Packtools 4.18.3 full SPS 1.10 validator | Mixed/Python sidecar | BSD-2-Clause | MEDIUM | 3 |
 | Plugin host | Wasmtime 48 LTS Component Model / supervised process | Yes/mixed | Apache-2.0 WITH LLVM-exception / mixed | HIGH | 5 |
 | Benchmarks | Criterion | Yes | Apache-2.0 OR MIT | LOW | 1+ |
 

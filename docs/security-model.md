@@ -246,6 +246,19 @@ the iframe. CSP permits `data:` only for images. Audit event `author.preview`
 records only the
 result, opaque document ID, revision, and pinned engine name.
 
+SPS 1.10 validation runs in a separate target-native executable frozen from the
+official Packtools 4.18.3 tag. The Rust adapter resolves only a trusted host or
+installed sidecar path, clears the environment except operating-system temporary
+directory variables required by the freezer, writes one bounded JSON request to
+stdin, caps document input at 100 MiB, output at 16 MiB, stderr at 256 KiB,
+diagnostics at 5,000, and runtime at 60 seconds, and kills the process on timeout
+or cancellation. The helper accepts only protocol version 1 and SPS 1.10,
+verifies Packtools reports version 4.18.3, parses XML without DTD loading,
+external entity expansion, or network access, and disables Python socket name
+resolution/connection helpers. Audit event `job.packtools_validate` records only
+result, engine/version, revision, duration, diagnostic count, and bounded error
+class—never source XML, diagnostic text, environment values, or file paths.
+
 The Jing RNC adapter does not expose original grammar paths to the dependency
 resolver. A conservative native lexer finds resource directives outside strings,
 comments, and escaped identifiers; malformed, escaped, multiline, triple-quoted,

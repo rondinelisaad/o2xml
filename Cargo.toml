@@ -9,6 +9,7 @@ members = [
     "crates/xml-grid",
     "crates/xml-jats",
     "crates/xml-libxml2-helper",
+    "crates/xml-packtools",
     "crates/xml-plugin-api",
     "crates/xml-process",
     "crates/xml-project",
@@ -25,7 +26,7 @@ members = [
 resolver = "2"
 
 [workspace.package]
-version = "0.4.4"
+version = "0.4.5"
 edition = "2021"
 license = "MIT OR Apache-2.0"
 repository = "https://github.com/scieloorg/o2xml"

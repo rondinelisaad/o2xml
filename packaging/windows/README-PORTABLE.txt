@@ -2,7 +2,8 @@ SCIXML PARA WINDOWS — VERSÃO PORTÁTIL
 ====================================
 
 1. Extraia todo o conteúdo do arquivo ZIP para uma pasta local.
-2. Mantenha SciXML.exe, xml-libxml2-helper.exe e a pasta resources juntos.
+2. Mantenha SciXML.exe, xml-libxml2-helper.exe,
+   scixml-packtools-validator.exe e a pasta resources juntos.
 3. Execute SciXML.exe. Não é necessário instalar nem usar privilégios de
    administrador.
 
@@ -23,6 +24,8 @@ Segurança e integridade
   pública sem esse aviso de editor desconhecido.
 - Não remova o helper XML: validação DTD/XSD/RELAX NG, XPath e transformações
   dependem dele.
+- Não remova o helper Packtools: as validações SPS 1.10 dependem dele. O helper
+  contém o Packtools 4.18.3 e não exige Python instalado no computador.
 
 Licença
 -------

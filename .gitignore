@@ -6,6 +6,7 @@
 /app/src-tauri/gen/
 /app/src-tauri/binaries/*
 !/app/src-tauri/binaries/.gitkeep
+/app/src-tauri/resources/packtools-sidecar/
 
 # macOS
 .DS_Store
@@ -21,3 +22,7 @@
 
 # Logs
 *.log
+
+# Python build caches
+__pycache__/
+*.py[cod]

@@ -161,20 +161,32 @@ override them.
   canonicalized below the XML directory, signature-checked, bounded, base64-
   encoded, and admitted only through an exact generated-source map.
 
-### Packtools SPS validation rules 4.18.3
+### Packtools SPS validator 4.18.3
 
 - **Source:** `scieloorg/packtools`, tag `4.18.3`, commit
-  `72e536e3a3a0869a61f5658d5a8d3317e36081fb`, using the legacy
-  `scielo-style-1.9.sch`, `scielo-style-1.10.sch`, and `common.sch` plus the
-  pinned `article_type_rules.json`, `author_notes_rules.json`, and
-  `fn_rules.json` value lists.
-- **Purpose:** automatic, offline SPS 1.9 and SPS 1.10 validation when the JATS
-  root declares the corresponding `specific-use` value.
+  `72e536e3a3a0869a61f5658d5a8d3317e36081fb`. The official tag archive is
+  pinned by SHA-256
+  `40cb614213948330035dfb872fc294b3826531e91fc53a8b5da3c201ce07d507`.
+- **Purpose:** automatic, offline SPS 1.10 validation through Packtools'
+  `packtools.sps.validation.xml_validator.get_validation_results` API. SPS 1.9
+  retains the bundled legacy Schematron stage.
 - **License:** BSD-2-Clause. The notice is distributed at
   `app/src-tauri/resources/sps/licenses/PACKTOOLS-BSD-2-CLAUSE.txt`.
-- **Generated assets:** ISO Schematron was compiled to committed XSLT 1.0 at
-  build preparation time. Packtools 4.18.3 ships those Schematrons unchanged,
-  so SciXML reconciles three obsolete value-list findings against its pinned
-  JSON rules. Installed validation needs neither Python nor Java.
-- **Security:** the XSLT is served only by the offline catalog broker and runs
-  in the isolated helper with filesystem writes and network access denied.
+- **Generated asset:** release CI freezes the pinned package and Python 3.12
+  runtime into the target-native `scixml-packtools-validator` sidecar using
+  PyInstaller 6.22.3. Python is a build-time dependency only; users do not need
+  a system Python installation.
+- **Runtime dependencies:** exact versions used for the frozen sidecar are
+  recorded in `tools/packtools-validator/requirements-build.txt`. These include
+  lxml 6.1.3, Babel 2.18.0, aiohttp 3.14.5, Requests 2.34.2, Pillow 13.0.0,
+  OpenPyXL 3.1.5, python-docx 1.2.0, and their pinned supporting packages.
+- **Notices:** the build extracts license/notice files from the exact frozen
+  Python environment and ships the combined
+  `resources/packtools-sidecar/THIRD-PARTY-LICENSES.txt`. PyInstaller is
+  GPL-2.0-or-later with its bootloader distribution exception; the runtime
+  dependencies are permissively licensed as recorded in that generated file.
+- **Security:** Rust starts only the fixed installed sidecar path with a cleared
+  environment, 100 MiB input limit, 60-second deadline, bounded stdout/stderr
+  and diagnostic count, and kill-on-drop. The helper parses without DTD/entity
+  resolution, disables lxml network access and Python socket resolution, and
+  receives XML only through stdin. It never logs document content or paths.

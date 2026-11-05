@@ -1,12 +1,13 @@
 {
   "name": "scixml-desktop-ui",
   "private": true,
-  "version": "0.4.4",
+  "version": "0.4.5",
   "type": "module",
   "scripts": {
     "dev": "vite --host 127.0.0.1 --port 1420",
     "build": "tsc --noEmit && vite build",
     "stage:sidecar": "node scripts/stage-sidecar.mjs",
+    "stage:packtools": "node scripts/stage-packtools-sidecar.mjs",
     "test:i18n": "node --experimental-strip-types --test tests/i18n.test.ts",
     "test:editor": "node --experimental-strip-types --test tests/editor-behavior.test.ts",
     "test:startup": "node --experimental-strip-types --test tests/startup.test.ts",
