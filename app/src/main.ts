@@ -122,21 +122,21 @@ app.innerHTML = `
     </header>
     <main class="workspace">
       <aside class="sidebar">
-        <section>
-          <h2>${t("sidebar.project")}</h2>
+        <section data-sidebar-panel="project">
+          <h2><button type="button" class="sidebar-panel-toggle" aria-expanded="true" data-panel-name="${t("sidebar.project")}"><span>${t("sidebar.project")}</span><span class="sidebar-panel-chevron" aria-hidden="true">▾</span></button></h2>
           <div id="project-title" class="muted">${t("sidebar.noProject")}</div>
           <div id="project-files" class="tree"></div>
         </section>
-        <section class="outline-section">
-          <h2>${t("sidebar.outline")}</h2>
+        <section class="outline-section" data-sidebar-panel="outline">
+          <h2><button type="button" class="sidebar-panel-toggle" aria-expanded="true" data-panel-name="${t("sidebar.outline")}"><span>${t("sidebar.outline")}</span><span class="sidebar-panel-chevron" aria-hidden="true">▾</span></button></h2>
           <div id="outline" class="tree"></div>
         </section>
-        <section class="outline-section">
-          <h2>${t("sidebar.jatsInspector")}</h2>
+        <section class="outline-section" data-sidebar-panel="jats">
+          <h2><button type="button" class="sidebar-panel-toggle" aria-expanded="true" data-panel-name="${t("sidebar.jatsInspector")}"><span>${t("sidebar.jatsInspector")}</span><span class="sidebar-panel-chevron" aria-hidden="true">▾</span></button></h2>
           <div id="jats-inspector" class="tree"><div class="empty">${t("sidebar.notJats")}</div></div>
         </section>
-        <section class="outline-section">
-          <h2>${t("sidebar.validationFramework")}</h2>
+        <section class="outline-section" data-sidebar-panel="framework">
+          <h2><button type="button" class="sidebar-panel-toggle" aria-expanded="true" data-panel-name="${t("sidebar.validationFramework")}"><span>${t("sidebar.validationFramework")}</span><span class="sidebar-panel-chevron" aria-hidden="true">▾</span></button></h2>
           <div id="framework-stages" class="tree"><div class="empty">${t("sidebar.noFramework")}</div></div>
         </section>
       </aside>
@@ -2350,6 +2350,7 @@ function toggleTheme(): void {
 }
 
 function setupLayoutControls(): void {
+  const collapsedPanelsStorageKey = "scixml.layout.collapsedPanels";
   const savedSidebarValue =
     window.localStorage.getItem("scixml.layout.sidebarWidth") ??
     window.localStorage.getItem("o2xml.layout.sidebarWidth");
@@ -2363,6 +2364,45 @@ function setupLayoutControls(): void {
   if (savedBottomValue !== null) {
     const savedBottom = Number(savedBottomValue);
     if (Number.isFinite(savedBottom) && savedBottom >= 0) setBottomHeight(savedBottom);
+  }
+
+  const sidebarPanels = [...document.querySelectorAll<HTMLElement>(".sidebar section[data-sidebar-panel]")];
+  let collapsedPanelIds = new Set<string>();
+  try {
+    const savedPanels = JSON.parse(window.localStorage.getItem(collapsedPanelsStorageKey) ?? "[]");
+    if (Array.isArray(savedPanels)) {
+      const knownPanelIds = new Set(sidebarPanels.map((panel) => panel.dataset.sidebarPanel));
+      collapsedPanelIds = new Set(savedPanels.filter(
+        (panelId): panelId is string => typeof panelId === "string" && knownPanelIds.has(panelId),
+      ));
+    }
+  } catch {
+    collapsedPanelIds = new Set();
+  }
+
+  const setPanelCollapsed = (panel: HTMLElement, collapsed: boolean): void => {
+    const panelId = panel.dataset.sidebarPanel;
+    const toggle = panel.querySelector<HTMLButtonElement>(".sidebar-panel-toggle");
+    if (!panelId || !toggle) return;
+    panel.classList.toggle("collapsed", collapsed);
+    toggle.setAttribute("aria-expanded", String(!collapsed));
+    toggle.title = t(collapsed ? "layout.expandPanel" : "layout.collapsePanel", {
+      name: toggle.dataset.panelName ?? panelId,
+    });
+  };
+
+  for (const panel of sidebarPanels) {
+    const panelId = panel.dataset.sidebarPanel;
+    const toggle = panel.querySelector<HTMLButtonElement>(".sidebar-panel-toggle");
+    if (!panelId || !toggle) continue;
+    setPanelCollapsed(panel, collapsedPanelIds.has(panelId));
+    toggle.addEventListener("click", () => {
+      const collapsed = !panel.classList.contains("collapsed");
+      setPanelCollapsed(panel, collapsed);
+      if (collapsed) collapsedPanelIds.add(panelId);
+      else collapsedPanelIds.delete(panelId);
+      window.localStorage.setItem(collapsedPanelsStorageKey, JSON.stringify([...collapsedPanelIds]));
+    });
   }
 
   sidebarToggle.addEventListener("click", (event) => {
@@ -2380,10 +2420,6 @@ function setupLayoutControls(): void {
   bottomResizer.addEventListener("dblclick", () => {
     const current = Number.parseFloat(getComputedStyle(shellHost).getPropertyValue("--bottom-height"));
     setBottomHeight(current < 50 ? 190 : 0);
-  });
-  document.querySelectorAll<HTMLElement>(".sidebar section > h2").forEach((heading) => {
-    heading.title = t("layout.togglePanel");
-    heading.addEventListener("click", () => heading.parentElement?.classList.toggle("collapsed"));
   });
 }
 

@@ -127,7 +127,26 @@ button { color: inherit; font: inherit; }
 .sidebar section { flex: 1 1 25%; min-height: 32px; overflow: auto; border-bottom: 1px solid var(--border); }
 .sidebar section.collapsed { flex: 0 0 32px; overflow: hidden; }
 h2 { margin: 0; padding: 10px 12px 7px; color: var(--muted); font-size: 11px; letter-spacing: .09em; text-transform: uppercase; }
-.sidebar h2 { position: sticky; top: 0; z-index: 2; background: var(--panel); cursor: pointer; user-select: none; }
+.sidebar h2 { position: sticky; top: 0; z-index: 2; padding: 0; background: var(--panel); user-select: none; }
+.sidebar-panel-toggle {
+  display: flex;
+  width: 100%;
+  align-items: center;
+  justify-content: space-between;
+  border: 0;
+  padding: 10px 12px 7px;
+  background: transparent;
+  color: var(--muted);
+  font: inherit;
+  font-weight: 700;
+  letter-spacing: inherit;
+  text-align: left;
+  text-transform: inherit;
+  cursor: pointer;
+}
+.sidebar-panel-toggle:hover, .sidebar-panel-toggle:focus-visible { background: var(--panel-2); color: var(--text); }
+.sidebar-panel-chevron { font-size: 12px; transition: transform 120ms ease; }
+.sidebar section.collapsed .sidebar-panel-chevron { transform: rotate(-90deg); }
 .sidebar-resizer { position: relative; z-index: 4; cursor: col-resize; background: var(--border); }
 .sidebar-resizer:hover, .sidebar-resizer.dragging, .bottom-resizer:hover, .bottom-resizer.dragging { background: var(--accent); }
 .sidebar-resizer button { position: absolute; top: 8px; left: -10px; width: 22px; height: 28px; padding: 0; border: 1px solid var(--border); border-radius: 4px; background: var(--panel); color: var(--muted); cursor: pointer; }

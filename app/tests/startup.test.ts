@@ -28,3 +28,16 @@ test("the application installs a native close guard before the workspace is init
   assert.match(source, /onCloseRequested\(async \(event\) => \{\s*event\.preventDefault\(\);/);
   assert.ok(source.indexOf("void installApplicationCloseGuard()") < source.indexOf("void initializeWorkspace()"));
 });
+
+test("the Project sidebar panel uses the same accessible collapse control as the other panels", async () => {
+  const source = await readFile(new URL("../src/main.ts", import.meta.url), "utf8");
+  const stylesheet = await readFile(new URL("../src/styles.css", import.meta.url), "utf8");
+
+  for (const panelId of ["project", "outline", "jats", "framework"]) {
+    assert.match(source, new RegExp(`data-sidebar-panel="${panelId}"`, "u"));
+  }
+  assert.match(source, /data-sidebar-panel="project">\s*<h2><button[^>]+class="sidebar-panel-toggle"[^>]+aria-expanded="true"/u);
+  assert.match(source, /toggle\.setAttribute\("aria-expanded", String\(!collapsed\)\)/u);
+  assert.match(source, /scixml\.layout\.collapsedPanels/u);
+  assert.match(stylesheet, /\.sidebar section\.collapsed \.sidebar-panel-chevron/u);
+});
