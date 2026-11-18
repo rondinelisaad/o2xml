@@ -13,7 +13,9 @@ desktop MVP with a Rust core and a Tauri/CodeMirror interface.
 ## Status
 
 - Phase 0: architecture and technical investigation documented.
-- Phase 1: desktop MVP implemented and verified on macOS.
+- Phase 1: desktop MVP implemented and verified on macOS. Closing the application
+  with changed documents now offers to save all, discard the changes, or cancel
+  the exit; a cancelled or failed save keeps the application open.
 - Phase 2: complete; offline XML Catalog resolution, isolated libxml2 DTD/XSD
   validation, XPath 1.0 with a desktop query panel, and the common schema
   content-model index are implemented. Normalized DTD particles can already be

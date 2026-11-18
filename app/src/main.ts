@@ -37,6 +37,7 @@ import { getCurrentWebview } from "@tauri-apps/api/webview";
 import { getCurrentWebviewWindow, WebviewWindow } from "@tauri-apps/api/webviewWindow";
 import { open, save } from "@tauri-apps/plugin-dialog";
 
+import { approveApplicationClose, type ApplicationCloseDecision } from "./application-close";
 import {
   getLocale,
   initializeLocale,
@@ -220,6 +221,17 @@ app.innerHTML = `
       </div>
     </form>
   </dialog>
+  <dialog id="application-close-dialog" class="unsaved-dialog">
+    <form method="dialog">
+      <h2>${t("application.closeTitle")}</h2>
+      <p id="application-close-message"></p>
+      <div class="unsaved-actions">
+        <button value="cancel">${t("common.cancel")}</button>
+        <button value="discard">${t("application.discardAndClose")}</button>
+        <button value="save" class="primary">${t("application.saveAndClose")}</button>
+      </div>
+    </form>
+  </dialog>
   <div id="diff-dialog" class="diff-dialog" hidden>
     <div class="diff-window" role="dialog" aria-modal="true" aria-labelledby="diff-title">
       <header class="diff-header">
@@ -254,6 +266,8 @@ const detachTabButton = requiredElement<HTMLButtonElement>("#detach-tab");
 const closeAllTabsButton = requiredElement<HTMLButtonElement>("#close-all-tabs");
 const unsavedDialog = requiredElement<HTMLDialogElement>("#unsaved-dialog");
 const unsavedMessage = requiredElement<HTMLParagraphElement>("#unsaved-message");
+const applicationCloseDialog = requiredElement<HTMLDialogElement>("#application-close-dialog");
+const applicationCloseMessage = requiredElement<HTMLParagraphElement>("#application-close-message");
 const outlineHost = requiredElement<HTMLDivElement>("#outline");
 const jatsInspectorHost = requiredElement<HTMLDivElement>("#jats-inspector");
 const frameworkStagesHost = requiredElement<HTMLDivElement>("#framework-stages");
@@ -1927,6 +1941,7 @@ type UnsavedDecision = "save" | "discard" | "cancel";
 
 function requestUnsavedDecision(document: OpenDocument): Promise<UnsavedDecision> {
   unsavedMessage.textContent = t("document.closeUnsaved", { name: document.name });
+  unsavedDialog.returnValue = "cancel";
   return new Promise((resolve) => {
     const onClose = (): void => {
       unsavedDialog.removeEventListener("close", onClose);
@@ -1945,6 +1960,50 @@ async function approveDocumentClose(document: OpenDocument): Promise<boolean> {
   if (decision === "discard") return true;
   activateDocument(document.id);
   return saveActiveDocument();
+}
+
+function requestApplicationCloseDecision(dirtyCount: number): Promise<ApplicationCloseDecision> {
+  applicationCloseMessage.textContent = t("application.closeUnsaved", { count: dirtyCount });
+  applicationCloseDialog.returnValue = "cancel";
+  return new Promise((resolve) => {
+    const onClose = (): void => {
+      applicationCloseDialog.removeEventListener("close", onClose);
+      const result = applicationCloseDialog.returnValue;
+      resolve(result === "save" || result === "discard" ? result : "cancel");
+    };
+    applicationCloseDialog.addEventListener("close", onClose);
+    applicationCloseDialog.showModal();
+  });
+}
+
+async function saveDocumentBeforeApplicationClose(document: OpenDocument): Promise<boolean> {
+  if (!document.dirty) return true;
+  activateDocument(document.id);
+  return saveActiveDocument();
+}
+
+let applicationCloseInProgress = false;
+
+async function installApplicationCloseGuard(): Promise<void> {
+  const applicationWindow = getCurrentWebviewWindow();
+  await applicationWindow.onCloseRequested(async (event) => {
+    event.preventDefault();
+    if (applicationCloseInProgress) return;
+    applicationCloseInProgress = true;
+    try {
+      const approved = await approveApplicationClose({
+        documents: [...documents],
+        isDirty: (document) => document.dirty,
+        decide: requestApplicationCloseDecision,
+        save: saveDocumentBeforeApplicationClose,
+      });
+      if (approved) await applicationWindow.destroy();
+    } catch (error) {
+      setStatus(t("status.closeFailed", { reason: String(error) }), true);
+    } finally {
+      applicationCloseInProgress = false;
+    }
+  });
 }
 
 function showEmptyWorkspace(): void {
@@ -2512,4 +2571,7 @@ async function initializeWorkspace(): Promise<void> {
 }
 
 app.dataset.initialized = "true";
+void installApplicationCloseGuard().catch((error: unknown) => {
+  setStatus(t("status.closeGuardUnavailable", { reason: String(error) }), true);
+});
 void initializeWorkspace();

@@ -10,6 +10,7 @@
     "stage:packtools": "node scripts/stage-packtools-sidecar.mjs",
     "test:i18n": "node --experimental-strip-types --test tests/i18n.test.ts",
     "test:editor": "node --experimental-strip-types --test tests/editor-behavior.test.ts",
+    "test:close": "node --experimental-strip-types --test tests/application-close.test.ts",
     "test:startup": "node --experimental-strip-types --test tests/startup.test.ts",
     "tauri": "tauri"
   },

@@ -25,7 +25,9 @@ manifest, themes, and revision-gated background validation.
 
 Gate: Rust and frontend builds pass; unit/integration tests pass; the packaged or
 development app opens a fixture, reports and navigates an error, formats, saves,
-and reopens without data loss. No external resource is fetched.
+and reopens without data loss. Closing the desktop with changed documents must
+offer save, discard, and cancel choices, and a failed save must abort the exit.
+No external resource is fetched.
 
 ## Phase 2 — professional XML
 
