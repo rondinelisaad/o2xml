@@ -220,11 +220,11 @@ Current progress:
   navigation, source-cursor projection, plain-text paste, project-framework
   validation, stale-revision rejection, and one undoable source transaction.
 - [x] Add a scriptless offline SciELO publication preview beside structured
-  Author editing, using the Packtools 4.16.9 HTMLGenerator assets selected by
-  SPSValidator v0.3.0 and catalog-brokered libxslt resource reads.
+  Author editing, using pinned Packtools HTMLGenerator assets and
+  catalog-brokered libxslt resource reads; update the bundled preview to 4.18.3.
 - [x] Add a bounded local raster-image broker for the SciELO preview with
   XML-directory confinement, canonical path checks, magic-byte media detection,
-  exact source mapping, and data-only iframe delivery.
+  exact source mapping, bounded TIFF-to-PNG conversion, and data-only iframe delivery.
   Structural element editing, track changes, and collaborative operations remain
   later extensions.
 

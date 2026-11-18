@@ -96,11 +96,13 @@ desktop MVP with a Rust core and a Tauri/CodeMirror interface.
   checked against the active project framework, revision-gated, and applied as
   one undoable editor change. For JATS articles, the same button also exposes a
   read-only SciELO publication preview generated offline from the Packtools
-  4.16.9 HTMLGenerator XSLT/CSS used by SPSValidator v0.3.0. The preview is
+  4.18.3 HTMLGenerator XSLT/CSS, evolved from the SPSValidator v0.3.0
+  integration. The preview is
   sanitized and rendered without scripts or network access. Declared local
   PNG/JPEG/GIF/WebP figures are copied through a bounded, directory-confined
-  broker into self-contained data URLs; the iframe receives no filesystem
-  capability. The user can switch back to structured editing at any time. CDATA and
+  broker into self-contained data URLs. TIFF figures are decoded under strict
+  resource limits and converted to PNG for browser display; the iframe receives
+  no filesystem capability. The user can switch back to structured editing at any time. CDATA and
   entity-reference runs remain visible but read-only; structural editing and
   track changes are not yet claimed.
   SPS 1.10 now runs the full Packtools 4.18.3 validation pipeline from a frozen,

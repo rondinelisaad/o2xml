@@ -227,7 +227,7 @@ revision. Audit events `author.inspect` and `author.edit` contain only result,
 opaque document ID, revision, and engine profile—not edited text or paths.
 
 The optional SciELO publication view transforms only the current bounded
-in-memory JATS source. Packtools XSLT/config/CSS resources are pinned to 4.16.9
+in-memory JATS source. Packtools XSLT/config/CSS resources are pinned to 4.18.3
 and constrained to their canonical bundled directory. libxslt file-read checks
 consult the Rust catalog broker before the parser receives any bytes;
 file/directory writes and all network access remain forbidden. XSLT parameters
@@ -237,10 +237,12 @@ HTML is reparsed through the preview allowlist and shown in an iframe with no
 sandbox capabilities, `referrerPolicy=no-referrer`, and CSP `default-src
 'none'`. Scripts, active/embed content, forms, event attributes, and non-fragment
 links are removed. Raster images are admitted only when a `graphic` or
-`inline-graphic` reference resolves to a regular PNG/JPEG/GIF/WebP file below
+`inline-graphic` reference resolves to a regular PNG/JPEG/GIF/WebP/TIFF file below
 the saved XML directory. Absolute/remote/traversing paths, final symlinks,
 unsupported signatures, more than 64 files, files above 8 MiB, and aggregate
-content above 32 MiB are skipped. Approved bytes are embedded as generated
+content above 32 MiB are skipped. TIFF is content-detected, decoded with strict
+width/height and bounded-allocation limits, and re-encoded as a PNG of at most
+8 MiB because browser WebViews do not portably decode TIFF. Approved bytes are embedded as generated
 `data:` URLs matched to the exact sanitized `img src`; local paths never enter
 the iframe. CSP permits `data:` only for images. Audit event `author.preview`
 records only the

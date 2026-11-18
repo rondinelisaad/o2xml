@@ -3,7 +3,7 @@ mod audit;
 use std::{
     collections::{BTreeMap, BTreeSet, HashMap},
     env, fs,
-    io::Write,
+    io::{Cursor, Write},
     path::{Component, Path, PathBuf},
     sync::{
         atomic::{AtomicU64, Ordering},
@@ -13,6 +13,7 @@ use std::{
 };
 
 use base64::{engine::general_purpose::STANDARD as BASE64_STANDARD, Engine as _};
+use image::{ImageFormat, ImageReader, Limits};
 use quick_xml::{events::Event, Reader, XmlVersion};
 use serde::{Deserialize, Serialize};
 use tauri::{path::BaseDirectory, AppHandle, Manager, State};
@@ -1816,7 +1817,7 @@ async fn preview_author(
         "document",
         id,
         revision,
-        Some("packtools-html-4.16.9"),
+        Some("packtools-html-4.18.3"),
     );
     result
 }
@@ -1843,7 +1844,7 @@ async fn preview_author_inner(
         return Err("SciELO preview source exceeds the 32 MiB safety limit".to_owned());
     }
     let languages = jats_preview_languages(&source)?;
-    let catalog_path = bundled_resource(app, "resources/packtools-html/4.16.9/catalog.xml")?;
+    let catalog_path = bundled_resource(app, "resources/packtools-html/4.18.3/catalog.xml")?;
     let resource_root = catalog_path
         .parent()
         .ok_or_else(|| "Packtools preview catalog has no parent directory".to_owned())?;
@@ -1909,7 +1910,7 @@ async fn preview_author_inner(
         collect_author_preview_assets(&source, document_path.as_deref())?;
     Ok(AuthorPreviewPayload {
         revision: snapshot.revision(),
-        engine: "Packtools HTMLGenerator 4.16.9",
+        engine: "Packtools HTMLGenerator 4.18.3",
         html,
         stylesheet,
         assets,
@@ -2011,7 +2012,7 @@ fn collect_author_preview_assets(
     const MAX_TOTAL_ASSET_BYTES: u64 = 32 * 1024 * 1024;
     const MAX_REFERENCE_BYTES: usize = 1024;
 
-    let mut references = BTreeSet::new();
+    let mut references = BTreeMap::<String, Vec<String>>::new();
     let mut reader = Reader::from_str(source);
     loop {
         match reader.read_event() {
@@ -2036,7 +2037,16 @@ fn collect_author_preview_assets(
                         })?
                         .into_owned();
                     if !value.is_empty() && value.len() <= MAX_REFERENCE_BYTES {
-                        references.insert(packtools_image_reference(&value));
+                        let generated_reference = packtools_image_reference(&value);
+                        let candidates = references
+                            .entry(generated_reference.clone())
+                            .or_insert_with(|| vec![generated_reference.clone()]);
+                        if is_tiff_reference(&value)
+                            && value != generated_reference
+                            && !candidates.contains(&value)
+                        {
+                            candidates.push(value);
+                        }
                     }
                 }
             }
@@ -2064,44 +2074,53 @@ fn collect_author_preview_assets(
         .map_err(|error| format!("cannot resolve the XML directory for preview assets: {error}"))?;
     let mut assets = Vec::new();
     let mut total_bytes = 0_u64;
-    for reference in references.into_iter().take(MAX_ASSETS) {
-        let Some(path) = confined_preview_asset_path(&root, &reference) else {
-            skipped = skipped.saturating_add(1);
-            continue;
-        };
-        let Ok(metadata) = fs::metadata(&path) else {
-            skipped = skipped.saturating_add(1);
-            continue;
-        };
-        if !metadata.is_file()
-            || metadata.len() > MAX_ASSET_BYTES
-            || total_bytes.saturating_add(metadata.len()) > MAX_TOTAL_ASSET_BYTES
-        {
-            skipped = skipped.saturating_add(1);
-            continue;
+    for (generated_reference, candidates) in references.into_iter().take(MAX_ASSETS) {
+        let mut loaded = None;
+        for candidate in candidates {
+            let Some(path) = confined_preview_asset_path(&root, &candidate) else {
+                continue;
+            };
+            let Ok(metadata) = fs::metadata(&path) else {
+                continue;
+            };
+            if !metadata.is_file() || metadata.len() > MAX_ASSET_BYTES {
+                continue;
+            }
+            let Ok(bytes) = fs::read(&path) else {
+                continue;
+            };
+            let actual_len = u64::try_from(bytes.len()).unwrap_or(u64::MAX);
+            if actual_len > MAX_ASSET_BYTES {
+                continue;
+            }
+            let Some((data_uri, preview_len)) = preview_image_data_uri(&bytes, MAX_ASSET_BYTES)
+            else {
+                continue;
+            };
+            if total_bytes.saturating_add(preview_len) > MAX_TOTAL_ASSET_BYTES {
+                continue;
+            }
+            loaded = Some((data_uri, preview_len));
+            break;
         }
-        let Ok(bytes) = fs::read(&path) else {
+        let Some((data_uri, preview_len)) = loaded else {
             skipped = skipped.saturating_add(1);
             continue;
         };
-        let actual_len = u64::try_from(bytes.len()).unwrap_or(u64::MAX);
-        if actual_len > MAX_ASSET_BYTES
-            || total_bytes.saturating_add(actual_len) > MAX_TOTAL_ASSET_BYTES
-        {
-            skipped = skipped.saturating_add(1);
-            continue;
-        }
-        let Some(media_type) = preview_image_media_type(&bytes) else {
-            skipped = skipped.saturating_add(1);
-            continue;
-        };
-        total_bytes = total_bytes.saturating_add(actual_len);
+        total_bytes = total_bytes.saturating_add(preview_len);
         assets.push(AuthorPreviewAsset {
-            source: reference,
-            data_uri: format!("data:{media_type};base64,{}", BASE64_STANDARD.encode(bytes)),
+            source: generated_reference,
+            data_uri,
         });
     }
     Ok((assets, skipped))
+}
+
+fn is_tiff_reference(reference: &str) -> bool {
+    Path::new(reference)
+        .extension()
+        .and_then(|extension| extension.to_str())
+        .is_some_and(|extension| matches!(extension.to_ascii_lowercase().as_str(), "tif" | "tiff"))
 }
 
 fn packtools_image_reference(reference: &str) -> String {
@@ -2151,6 +2170,41 @@ fn preview_image_media_type(bytes: &[u8]) -> Option<&'static str> {
     } else {
         None
     }
+}
+
+fn preview_image_data_uri(bytes: &[u8], max_output_bytes: u64) -> Option<(String, u64)> {
+    if let Some(media_type) = preview_image_media_type(bytes) {
+        let length = u64::try_from(bytes.len()).ok()?;
+        return (length <= max_output_bytes).then(|| {
+            (
+                format!("data:{media_type};base64,{}", BASE64_STANDARD.encode(bytes)),
+                length,
+            )
+        });
+    }
+
+    let mut reader = ImageReader::new(Cursor::new(bytes))
+        .with_guessed_format()
+        .ok()?;
+    if reader.format() != Some(ImageFormat::Tiff) {
+        return None;
+    }
+    let mut limits = Limits::default();
+    limits.max_image_width = Some(16_384);
+    limits.max_image_height = Some(16_384);
+    limits.max_alloc = Some(128 * 1024 * 1024);
+    reader.limits(limits);
+    let image = reader.decode().ok()?;
+    let mut output = Cursor::new(Vec::new());
+    image.write_to(&mut output, ImageFormat::Png).ok()?;
+    let output = output.into_inner();
+    let length = u64::try_from(output.len()).ok()?;
+    (length <= max_output_bytes).then(|| {
+        (
+            format!("data:image/png;base64,{}", BASE64_STANDARD.encode(output)),
+            length,
+        )
+    })
 }
 
 #[tauri::command]
@@ -3061,6 +3115,30 @@ mod tests {
         assert_eq!(assets[0].source, "figure.png");
         assert!(assets[0].data_uri.starts_with("data:image/png;base64,"));
         assert_eq!(skipped, 2);
+        Ok(())
+    }
+
+    #[test]
+    fn author_preview_transcodes_tiff_images_for_browser_display(
+    ) -> Result<(), Box<dyn std::error::Error>> {
+        let temporary = tempfile::tempdir()?;
+        let document_path = temporary.path().join("article.xml");
+        fs::write(&document_path, b"placeholder")?;
+        let mut encoded = Cursor::new(Vec::new());
+        image::DynamicImage::new_rgb8(2, 2).write_to(&mut encoded, ImageFormat::Tiff)?;
+        fs::write(temporary.path().join("figure.tif"), encoded.get_ref())?;
+        fs::write(temporary.path().join("inline.TIFF"), encoded.get_ref())?;
+        let source = r#"<article xmlns:xlink="http://www.w3.org/1999/xlink"><graphic xlink:href="figure.tif"/><inline-graphic xlink:href="inline.TIFF"/></article>"#;
+
+        let (assets, skipped) = collect_author_preview_assets(source, Some(&document_path))?;
+
+        assert_eq!(assets.len(), 2);
+        assert_eq!(assets[0].source, "figure.jpg");
+        assert_eq!(assets[1].source, "inline.jpg");
+        assert!(assets
+            .iter()
+            .all(|asset| asset.data_uri.starts_with("data:image/png;base64,")));
+        assert_eq!(skipped, 0);
         Ok(())
     }
 

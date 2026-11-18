@@ -6,11 +6,11 @@ Accepted.
 
 ## Context
 
-SPSValidator v0.3.0 renders article previews through the Packtools 4.16.9
+SPSValidator v0.3.0 rendered article previews through the Packtools 4.16.9
 `HTMLGenerator`. SPSValidator itself is GPL-3.0, while SciXML is distributed
 under `MIT OR Apache-2.0`. Copying or linking the SPSValidator implementation
 into SciXML would therefore change the licensing obligations of the desktop
-application. Packtools is BSD-3-Clause and its HTML generator is the actual
+application. Packtools is BSD-2-Clause and its HTML generator is the actual
 publication-preview engine used by that SPSValidator release.
 
 The preview consumes untrusted XML and produces HTML. It must not gain network,
@@ -18,10 +18,11 @@ filesystem-write, script, navigation, or arbitrary local-file capabilities.
 
 ## Decision
 
-SciXML independently integrates the Packtools 4.16.9 HTML generator XSLT 1.0
-and standalone CSS under the upstream BSD-3-Clause license. No SPSValidator
+SciXML independently integrates the Packtools 4.18.3 HTML generator XSLT 1.0
+and standalone CSS under the upstream BSD-2-Clause license. No SPSValidator
 source is copied or linked. The assets and upstream license are bundled under
-`resources/packtools-html/4.16.9`.
+`resources/packtools-html/4.18.3`. This supersedes the initial 4.16.9 asset pin
+without changing the isolated execution model.
 
 The existing isolated libxslt helper performs the transformation. Stylesheet
 includes and `document()` reads are resolved through the Rust XML Catalog

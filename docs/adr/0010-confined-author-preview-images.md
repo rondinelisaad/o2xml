@@ -20,11 +20,15 @@ be relative paths without parent components or URI schemes. Each candidate is
 canonicalized below the saved XML document directory; a final symbolic link is
 denied. Files are limited to 8 MiB each and 32 MiB in aggregate.
 
-Only PNG, JPEG, GIF, and WebP signatures are accepted. Extensions and XML MIME
-hints are not trusted. SVG, audio, video, remote URLs, missing files, and unknown
-content are skipped without disabling the text preview. Packtools' historical
-extension normalization from missing/TIFF extensions to JPEG is mirrored when
-constructing the exact preview source key.
+PNG, JPEG, GIF, WebP, and TIFF are identified by their contents; extensions and
+XML MIME hints are not trusted. Browser-safe formats pass through unchanged.
+TIFF files are decoded with strict 16,384-pixel width/height limits, a 128 MiB
+decoder-allocation ceiling, and the existing 8 MiB output ceiling, then encoded
+as PNG. SVG, audio, video, remote URLs, missing files, and unknown content are
+skipped without disabling the text preview. Packtools' historical extension
+normalization from missing/TIFF extensions to JPEG remains the exact preview
+source key; an adjacent JPEG is preferred, with the original TIFF used as the
+bounded conversion fallback.
 
 Approved bytes are base64-encoded by the native service and returned as data
 URLs keyed by the generated relative `src`. The HTML sanitizer retains `img`
@@ -37,6 +41,8 @@ objects, SVG, audio, and video disabled; its CSP permits `data:` only in
 ## Consequences
 
 - Saved JATS packages can display adjacent local raster figures offline.
+- `.tif` and `.tiff` figures display without requiring browser TIFF support or
+  an external conversion program.
 - The webview receives copied image bytes, not filesystem paths or filesystem
   permissions.
 - Unsaved documents and missing/unsupported assets retain a safe textual

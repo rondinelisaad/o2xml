@@ -8,6 +8,7 @@ phase gate. CI will add `cargo audit`, `cargo deny`, npm audit, and license chec
 | Dependency | Purpose | License | Rationale / constraint |
 |---|---|---|---|
 | `base64` 0.23.1 | Encode approved local preview images as self-contained data URLs | MIT OR Apache-2.0 | Mature no-I/O codec; default SIMD/unsafe feature disabled, only bounded bytes already confined by the Rust filesystem broker are encoded |
+| `image` 0.25.10 | Decode local TIFF figures and encode bounded PNG previews | MIT OR Apache-2.0 | Mature cross-platform implementation; only TIFF/PNG features enabled, input is directory-confined and capped at 8 MiB, decoder dimensions/allocation and output size are bounded |
 | `tauri` 2 | Desktop lifecycle and typed IPC | MIT OR Apache-2.0 | Cross-platform Rust core; capabilities kept minimal |
 | `tauri-plugin-dialog` 2 | Native open/save dialog | MIT OR Apache-2.0 | Avoid custom platform dialog code |
 | `quick-xml` | Streaming XML events | MIT | Mature, fast Phase 1 well-formedness/outline/format foundation |
@@ -142,14 +143,16 @@ override them.
 - **Security:** resources are resolved only through the offline XML Catalog
   broker; the parser helper retains network denial and resource limits.
 
-### Packtools HTML Generator 4.16.9
+### Packtools HTML Generator 4.18.3
 
-- **Source:** `scieloorg/packtools`, tag `4.16.9`, commit
-  `a5455f82995d68bccc79365e3e0c5a023c70c7d4`.
-- **Purpose:** offline SciELO article preview in Author Mode using the same
-  `HTMLGenerator` XSLT/CSS generation layer selected by SPSValidator v0.3.0.
+- **Source:** `scieloorg/packtools`, tag `4.18.3`, commit
+  `72e536e3a3a0869a61f5658d5a8d3317e36081fb`. The official tag archive is
+  pinned by SHA-256
+  `40cb614213948330035dfb872fc294b3826531e91fc53a8b5da3c201ce07d507`.
+- **Purpose:** offline SciELO article preview in Author Mode using Packtools'
+  current 4.18.3 `HTMLGenerator` XSLT/CSS generation layer.
 - **License:** BSD-2-Clause. The upstream license is bundled at
-  `app/src-tauri/resources/packtools-html/4.16.9/LICENSE` and its notice must
+  `app/src-tauri/resources/packtools-html/4.18.3/LICENSE` and its notice must
   accompany binary distributions.
 - **Bundled subset:** `root-html-2.0.xslt`, its `v2.0` XSLT/config resources,
   and `scielo-article-standalone.css`. SciXML's catalog is an integration file;
@@ -159,7 +162,8 @@ override them.
   are bounded/quoted, and generated HTML is allowlist-sanitized before entering
   a scriptless sandboxed iframe. Referenced local raster images are separately
   canonicalized below the XML directory, signature-checked, bounded, base64-
-  encoded, and admitted only through an exact generated-source map.
+  encoded, and admitted only through an exact generated-source map. TIFF input
+  is decoded with bounded `image` 0.25.10 and emitted as bounded PNG.
 
 ### Packtools SPS validator 4.18.3
 
