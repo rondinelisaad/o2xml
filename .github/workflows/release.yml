@@ -94,6 +94,7 @@ jobs:
           npm run test:i18n
           npm run test:editor
           npm run test:startup
+          npm run test:close
           npm run build
 
   prepare-release:
