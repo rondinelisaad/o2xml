@@ -116,7 +116,7 @@ button { color: inherit; font: inherit; }
   pointer-events: none;
 }
 
-.workspace { display: grid; grid-template-columns: var(--sidebar-width) 5px minmax(0, 1fr); min-height: 0; }
+.workspace { display: grid; grid-template-columns: min(var(--sidebar-width), 40vw) 5px minmax(0, 1fr); min-height: 0; }
 .sidebar {
   display: flex;
   flex-direction: column;

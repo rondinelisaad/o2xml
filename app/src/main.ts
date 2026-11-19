@@ -961,7 +961,7 @@ async function detachDocument(id: number): Promise<void> {
     title: `${document.name} — SciXML`,
     width: Math.max(900, Math.round(window.outerWidth * 0.8)),
     height: Math.max(600, Math.round(window.outerHeight * 0.8)),
-    minWidth: 900,
+    minWidth: 420,
     minHeight: 600,
     center: true,
     focus: true,

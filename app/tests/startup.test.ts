@@ -25,8 +25,22 @@ test("the application starts with an empty workspace instead of creating an unti
 
 test("the application installs a native close guard before the workspace is initialized", async () => {
   const source = await readFile(new URL("../src/main.ts", import.meta.url), "utf8");
+  const capability = JSON.parse(
+    await readFile(new URL("../src-tauri/capabilities/default.json", import.meta.url), "utf8"),
+  );
   assert.match(source, /onCloseRequested\(async \(event\) => \{\s*event\.preventDefault\(\);/);
+  assert.ok(capability.permissions.includes("core:window:allow-destroy"));
   assert.ok(source.indexOf("void installApplicationCloseGuard()") < source.indexOf("void initializeWorkspace()"));
+});
+
+test("the main and detached windows can be resized for side-by-side comparison", async () => {
+  const config = JSON.parse(await readFile(new URL("../src-tauri/tauri.conf.json", import.meta.url), "utf8"));
+  const source = await readFile(new URL("../src/main.ts", import.meta.url), "utf8");
+  const stylesheet = await readFile(new URL("../src/styles.css", import.meta.url), "utf8");
+
+  assert.ok(config.app.windows[0].minWidth <= 420);
+  assert.match(source, /minWidth: 420,/);
+  assert.match(stylesheet, /grid-template-columns: min\(var\(--sidebar-width\), 40vw\)/);
 });
 
 test("the Project sidebar panel uses the same accessible collapse control as the other panels", async () => {
