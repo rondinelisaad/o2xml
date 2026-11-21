@@ -3501,7 +3501,7 @@ dependencies = [
 
 [[package]]
 name = "scixml-desktop"
-version = "0.4.6"
+version = "0.4.7"
 dependencies = [
  "anyhow",
  "base64 0.23.1",
@@ -5980,7 +5980,7 @@ dependencies = [
 
 [[package]]
 name = "xml-author"
-version = "0.4.6"
+version = "0.4.7"
 dependencies = [
  "quick-xml 0.40.1",
  "serde",
@@ -5992,7 +5992,7 @@ dependencies = [
 
 [[package]]
 name = "xml-diff"
-version = "0.4.6"
+version = "0.4.7"
 dependencies = [
  "quick-xml 0.40.1",
  "serde",
@@ -6004,7 +6004,7 @@ dependencies = [
 
 [[package]]
 name = "xml-document"
-version = "0.4.6"
+version = "0.4.7"
 dependencies = [
  "ropey",
  "thiserror 2.0.21",
@@ -6013,14 +6013,14 @@ dependencies = [
 
 [[package]]
 name = "xml-domain"
-version = "0.4.6"
+version = "0.4.7"
 dependencies = [
  "serde",
 ]
 
 [[package]]
 name = "xml-dtd"
-version = "0.4.6"
+version = "0.4.7"
 dependencies = [
  "serde",
  "serde_json",
@@ -6035,7 +6035,7 @@ dependencies = [
 
 [[package]]
 name = "xml-framework"
-version = "0.4.6"
+version = "0.4.7"
 dependencies = [
  "serde",
  "thiserror 2.0.21",
@@ -6043,7 +6043,7 @@ dependencies = [
 
 [[package]]
 name = "xml-grid"
-version = "0.4.6"
+version = "0.4.7"
 dependencies = [
  "quick-xml 0.40.1",
  "serde",
@@ -6055,7 +6055,7 @@ dependencies = [
 
 [[package]]
 name = "xml-jats"
-version = "0.4.6"
+version = "0.4.7"
 dependencies = [
  "quick-xml 0.40.1",
  "serde",
@@ -6066,7 +6066,7 @@ dependencies = [
 
 [[package]]
 name = "xml-libxml2-helper"
-version = "0.4.6"
+version = "0.4.7"
 dependencies = [
  "cc",
  "pkg-config",
@@ -6090,7 +6090,7 @@ dependencies = [
 
 [[package]]
 name = "xml-packtools"
-version = "0.4.6"
+version = "0.4.7"
 dependencies = [
  "serde",
  "serde_json",
@@ -6104,7 +6104,7 @@ dependencies = [
 
 [[package]]
 name = "xml-plugin-api"
-version = "0.4.6"
+version = "0.4.7"
 dependencies = [
  "serde",
  "serde_json",
@@ -6121,14 +6121,14 @@ dependencies = [
 
 [[package]]
 name = "xml-process"
-version = "0.4.6"
+version = "0.4.7"
 dependencies = [
  "tokio",
 ]
 
 [[package]]
 name = "xml-project"
-version = "0.4.6"
+version = "0.4.7"
 dependencies = [
  "serde",
  "thiserror 2.0.21",
@@ -6137,7 +6137,7 @@ dependencies = [
 
 [[package]]
 name = "xml-resource"
-version = "0.4.6"
+version = "0.4.7"
 dependencies = [
  "quick-xml 0.40.1",
  "reqwest",
@@ -6150,7 +6150,7 @@ dependencies = [
 
 [[package]]
 name = "xml-schema"
-version = "0.4.6"
+version = "0.4.7"
 dependencies = [
  "serde",
  "thiserror 2.0.21",
@@ -6158,7 +6158,7 @@ dependencies = [
 
 [[package]]
 name = "xml-schematron"
-version = "0.4.6"
+version = "0.4.7"
 dependencies = [
  "quick-xml 0.40.1",
  "serde",
@@ -6174,7 +6174,7 @@ dependencies = [
 
 [[package]]
 name = "xml-syntax"
-version = "0.4.6"
+version = "0.4.7"
 dependencies = [
  "quick-xml 0.40.1",
  "thiserror 2.0.21",
@@ -6184,7 +6184,7 @@ dependencies = [
 
 [[package]]
 name = "xml-transform"
-version = "0.4.6"
+version = "0.4.7"
 dependencies = [
  "quick-xml 0.40.1",
  "serde",
@@ -6201,7 +6201,7 @@ dependencies = [
 
 [[package]]
 name = "xml-validation"
-version = "0.4.6"
+version = "0.4.7"
 dependencies = [
  "quick-xml 0.40.1",
  "serde",
@@ -6219,7 +6219,7 @@ dependencies = [
 
 [[package]]
 name = "xml-xpath"
-version = "0.4.6"
+version = "0.4.7"
 dependencies = [
  "serde",
  "serde_json",
@@ -6233,7 +6233,7 @@ dependencies = [
 
 [[package]]
 name = "xml-xsd"
-version = "0.4.6"
+version = "0.4.7"
 dependencies = [
  "serde",
  "serde_json",
